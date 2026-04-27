@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(///10.10.10.2/01_Projects/02_MKE/2026/BRICK/**)",
+      "Bash(python tools/export_pyp_brick.py --width 2 --depth 3 --height 3)",
+      "Bash(python tools/export_hires_brick.py --tag before)",
+      "Bash(rm \"\\\\\\\\\\\\\\\\10.10.10.2\\\\\\\\01_Projects\\\\\\\\02_MKE\\\\\\\\2026\\\\\\\\BRICK\\\\\\\\brickify\\\\\\\\brick_2x3_h3_filletfix.obj\")",
+      "Read(///10.10.10.2/01_Projects/02_MKE/2026/BRICK/brickify/**)",
+      "Bash(python tools/export_hires_brick.py --tag fillet_v2)",
+      "Bash(python tools/export_hires_brick.py --width 2 --depth 3 --height 3 --quality standard --tag bottomfillet)",
+      "Bash(python tools/export_hires_brick.py --width 2 --depth 3 --height 3 --quality hero --tag bottomfillet)",
+      "Bash(python -c ' *)",
+      "Bash(python tools/export_hires_brick.py)",
+      "Bash(rm -v __init__.py assembly.py brick_geom.py brick_geom_hires.py brick_geom_subd_old.py.bak connectivity.py exporters.py fbx_loader.py fitter.py library.py mesh.py mesh_export.py palette.py subdivide.py svg_logo.py voxelize.py wireframe.py README.md run_full_pipeline.py)",
+      "Bash(rm -rf output output_alt output_greedy output_uniform demo docs)"
+    ]
+  }
+}

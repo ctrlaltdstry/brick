@@ -1,0 +1,13 @@
+Platform=Win64;OSX;Linux
+Type=DLL
+
+APIS=\
+asset.framework;\
+cinema.framework;\
+cinema_hybrid.framework;\
+core.framework
+
+C4D=true
+stylecheck.level=3
+
+ModuleId=com.mke.bricklibrary.inline_gui
