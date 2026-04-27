@@ -1666,21 +1666,17 @@ class BrickifyAssembly(plugins.ObjectData):
 
         if visualization_mode == BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG:
             occ_cells = info.get("occupancy_cells")
-            has_key = "occupancy_cells" in info
             occ_list = list(occ_cells) if occ_cells else []
             n_placements = len(self._fit_placements or [])
             try:
                 c4d.GePrint(
-                    "[brickify] Voxel Debug: occupancy_cells_in_info={0}, "
-                    "n_voxels={1}, n_placements={2}, grid_dims={3}, "
-                    "voxel_components={4}, voxels_dropped={5}, info_keys={6}".format(
-                        bool(has_key),
+                    "[brickify] Voxel Debug: n_voxels={0}, n_placements={1}, "
+                    "grid_dims={2}, voxel_components={3}, voxels_dropped={4}".format(
                         len(occ_list),
                         n_placements,
                         info.get("grid_dims"),
                         info.get("voxel_components"),
                         info.get("n_voxels_dropped"),
-                        sorted(info.keys()),
                     )
                 )
             except Exception:
@@ -1724,15 +1720,6 @@ class BrickifyAssembly(plugins.ObjectData):
                         ),
                     )
                     fb_obj.InsertUnder(instances_root)
-                    try:
-                        c4d.GePrint(
-                            "[brickify] Voxel Debug: occupancy_cells "
-                            "missing from pipeline info; rendering "
-                            "placement footprints as fallback. Restart "
-                            "C4D to pick up the latest brickify package."
-                        )
-                    except Exception:
-                        pass
                 else:
                     try:
                         c4d.GePrint(
