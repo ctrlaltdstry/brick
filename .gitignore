@@ -33,3 +33,4 @@ tools/__pycache__/
 
 # Optional local exports/tests
 *.log
+TestGeo/
