@@ -65,17 +65,20 @@ The plugin's `BrickGen` ObjectData caches results on
 `(width, depth, height, quality)`. Changing any of those re-runs
 `make_brick_hires`.
 
-### Daily test-run workflow (preferred)
+### Daily test-run workflow (after plugin redeploy)
 
-After each deploy that touches `BrickGen/`, restart C4D and reopen
-the standing test scene:
+**Operator rule**: whenever the plugin is redeployed, automatically
+restart C4D and reopen the standing test scene. Do not ask first unless
+the user explicitly says to skip restart/open-scene for that deploy.
+
+Run this from repo root after changes that require plugin redeploy:
 
 ```
 powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1; $p = Get-Process -Name 'Cinema 4D*' -ErrorAction SilentlyContinue; if ($p) { $p | Stop-Process -Force }; Start-Sleep -Milliseconds 700; Start-Process -FilePath 'Z:\02_MKE\2026\BRICK\TEST FILE.c4d'
 ```
 
-Use this as the default operator loop unless the user asks to open a
-different `.c4d` file.
+Use this as the default post-deploy operator loop unless the user asks
+to open a different `.c4d` file or skip restart for a specific reason.
 
 ## Pipeline (mesh → bricks) — ASSEMBLY pipeline, not yet wired to plugin
 

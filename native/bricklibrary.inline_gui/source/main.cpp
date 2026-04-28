@@ -238,8 +238,7 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 	const Int32 gridX = 0;
 	const Int32 gridY = 0;
 	const Int32 tileOuterPad = 2;
-	const Int32 tileInnerPad = 2;
-	const Int32 labelHeight = 14;
+	const Int32 tileInnerPad = 0;
 
 	for (Int32 i = 0; i < g_brick_count; ++i)
 	{
@@ -259,14 +258,12 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 
 		DrawSetPen(Vector(0.15, 0.15, 0.15));
 		DrawRectangle(xStart, yStart, xEnd, yEnd);
-		DrawSetPen(enabled ? Vector(0.85, 0.24, 0.24) : Vector(0.35, 0.35, 0.35));
-		DrawFrame(xStart, yStart, xEnd, yEnd);
 
 		BaseBitmap* bmp = _owner ? _owner->GetThumbnail(i) : nullptr;
 		if (bmp != nullptr)
 		{
 			const Int32 imgAreaX0 = innerX0;
-			const Int32 imgAreaY0 = innerY0 + labelHeight;
+			const Int32 imgAreaY0 = innerY0;
 			const Int32 imgAreaX1 = innerX1;
 			const Int32 imgAreaY1 = innerY1;
 			const Int32 areaW = Max(1, imgAreaX1 - imgAreaX0 + 1);
@@ -274,31 +271,48 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 
 			const Int32 bw = Max(1, bmp->GetBw());
 			const Int32 bh = Max(1, bmp->GetBh());
-			const Float sx = Float(areaW) / Float(bw);
-			const Float sy = Float(areaH) / Float(bh);
-			const Float s = sx < sy ? sx : sy;
-			const Int32 drawW = Max(1, Int32(Float(bw) * s));
-			const Int32 drawH = Max(1, Int32(Float(bh) * s));
-			const Int32 drawX = imgAreaX0 + (areaW - drawW) / 2;
-			const Int32 drawY = imgAreaY0 + (areaH - drawH) / 2;
+			const Float dstAspect = Float(areaW) / Float(areaH);
+			const Float srcAspect = Float(bw) / Float(bh);
+			Int32 srcX = 0;
+			Int32 srcY = 0;
+			Int32 srcW = bw;
+			Int32 srcH = bh;
+
+			// Center-crop cover: always fill the full thumbnail area edge-to-edge.
+			if (srcAspect > dstAspect)
+			{
+				srcW = Max(1, Int32(Float(bh) * dstAspect));
+				srcX = Max(0, (bw - srcW) / 2);
+			}
+			else if (srcAspect < dstAspect)
+			{
+				srcH = Max(1, Int32(Float(bw) / dstAspect));
+				srcY = Max(0, (bh - srcH) / 2);
+			}
 
 			DrawBitmap(
 				bmp,
-				drawX, drawY,
-				drawW, drawH,
-				0, 0, bmp->GetBw(), bmp->GetBh(),
+				imgAreaX0, imgAreaY0,
+				areaW, areaH,
+				srcX, srcY, srcW, srcH,
 				BMP_NORMALSCALED
 			);
 		}
 		else
 		{
 			DrawSetPen(enabled ? Vector(0.72, 0.18, 0.18) : Vector(0.24, 0.24, 0.24));
-			DrawRectangle(innerX0, innerY0 + labelHeight, innerX1, innerY1);
+			DrawRectangle(innerX0, innerY0, innerX1, innerY1);
 		}
 
 		// Draw label last with explicit text colors for readability.
 		DrawSetTextCol(Vector(0.96, 0.96, 0.96), Vector(0.15, 0.15, 0.15));
-		DrawText(String(g_brick_labels[i]), innerX0, innerY0 - 1, DRAWTEXT_STD_ALIGN);
+		DrawText(String(g_brick_labels[i]), innerX0 + 2, innerY0 + 1, DRAWTEXT_STD_ALIGN);
+
+		// Full-bleed thumbnails cover the tile, so draw selection chrome last.
+		DrawSetPen(enabled ? Vector(0.85, 0.24, 0.24) : Vector(0.35, 0.35, 0.35));
+		DrawFrame(xStart, yStart, xEnd, yEnd);
+		if (enabled)
+			DrawFrame(xStart + 1, yStart + 1, xEnd - 1, yEnd - 1);
 	}
 }
 
