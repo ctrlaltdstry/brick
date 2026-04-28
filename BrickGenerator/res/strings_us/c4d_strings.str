@@ -1,4 +1,0 @@
-STRINGTABLE c4d_strings
-{
-    IDS_BRICKGENERATOR "BrickGenerator";
-}

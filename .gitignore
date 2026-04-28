@@ -24,10 +24,11 @@ Thumbs.db
 # Local AI / session artifacts
 .cursor/
 assets/
+HANDOFF_*.md
 
 # Project-local generated / deployment artifacts
 backup/
-BrickGenerator/res/icons/atlas/
+BrickGen/res/icons/atlas/
 tools/__pycache__/
 
 # Optional local exports/tests
