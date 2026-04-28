@@ -6,8 +6,8 @@ C4D plugin layer can drive it without touching c4d-only types.
 
 Usage
 -----
-    from brickify.pipeline import brickify_mesh
-    placements, info = brickify_mesh(
+    from brick.pipeline import brick_mesh
+    placements, info = brick_mesh(
         vertices, faces,
         studs_across=24,
         voxel_mode="solid",
@@ -206,6 +206,8 @@ def brickify_mesh(
     cleanup_protrusions: int = 0,
     detail_mode: str = "off",
     preserve_silhouette: bool = False,
+    preserve_tiny_gaps: bool = False,
+    surface_only_plates: bool = False,
 ) -> Tuple[List[BrickPlacement], Dict[str, Any]]:
     """Run the full mesh -> brick placements pipeline.
 
@@ -240,6 +242,7 @@ def brickify_mesh(
         min_column_voxels=min_column_voxels,
         cleanup_protrusions=cleanup_protrusions,
         preserve_silhouette=preserve_silhouette,
+        preserve_tiny_gaps=preserve_tiny_gaps,
     )
 
     # Always remove detached voxel islands before fitting. This is separate
@@ -270,9 +273,13 @@ def brickify_mesh(
         colors,
         detail_mask=detail_mask,
         max_detail_footprint=max_detail_footprint,
+        surface_only_plates=surface_only_plates,
     )
 
-    if merge_plates:
+    # Surface-only plate policy relies on plate-height "cap" pieces. Do not
+    # promote 3-stacks into full bricks in this mode, or studded tops reappear
+    # in selected regions after fitting.
+    if merge_plates and (not surface_only_plates):
         placements = merge_plates_to_bricks(placements, library)
 
     if merge_horizontal:
@@ -284,10 +291,28 @@ def brickify_mesh(
     pre_prune_report = check_connectivity(placements)
 
     n_dropped = 0
+    prune_skipped = False
+    prune_drop_ratio = 0.0
     if prune_connectivity:
-        kept, dropped = prune_to_largest_component(placements)
-        placements = kept
-        n_dropped = len(dropped)
+        total_before_prune = max(1, len(placements))
+        largest_size = int(pre_prune_report.get("largest_component_size", 0))
+        prune_drop_ratio = max(
+            0.0,
+            1.0 - (float(largest_size) / float(total_before_prune)),
+        )
+
+        # Connectivity edges only model direct vertical coupling (top/bottom
+        # overlap). For aggressive mixed-size fitting this can fragment an
+        # otherwise visually valid shell into many graph components. Avoid
+        # deleting big chunks of model geometry in that case; only prune when
+        # it's a small tail of disconnected stragglers.
+        MAX_SAFE_PRUNE_DROP_RATIO = 0.10
+        if prune_drop_ratio <= MAX_SAFE_PRUNE_DROP_RATIO:
+            kept, dropped = prune_to_largest_component(placements)
+            placements = kept
+            n_dropped = len(dropped)
+        else:
+            prune_skipped = True
 
     info: Dict[str, Any] = {
         "origin": np.asarray(origin, dtype=np.float64),
@@ -299,6 +324,8 @@ def brickify_mesh(
         "connectivity": pre_prune_report,
         "detail_mode": detail_key,
         "preserve_silhouette": bool(preserve_silhouette),
+        "preserve_tiny_gaps": bool(preserve_tiny_gaps),
+        "surface_only_plates": bool(surface_only_plates),
         "randomize_heights": bool(randomize_heights),
         "height_mix_seed": int(height_mix_seed),
         "height_mix_amount": float(height_mix_amount),
@@ -306,12 +333,19 @@ def brickify_mesh(
         "interior_void_cells": _interior_void_cells(occupancy),
         "voxel_components": int(voxel_components),
         "n_voxels_dropped": int(voxel_dropped),
+        "prune_skipped": bool(prune_skipped),
+        "prune_drop_ratio": float(prune_drop_ratio),
         "occupancy_cells": [
             (int(x), int(y), int(z))
             for x, y, z in zip(*np.where(occupancy))
         ],
     }
     return placements, info
+
+
+# New primary name; keep `brickify_mesh` as compatibility alias.
+def brick_mesh(*args, **kwargs):
+    return brickify_mesh(*args, **kwargs)
 
 
 def placement_world_position(

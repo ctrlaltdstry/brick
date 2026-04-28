@@ -4,8 +4,8 @@ Inputs:
     BRICK source artwork (wide PNG with transparent BG)
 
 Outputs:
-    BrickGenerator/res/brickify_icon.png    (square 64x64, plugin tree icon)
-    BrickGenerator/res/brickify_hero.png    (wide 600x180, banner widget)
+    BrickGen/res/brickify_icon.png    (square 64x64, plugin tree icon)
+    BrickGen/res/brickify_hero.png    (wide 600x180, banner widget)
 
 The hero banner is shown as a BITMAPBUTTON at the top of the AM. C4D
 auto-scales bitmaps in BITMAPBUTTON widgets, but starting from a clean
@@ -41,7 +41,7 @@ ICON_SRC = os.path.join(
 )
 ALT_HERO = os.environ.get("BRICKIFY_HERO_PNG", "")
 ALT_ICON = os.environ.get("BRICKIFY_ICON_PNG", "")
-RES_DIR = os.path.join(REPO_ROOT, "BrickGenerator", "res")
+RES_DIR = os.path.join(REPO_ROOT, "BrickGen", "res")
 
 
 def _scan_assets_for(needle: str) -> str:

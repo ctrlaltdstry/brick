@@ -5,15 +5,46 @@ CONTAINER obrickifyassembly
 
     GROUP ID_OBJECTPROPERTIES
     {
+        GROUP
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+            SCALE_H;
+
+            GROUP
+            {
+                SCALE_H;
+
+                LONG BRICKIFYASSEMBLY_HERO
+                {
+                    NAME BRICKIFYASSEMBLY_HERO;
+                    CUSTOMGUI CUSTOMGUIBRICKHERO;
+                    ANIM OFF;
+                    SCALE_H;
+                }
+            }
+        }
+
         GROUP BRICKIFYASSEMBLY_GROUP_SOURCE
         {
             DEFAULT 1;
-            COLUMNS 2;
+            COLUMNS 1;
 
-            LINK BRICKIFYASSEMBLY_SOURCE
+            GROUP
             {
-                NAME BRICKIFYASSEMBLY_SOURCE;
-                ACCEPT { Obase; }
+                COLUMNS 2;
+
+                LINK BRICKIFYASSEMBLY_SOURCE
+                {
+                    NAME BRICKIFYASSEMBLY_SOURCE;
+                    ACCEPT { Obase; }
+                }
+
+                GROUP
+                {
+                    SCALE_H;
+                    COLUMNS 1;
+                }
             }
 
             BOOL BRICKIFYASSEMBLY_HIDE_SOURCE_MESH
@@ -49,7 +80,7 @@ CONTAINER obrickifyassembly
             GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY_GRID
             {
                 DEFAULT 1;
-                COLUMNS 6;
+                COLUMNS 4;
 
                 BUTTON BRICKIFYASSEMBLY_LIB_PRESET_ALL
                 {
@@ -63,19 +94,12 @@ CONTAINER obrickifyassembly
                 {
                     NAME BRICKIFYASSEMBLY_LIB_PRESET_INVERT;
                 }
-                BUTTON BRICKIFYASSEMBLY_LIB_PRESET_BRICKS
-                {
-                    NAME BRICKIFYASSEMBLY_LIB_PRESET_BRICKS;
-                }
-                BUTTON BRICKIFYASSEMBLY_LIB_PRESET_PLATES
-                {
-                    NAME BRICKIFYASSEMBLY_LIB_PRESET_PLATES;
-                }
                 BUTTON BRICKIFYASSEMBLY_LIB_PRESET_1X1
                 {
                     NAME BRICKIFYASSEMBLY_LIB_PRESET_1X1;
                 }
             }
+
         }
 
         GROUP BRICKIFYASSEMBLY_GROUP_RESOLUTION
@@ -271,8 +295,6 @@ CONTAINER obrickifyassembly
                 CYCLE
                 {
                     BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE;
-                    BRICKIFYASSEMBLY_VISUALIZATION_MODE_BRICK_SIZE;
-                    BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH;
                     BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME;
                     BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG;
                 }
@@ -294,6 +316,24 @@ CONTAINER obrickifyassembly
             {
                 NAME BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY;
                 DEFAULT 1;
+            }
+
+            BOOL BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS
+            {
+                NAME BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS;
+                DEFAULT 0;
+            }
+
+            BOOL BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES
+            {
+                NAME BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES;
+                DEFAULT 1;
+            }
+
+            BOOL BRICKIFYASSEMBLY_ENABLE_PLATES
+            {
+                NAME BRICKIFYASSEMBLY_ENABLE_PLATES;
+                DEFAULT 0;
             }
         }
 

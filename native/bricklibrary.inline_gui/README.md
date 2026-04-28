@@ -1,20 +1,21 @@
-# Brick Library Inline GUI (Native SDK Scaffold)
+# Brick Library Inline GUI
 
-This module is the C++ SDK starting point for a true inline AM custom GUI
-thumbnail library for Brickify.
+This module provides the native custom GUI controls used by the Brick
+Attribute Manager UI in Cinema 4D.
 
 ## Current status
 
-- Buildable command plugin scaffold
-- Opens a dockable WIP panel from C++ SDK module
-- Next step is implementing a custom AM GUI control and wiring it to
-  BrickifyAssembly parameters
+- Buildable C++ SDK module for inline AM custom GUIs.
+- Brick library thumbnail control is active in the `BrickIt` object UI.
+- Grid uses square cells, top-left justification, and brick-only entries.
+- Hero banner GUI is supported from the same native module.
+- Control state is written/read through `BRICKIFYASSEMBLY_LIBRARY_MASK`.
 
 ## Build integration
 
 This module is referenced from your Cinema 4D SDK `custom_paths.txt` as:
 
-- `MODULE Z:/02_MKE/2026/BRICK/brickify/native/bricklibrary.inline_gui`
+- `MODULE Z:/02_MKE/2026/BRICK/brick/native/bricklibrary.inline_gui`
 
 Configure and build from the SDK root:
 

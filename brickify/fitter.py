@@ -15,6 +15,7 @@ Algorithm:
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict
 import numpy as np
+from scipy.ndimage import binary_fill_holes
 from .library import BrickLibrary, BrickType
 from .palette import LegoPalette
 
@@ -100,6 +101,7 @@ class BrickFitter:
         *,
         detail_mask: Optional[np.ndarray] = None,
         max_detail_footprint: int = 0,
+        surface_only_plates: bool = False,
     ) -> List[BrickPlacement]:
         Nx, Ny, Nz = occupancy.shape
         # placement_id[x,y,z] = index into placements list, or -1
@@ -134,6 +136,33 @@ class BrickFitter:
             detail_i = detail_mask.astype(np.int32)
             detail_prefix = np.pad(
                 detail_i.cumsum(axis=0).cumsum(axis=1).cumsum(axis=2),
+                ((1, 0), (1, 0), (1, 0)),
+                mode="constant",
+            )
+        top_exposed = None
+        side_exposed = None
+        exterior_top = None
+        exterior_top_prefix = None
+        if surface_only_plates:
+            # Top-exposed: occupied and no occupied cell directly above.
+            top_exposed = occupancy.copy()
+            top_exposed[:, :-1, :] &= ~occupancy[:, 1:, :]
+            # Outside air excludes enclosed interior cavities.
+            outside_air = ~binary_fill_holes(occupancy)
+            # Side-exposed to OUTSIDE air (not just any empty interior pocket).
+            side_exposed = np.zeros_like(occupancy, dtype=bool)
+            side_exposed[0, :, :] |= occupancy[0, :, :]
+            side_exposed[-1, :, :] |= occupancy[-1, :, :]
+            side_exposed[:, :, 0] |= occupancy[:, :, 0]
+            side_exposed[:, :, -1] |= occupancy[:, :, -1]
+            side_exposed[1:, :, :] |= occupancy[1:, :, :] & outside_air[:-1, :, :]
+            side_exposed[:-1, :, :] |= occupancy[:-1, :, :] & outside_air[1:, :, :]
+            side_exposed[:, :, 1:] |= occupancy[:, :, 1:] & outside_air[:, :, :-1]
+            side_exposed[:, :, :-1] |= occupancy[:, :, :-1] & outside_air[:, :, 1:]
+            exterior_top = top_exposed & side_exposed
+            exterior_top_i = exterior_top.astype(np.int32)
+            exterior_top_prefix = np.pad(
+                exterior_top_i.cumsum(axis=0).cumsum(axis=1).cumsum(axis=2),
                 ((1, 0), (1, 0), (1, 0)),
                 mode="constant",
             )
@@ -192,6 +221,15 @@ class BrickFitter:
                         vol = w * d * h
                         if box_sum(occ_prefix, x, y, z, x + w, y + h, z + d) != vol:
                             continue
+                        if surface_only_plates and h == 1:
+                            sub_top = top_exposed[x:x + w, y:y + h, z:z + d]
+                            if not bool(sub_top.all()):
+                                continue
+                            sub_side = side_exposed[x:x + w, y:y + h, z:z + d]
+                            # Must touch true outside exposure so enclosed
+                            # interior top pockets do not get plates.
+                            if not bool(sub_side.any()):
+                                continue
                         sub_pid = placement_id[x:x + w, y:y + h, z:z + d]
                         if (sub_pid != -1).any():
                             continue
@@ -220,6 +258,22 @@ class BrickFitter:
                             + stagger * self.stagger_weight
                             - cvar * self.color_weight
                         )
+                        if surface_only_plates:
+                            if h == 1:
+                                # Favor smooth-top plate caps on exterior top
+                                # surfaces, but keep this as scoring (not a
+                                # hard constraint) to avoid coverage regressions.
+                                score += 1000.0
+                            else:
+                                # Discourage tall bricks from consuming cells
+                                # that are good candidates for plate caps.
+                                ext_hits = box_sum(
+                                    exterior_top_prefix,
+                                    x, y, z,
+                                    x + w, y + h, z + d,
+                                )
+                                if ext_hits > 0:
+                                    score -= 250.0 * float(ext_hits)
                         if use_height_mix:
                             # Encourage local target heights (seeded per X/Z),
                             # but keep it soft so structural/footprint quality

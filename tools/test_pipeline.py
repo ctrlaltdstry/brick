@@ -25,15 +25,15 @@ def main():
     ap.add_argument("--no-prune", action="store_true")
     args = ap.parse_args()
 
-    from brickify.voxelize import load_obj
-    from brickify.pipeline import brickify_mesh
+    from brick.voxelize import load_obj
+    from brick.pipeline import brick_mesh
 
     print(f"Loading {args.input}")
     verts, faces, vcols = load_obj(args.input)
     print(f"  {len(verts)} verts, {len(faces)} faces, vertex_colors={'yes' if vcols is not None else 'no'}")
 
     t0 = time.time()
-    placements, info = brickify_mesh(
+    placements, info = brick_mesh(
         verts, faces,
         vertex_colors=vcols,
         studs_across=args.studs,

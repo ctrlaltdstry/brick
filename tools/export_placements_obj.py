@@ -53,15 +53,15 @@ def main():
     studs = int(sys.argv[2]) if len(sys.argv) > 2 else 12
     out = sys.argv[3] if len(sys.argv) > 3 else "placements.obj"
 
-    from brickify.pipeline import brickify_mesh, auto_stud_size
-    from brickify.connectivity import prune_to_largest_component
+    from brick.pipeline import brick_mesh, auto_stud_size
+    from brick.connectivity import prune_to_largest_component
 
     verts, faces = load_obj(src)
     stud = auto_stud_size(verts, studs)
     plate = stud * (3.2 / 8.0)
 
     # Run pipeline WITHOUT prune so we can mark the orphans separately.
-    placements, info = brickify_mesh(
+    placements, info = brick_mesh(
         verts, faces,
         studs_across=studs,
         voxel_mode="solid",

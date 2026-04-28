@@ -49,6 +49,7 @@ class BrickType:
 _FOOTPRINTS = [
     (1, 1), (1, 2), (1, 3), (1, 4), (1, 6), (1, 8),
     (2, 2), (2, 3), (2, 4), (2, 6), (2, 8),
+    (3, 3), (3, 4), (3, 6), (3, 8),
 ]
 
 # Standard LDraw part numbers for common bricks/plates.
@@ -65,6 +66,10 @@ _PLATES_H1 = [
     BrickType("plate_2x4", 2, 4, 1, "3020"),
     BrickType("plate_2x6", 2, 6, 1, "3795"),
     BrickType("plate_2x8", 2, 8, 1, "3034"),
+    BrickType("plate_3x3", 3, 3, 1, "custom_plate_3x3"),
+    BrickType("plate_3x4", 3, 4, 1, "custom_plate_3x4"),
+    BrickType("plate_3x6", 3, 6, 1, "custom_plate_3x6"),
+    BrickType("plate_3x8", 3, 8, 1, "custom_plate_3x8"),
 ]
 
 _BRICKS_H3 = [
@@ -79,6 +84,10 @@ _BRICKS_H3 = [
     BrickType("brick_2x4", 2, 4, 3, "3001"),
     BrickType("brick_2x6", 2, 6, 3, "2456"),
     BrickType("brick_2x8", 2, 8, 3, "3007"),
+    BrickType("brick_3x3", 3, 3, 3, "custom_brick_3x3"),
+    BrickType("brick_3x4", 3, 4, 3, "custom_brick_3x4"),
+    BrickType("brick_3x6", 3, 6, 3, "custom_brick_3x6"),
+    BrickType("brick_3x8", 3, 8, 3, "custom_brick_3x8"),
 ]
 
 _TALLER_VARIANTS = []

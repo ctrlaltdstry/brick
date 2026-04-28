@@ -5,6 +5,17 @@ CONTAINER obrickgenerator
 
     GROUP ID_OBJECTPROPERTIES
     {
+        LONG BRICKGENERATOR_TYPE
+        {
+            NAME BRICKGENERATOR_TYPE;
+            DEFAULT 0;
+            CYCLE
+            {
+                BRICKGENERATOR_TYPE_BRICK;
+                BRICKGENERATOR_TYPE_PLATE;
+            }
+        }
+
         LONG BRICKGENERATOR_WIDTH
         {
             NAME BRICKGENERATOR_WIDTH;

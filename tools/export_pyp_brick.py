@@ -68,7 +68,7 @@ def main():
 
     mesh = mod.build_sds_brick(args.width, args.depth, args.height)
 
-    from brickify.mesh_export import write_obj
+    from brick.mesh_export import write_obj
     out = args.out or os.path.join(
         project_root,
         f"brick_{args.width}x{args.depth}_h{args.height}_filletfix.obj",

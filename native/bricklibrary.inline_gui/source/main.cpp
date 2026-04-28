@@ -8,20 +8,22 @@ using namespace cinema;
 
 static const Int32 g_bricklibrary_panel_cmd_id = 1069996;
 static const Int32 g_bricklibrary_customgui_id = 1070997;
-static const Int32 g_brick_count = 22;
+static const Int32 g_brickhero_customgui_id = 1070998;
+static const Int32 g_brick_count = 15;
 static const Int32 g_cols = 6;
 static const Int32 g_userarea_id = 2000;
 static const Int32 g_status_text_id = 2001;
+static const Int32 g_hero_userarea_id = 3000;
 
 static const Char* g_brick_labels[g_brick_count] = {
-	"1x1", "1x2", "1x3", "1x4", "1x6", "1x8", "2x2", "2x3", "2x4", "2x6", "2x8",
-	"1x1p", "1x2p", "1x3p", "1x4p", "1x6p", "1x8p", "2x2p", "2x3p", "2x4p", "2x6p", "2x8p"
+	"1x1", "1x2", "1x3", "1x4", "1x6", "1x8",
+	"2x2", "2x3", "2x4", "2x6", "2x8",
+	"3x3", "3x4", "3x6", "3x8"
 };
 static const Char* g_brick_asset_names[g_brick_count] = {
 	"brick_1x1", "brick_1x2", "brick_1x3", "brick_1x4", "brick_1x6", "brick_1x8",
 	"brick_2x2", "brick_2x3", "brick_2x4", "brick_2x6", "brick_2x8",
-	"plate_1x1", "plate_1x2", "plate_1x3", "plate_1x4", "plate_1x6", "plate_1x8",
-	"plate_2x2", "plate_2x3", "plate_2x4", "plate_2x6", "plate_2x8"
+	"brick_3x3", "brick_3x4", "brick_3x6", "brick_3x8"
 };
 
 class BrickLibraryCustomGui;
@@ -157,9 +159,10 @@ private:
 	{
 		const Filename pluginPath = GeGetPluginPath();
 		const Filename pluginDir = pluginPath.GetDirectory();
-		const Filename roots[3] = {
+		const Filename roots[4] = {
 			pluginPath + Filename("res") + Filename("icons") + Filename("bricks"),
 			pluginDir + Filename("res") + Filename("icons") + Filename("bricks"),
+			pluginDir + Filename("BrickGen") + Filename("res") + Filename("icons") + Filename("bricks"),
 			pluginDir + Filename("BrickGenerator") + Filename("res") + Filename("icons") + Filename("bricks"),
 		};
 
@@ -227,8 +230,13 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 	DrawRectangle(0, 0, w, h);
 
 	const Int32 rows = (g_brick_count + g_cols - 1) / g_cols;
-	const Int32 cellW = w / g_cols;
-	const Int32 cellH = h / rows;
+	const Int32 cellByWidth = (g_cols > 0) ? (w / g_cols) : 0;
+	const Int32 cellByHeight = (rows > 0) ? (h / rows) : 0;
+	const Int32 cellSize = (cellByWidth < cellByHeight) ? cellByWidth : cellByHeight;
+	if (cellSize <= 0)
+		return;
+	const Int32 gridX = 0;
+	const Int32 gridY = 0;
 	const Int32 tileOuterPad = 2;
 	const Int32 tileInnerPad = 2;
 	const Int32 labelHeight = 14;
@@ -238,10 +246,10 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 		const Int32 col = i % g_cols;
 		const Int32 row = i / g_cols;
 
-		const Int32 xStart = col * cellW + tileOuterPad;
-		const Int32 yStart = row * cellH + tileOuterPad;
-		const Int32 xEnd = (col + 1) * cellW - tileOuterPad - 1;
-		const Int32 yEnd = (row + 1) * cellH - tileOuterPad - 1;
+		const Int32 xStart = gridX + col * cellSize + tileOuterPad;
+		const Int32 yStart = gridY + row * cellSize + tileOuterPad;
+		const Int32 xEnd = gridX + (col + 1) * cellSize - tileOuterPad - 1;
+		const Int32 yEnd = gridY + (row + 1) * cellSize - tileOuterPad - 1;
 		const Int32 innerX0 = xStart + tileInnerPad;
 		const Int32 innerY0 = yStart + tileInnerPad;
 		const Int32 innerX1 = xEnd - tileInnerPad;
@@ -315,13 +323,24 @@ Bool BrickLibraryThumbUserArea::InputEvent(const BaseContainer& msg)
 	}
 
 	const Int32 rows = (g_brick_count + g_cols - 1) / g_cols;
-	const Int32 cellW = w / g_cols;
-	const Int32 cellH = h / rows;
-	if (cellW <= 0 || cellH <= 0)
+	const Int32 cellByWidth = (g_cols > 0) ? (w / g_cols) : 0;
+	const Int32 cellByHeight = (rows > 0) ? (h / rows) : 0;
+	const Int32 cellSize = (cellByWidth < cellByHeight) ? cellByWidth : cellByHeight;
+	if (cellSize <= 0)
 		return false;
+	const Int32 gridW = cellSize * g_cols;
+	const Int32 gridH = cellSize * rows;
+	const Int32 gridX = 0;
+	const Int32 gridY = 0;
 
-	const Int32 col = mx / cellW;
-	const Int32 row = my / cellH;
+	if (mx < gridX || my < gridY || mx >= (gridX + gridW) || my >= (gridY + gridH))
+	{
+		_owner->SetHoverIndex(-1);
+		return false;
+	}
+
+	const Int32 col = (mx - gridX) / cellSize;
+	const Int32 row = (my - gridY) / cellSize;
 	const Int32 idx = row * g_cols + col;
 	_owner->SetHoverIndex((idx >= 0 && idx < g_brick_count) ? idx : -1);
 
@@ -339,6 +358,138 @@ Bool BrickLibraryThumbUserArea::InputEvent(const BaseContainer& msg)
 }
 
 static Int32 g_brick_library_datatypes[] = { DTYPE_LONG };
+static Int32 g_brick_hero_datatypes[] = { DTYPE_LONG };
+
+static BaseBitmap* LoadHeroBitmap()
+{
+	const Filename pluginPath = GeGetPluginPath();
+	const Filename pluginDir = pluginPath.GetDirectory();
+	const Filename roots[4] = {
+		pluginPath + Filename("res"),
+		pluginDir + Filename("res"),
+		pluginDir + Filename("BrickGen") + Filename("res"),
+		pluginDir + Filename("BrickGenerator") + Filename("res"),
+	};
+	const String heroFile = "brickify_hero.png"_s;
+	for (const Filename& root : roots)
+	{
+		const Filename heroPath = root + Filename(heroFile);
+		if (!GeFExist(heroPath, false))
+			continue;
+		BaseBitmap* bmp = BaseBitmap::Alloc();
+		if (!bmp)
+			continue;
+		if (bmp->Init(heroPath) == IMAGERESULT::OK && bmp->GetBw() > 0 && bmp->GetBh() > 0)
+			return bmp;
+		BaseBitmap::Free(bmp);
+	}
+	return nullptr;
+}
+
+class BrickHeroCustomGui;
+
+class BrickHeroUserArea : public GeUserArea
+{
+public:
+	void SetOwner(BrickHeroCustomGui* owner) { _owner = owner; }
+	virtual Bool GetMinSize(Int32& w, Int32& h) override;
+	virtual void DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, const BaseContainer& msg) override;
+
+private:
+	BrickHeroCustomGui* _owner = nullptr;
+};
+
+class BrickHeroCustomGui : public iCustomGui
+{
+	INSTANCEOF(BrickHeroCustomGui, iCustomGui)
+
+public:
+	BrickHeroCustomGui(const BaseContainer& settings, CUSTOMGUIPLUGIN* plugin) : iCustomGui(settings, plugin)
+	{
+		_area.SetOwner(this);
+		_hero = LoadHeroBitmap();
+	}
+
+	virtual ~BrickHeroCustomGui()
+	{
+		if (_hero != nullptr)
+		{
+			BaseBitmap* bmp = _hero;
+			BaseBitmap::Free(bmp);
+			_hero = nullptr;
+		}
+	}
+
+	virtual Bool CreateLayout() override
+	{
+		GroupBegin(5000, BFH_SCALEFIT | BFV_TOP, 1, 0, ""_s, 0);
+		GroupBorderSpace(0, 0, 0, 0);
+		C4DGadget* gadget = AddUserArea(g_hero_userarea_id, BFH_SCALEFIT | BFV_TOP, 320, 84);
+		AttachUserArea(_area, gadget);
+		GroupEnd();
+		return SUPER::CreateLayout();
+	}
+
+	BaseBitmap* GetHero() const { return _hero; }
+
+private:
+	friend class BrickHeroUserArea;
+	BrickHeroUserArea _area;
+	BaseBitmap* _hero = nullptr;
+};
+
+Bool BrickHeroUserArea::GetMinSize(Int32& w, Int32& h)
+{
+	w = 320;
+	h = 84;
+	return true;
+}
+
+void BrickHeroUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, const BaseContainer& msg)
+{
+	const Int32 w = GetWidth();
+	const Int32 h = GetHeight();
+	if (w <= 0 || h <= 0)
+		return;
+
+	DrawSetPen(Vector(0.08, 0.08, 0.08));
+	DrawRectangle(0, 0, w, h);
+
+	BaseBitmap* hero = _owner ? _owner->GetHero() : nullptr;
+	if (hero == nullptr || hero->GetBw() <= 0 || hero->GetBh() <= 0)
+		return;
+
+	const Int32 bw = Max(1, hero->GetBw());
+	const Int32 bh = Max(1, hero->GetBh());
+	const Float dstAspect = Float(w) / Float(h);
+	const Float srcAspect = Float(bw) / Float(bh);
+
+	Int32 srcX = 0;
+	Int32 srcY = 0;
+	Int32 srcW = bw;
+	Int32 srcH = bh;
+
+	// Center-crop cover: uniformly scale from center so the hero always fills
+	// the entire boundary without letterboxing as AM width changes.
+	if (srcAspect > dstAspect)
+	{
+		srcW = Max(1, Int32(Float(bh) * dstAspect));
+		srcX = Max(0, (bw - srcW) / 2);
+	}
+	else if (srcAspect < dstAspect)
+	{
+		srcH = Max(1, Int32(Float(bw) / dstAspect));
+		srcY = Max(0, (bh - srcH) / 2);
+	}
+
+	DrawBitmap(
+		hero,
+		0, 0,
+		w, h,
+		srcX, srcY, srcW, srcH,
+		BMP_NORMALSCALED
+	);
+}
 
 class BrickLibraryCustomGuiData : public CustomGuiData
 {
@@ -372,6 +523,38 @@ public:
 	}
 };
 
+class BrickHeroCustomGuiData : public CustomGuiData
+{
+public:
+	virtual Int32 GetId() override { return g_brickhero_customgui_id; }
+
+	virtual CDialog* Alloc(const BaseContainer& settings) override
+	{
+		BrickHeroCustomGui* dlg = NewObjClear(BrickHeroCustomGui, settings, GetPlugin());
+		if (!dlg)
+			return nullptr;
+		return dlg->Get();
+	}
+
+	virtual void Free(CDialog* dlg, void* userdata) override
+	{
+		if (!dlg || !userdata)
+			return;
+		BrickHeroCustomGui* subDialog = static_cast<BrickHeroCustomGui*>(userdata);
+		DeleteObj(subDialog);
+	}
+
+	virtual const Char* GetResourceSym() override { return "CUSTOMGUIBRICKHERO"; }
+
+	virtual CustomProperty* GetProperties() override { return nullptr; }
+
+	virtual Int32 GetResourceDataType(Int32*& table) override
+	{
+		table = g_brick_hero_datatypes;
+		return sizeof(g_brick_hero_datatypes) / sizeof(Int32);
+	}
+};
+
 Bool RegisterBrickLibraryCustomGUI()
 {
 	static BaseCustomGuiLib customGuiLib;
@@ -382,6 +565,21 @@ Bool RegisterBrickLibraryCustomGUI()
 		return false;
 
 	if (!RegisterCustomGuiPlugin("Brick Library Thumbnail GUI"_s, 0, NewObjClear(BrickLibraryCustomGuiData)))
+		return false;
+
+	return true;
+}
+
+Bool RegisterBrickHeroCustomGUI()
+{
+	static BaseCustomGuiLib customGuiLib;
+	ClearMem(&customGuiLib, sizeof(customGuiLib));
+	FillBaseCustomGui(customGuiLib);
+
+	if (!InstallLibrary(g_brickhero_customgui_id, &customGuiLib, 1000, sizeof(customGuiLib)))
+		return false;
+
+	if (!RegisterCustomGuiPlugin("Brick Hero Banner GUI"_s, 0, NewObjClear(BrickHeroCustomGuiData)))
 		return false;
 
 	return true;
@@ -435,6 +633,8 @@ Bool RegisterBrickLibraryPanelCommand()
 cinema::Bool cinema::PluginStart()
 {
 	if (!RegisterBrickLibraryCustomGUI())
+		return false;
+	if (!RegisterBrickHeroCustomGUI())
 		return false;
 
 	if (!RegisterBrickLibraryPanelCommand())

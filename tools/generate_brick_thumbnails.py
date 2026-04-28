@@ -9,8 +9,8 @@ Why isometric line art and not real renders?
   full render pipeline (matplotlib / rasterizer) would be overkill.
 
 Output:
-    BrickGenerator/res/icons/bricks/<brick_name>.png   (24x24, RGBA)
-    BrickGenerator/res/icons/bricks/<brick_name>@64.png (64x64, RGBA)
+    BrickGen/res/icons/bricks/<brick_name>.png   (24x24, RGBA)
+    BrickGen/res/icons/bricks/<brick_name>@64.png (64x64, RGBA)
 """
 from __future__ import annotations
 import math
@@ -22,10 +22,10 @@ sys.path.insert(0, REPO_ROOT)
 
 from PIL import Image, ImageDraw  # noqa: E402
 
-from brickify.library import DEFAULT_LIBRARY  # noqa: E402
+from brick.library import DEFAULT_LIBRARY  # noqa: E402
 
 
-OUT_DIR = os.path.join(REPO_ROOT, "BrickGenerator", "res", "icons", "bricks")
+OUT_DIR = os.path.join(REPO_ROOT, "BrickGen", "res", "icons", "bricks")
 
 
 # Iso projection: 30-degree axes for X/Z, vertical for Y.

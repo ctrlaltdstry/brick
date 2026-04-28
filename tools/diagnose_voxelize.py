@@ -13,8 +13,8 @@ from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from brickify.voxelize import voxelize_mesh  # noqa: E402
-from brickify.pipeline import auto_stud_size  # noqa: E402
+from brick.voxelize import voxelize_mesh  # noqa: E402
+from brick.pipeline import auto_stud_size  # noqa: E402
 
 
 def load_obj(path):
@@ -134,9 +134,9 @@ def main():
         print(f"  y={j:>3}: {slice_count:>4} cells  {bar}")
 
     # Run the actual pipeline to see brick-type distribution
-    from brickify.pipeline import brickify_mesh
+    from brick.pipeline import brick_mesh
     print("\nRunning full pipeline (NO prune, NO merge) ...")
-    placements_raw, info_raw = brickify_mesh(
+    placements_raw, info_raw = brick_mesh(
         verts, faces,
         studs_across=studs_across,
         voxel_mode="solid",
@@ -147,7 +147,7 @@ def main():
     print(f"  raw: {len(placements_raw)} placements")
 
     print("\nRunning full pipeline (with prune+merge) ...")
-    placements, info = brickify_mesh(
+    placements, info = brick_mesh(
         verts, faces,
         studs_across=studs_across,
         voxel_mode="solid",

@@ -53,8 +53,8 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    from brickify.brick_geom_hires import make_brick_hires
-    from brickify.mesh_export import write_obj
+    from brick.brick_geom_hires import make_brick_hires
+    from brick.mesh_export import write_obj
 
     kwargs = dict(QUALITY_PRESETS[args.quality])
     mesh = make_brick_hires(args.width, args.depth, args.height, **kwargs)

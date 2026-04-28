@@ -1,6 +1,6 @@
 """Cinema 4D ObjectData generator: high-res LEGO brick.
 
-Wraps brickify.brick_geom_hires.make_brick_hires so the C4D plugin
+Wraps brick.brick_geom_hires.make_brick_hires so the C4D plugin
 shares the same baked-fillet generator that powers the standalone
 exporter (tools/export_hires_brick.py). No SDS / no subdivision —
 every fillet is real geometry, welded into a manifold-clean mesh.
@@ -24,9 +24,12 @@ try:
         BRICKGENERATOR_DEPTH,
         BRICKGENERATOR_HEIGHT,
         BRICKGENERATOR_QUALITY,
+        BRICKGENERATOR_TYPE,
         BRICKGENERATOR_QUALITY_DRAFT,
         BRICKGENERATOR_QUALITY_STANDARD,
         BRICKGENERATOR_QUALITY_HERO,
+        BRICKGENERATOR_TYPE_BRICK,
+        BRICKGENERATOR_TYPE_PLATE,
         IDS_BRICKIFYASSEMBLY,
         ID_BRICKIFYASSEMBLY,
         IDS_BRICKLIBRARYPANEL,
@@ -64,6 +67,9 @@ try:
         BRICKIFYASSEMBLY_HEIGHT_VARIATION,
         BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED,
         BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT,
+        BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS,
+        BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
+        BRICKIFYASSEMBLY_ENABLE_PLATES,
         BRICKIFYASSEMBLY_LIBRARY_COUNT,
         BRICKIFYASSEMBLY_LIBRARY_MASK,
         BRICKIFYASSEMBLY_GROUP_ACTIONS,
@@ -84,18 +90,21 @@ try:
         ICON_BRICKIFY_BRICK_BASE,
     )
 except ModuleNotFoundError:
-    IDS_BRICKGENERATOR = "BrickGenerator"
+    IDS_BRICKGENERATOR = "BrickGen"
     ID_BRICKGENERATOR = 1069999
     BRICKGENERATOR_WIDTH = 1001
     BRICKGENERATOR_DEPTH = 1002
     BRICKGENERATOR_HEIGHT = 1003
     BRICKGENERATOR_QUALITY = 1004
+    BRICKGENERATOR_TYPE = 1005
     BRICKGENERATOR_QUALITY_DRAFT = 0
     BRICKGENERATOR_QUALITY_STANDARD = 1
     BRICKGENERATOR_QUALITY_HERO = 2
-    IDS_BRICKIFYASSEMBLY = "BrickifyAssembly"
+    BRICKGENERATOR_TYPE_BRICK = 0
+    BRICKGENERATOR_TYPE_PLATE = 1
+    IDS_BRICKIFYASSEMBLY = "BrickIt"
     ID_BRICKIFYASSEMBLY = 1069998
-    IDS_BRICKLIBRARYPANEL = "Brick Library Panel"
+    IDS_BRICKLIBRARYPANEL = "Brick Panel"
     ID_BRICKLIBRARYPANEL = 1069997
     BRICKIFYASSEMBLY_SOURCE = 2001
     BRICKIFYASSEMBLY_HIDE_SOURCE_MESH = 2032
@@ -131,6 +140,9 @@ except ModuleNotFoundError:
     BRICKIFYASSEMBLY_HEIGHT_VARIATION = 2029
     BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED = 2030
     BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT = 2031
+    BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS = 2035
+    BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES = 2036
+    BRICKIFYASSEMBLY_ENABLE_PLATES = 2037
     BRICKIFYASSEMBLY_GROUP_ACTIONS = 2059
     BRICKIFYASSEMBLY_LIBRARY_MASK = 2034
     BRICKIFYASSEMBLY_BRICK_BASE = 2100
@@ -152,7 +164,7 @@ except ModuleNotFoundError:
 
 # ---------------------------------------------------------------------
 # Brick library mapping (DEFAULT_LIBRARY order). Each entry is the index
-# into brickify.library.DEFAULT_LIBRARY. The toggle parameter ID is
+# into brick.library.DEFAULT_LIBRARY. The toggle parameter ID is
 # BRICKIFYASSEMBLY_BRICK_BASE + index, and the icon ID is
 # ICON_BRICKIFY_BRICK_BASE + index. Order is canonical and must match
 # the .h file and the DEFAULT_LIBRARY ordering.
@@ -161,11 +173,15 @@ BRICK_TOGGLE_NAMES = [
     "brick_1x1", "brick_1x2", "brick_1x3", "brick_1x4",
     "brick_1x6", "brick_1x8",
     "brick_2x2", "brick_2x3", "brick_2x4", "brick_2x6", "brick_2x8",
+    "brick_3x3", "brick_3x4", "brick_3x6", "brick_3x8",
+]
+BRICK_LIBRARY_ALL_MASK = (1 << len(BRICK_TOGGLE_NAMES)) - 1
+PLATE_LIBRARY_NAMES = (
     "plate_1x1", "plate_1x2", "plate_1x3", "plate_1x4",
     "plate_1x6", "plate_1x8",
     "plate_2x2", "plate_2x3", "plate_2x4", "plate_2x6", "plate_2x8",
-]
-BRICK_LIBRARY_ALL_MASK = (1 << len(BRICK_TOGGLE_NAMES)) - 1
+    "plate_3x3", "plate_3x4", "plate_3x6", "plate_3x8",
+)
 
 
 def _toggle_id(idx):
@@ -175,7 +191,20 @@ def _toggle_id(idx):
 def _read_library_mask(op):
     """Read library bitmask from op; derive from toggles for legacy scenes."""
     try:
-        return int(op[BRICKIFYASSEMBLY_LIBRARY_MASK]) & BRICK_LIBRARY_ALL_MASK
+        raw_mask = int(op[BRICKIFYASSEMBLY_LIBRARY_MASK] or 0)
+        mask = raw_mask & BRICK_LIBRARY_ALL_MASK
+        # Back-compat: older scenes stored 22 bits (bricks + plates). If those
+        # upper "plate" bits are present, fold them onto the first 11 brick
+        # footprints so legacy files retain a useful brick selection.
+        # Layout then was:
+        #   bits 0..10  = bricks
+        #   bits 11..21 = plates
+        LEGACY_BASE_COUNT = 11
+        has_legacy_upper_bits = bool(raw_mask >> len(BRICK_TOGGLE_NAMES))
+        if has_legacy_upper_bits:
+            legacy_plate_bits = (raw_mask >> LEGACY_BASE_COUNT) & ((1 << LEGACY_BASE_COUNT) - 1)
+            mask |= legacy_plate_bits
+        return mask & BRICK_LIBRARY_ALL_MASK
     except Exception:
         mask = 0
         for i in range(len(BRICK_TOGGLE_NAMES)):
@@ -219,11 +248,15 @@ def _apply_library_preset_to_object(op, preset_id):
         for i, n in enumerate(BRICK_TOGGLE_NAMES):
             op[_toggle_id(i)] = n.startswith("brick_")
     elif preset_id == BRICKIFYASSEMBLY_LIB_PRESET_PLATES:
-        for i, n in enumerate(BRICK_TOGGLE_NAMES):
-            op[_toggle_id(i)] = n.startswith("plate_")
+        # Legacy compatibility (button removed): treat as "enable plates"
+        # while keeping current brick footprint selection.
+        try:
+            op[BRICKIFYASSEMBLY_ENABLE_PLATES] = True
+        except Exception:
+            pass
     elif preset_id == BRICKIFYASSEMBLY_LIB_PRESET_1X1:
         for i, n in enumerate(BRICK_TOGGLE_NAMES):
-            op[_toggle_id(i)] = n in ("brick_1x1", "plate_1x1")
+            op[_toggle_id(i)] = (n == "brick_1x1")
     elif preset_id == BRICKIFYASSEMBLY_LIB_PRESET_INVERT:
         for i in range(len(BRICK_TOGGLE_NAMES)):
             op[_toggle_id(i)] = not bool(op[_toggle_id(i)])
@@ -232,7 +265,7 @@ def _apply_library_preset_to_object(op, preset_id):
     c4d.EventAdd()
 
 
-def _active_brickify_assembly():
+def _active_brick_object():
     try:
         doc = c4d.documents.GetActiveDocument()
         if doc is None:
@@ -252,6 +285,8 @@ def _active_brickify_assembly():
 VOXEL_RES_MIN_STUDS = 8
 VOXEL_RES_MAX_STUDS = 80
 VOXEL_RES_DEFAULT = 0.8
+PRUNE_AUTO_DISABLE_MIX_THRESHOLD = 0.55
+PRUNE_AUTO_REENABLE_MIX_THRESHOLD = 0.30
 
 
 def _voxel_resolution_to_studs(value):
@@ -294,34 +329,38 @@ QUALITY_PRESETS = {
 
 
 # =====================================================================
-# brickify import bootstrap
+# brick import bootstrap
 # =====================================================================
 
-def _ensure_brickify_on_path():
-    """Make sure the brickify package is importable.
+def _ensure_brick_on_path():
+    """Make sure the brick package is importable.
 
     Search order:
-      1. $BRICKIFY_ROOT (manual override)
-      2. Sibling 'brickify' directory next to this .pyp file
+      1. $BRICK_ROOT / $BRICKIFY_ROOT (manual override)
+      2. Sibling 'brick'/'brickify' directory next to this .pyp file
       3. Cinema 4D / user site-packages
     """
     here = os.path.dirname(os.path.abspath(__file__))
 
     candidates = []
-    env_root = os.environ.get("BRICKIFY_ROOT")
+    env_root = os.environ.get("BRICK_ROOT") or os.environ.get("BRICKIFY_ROOT")
     if env_root:
         candidates.append(env_root)
 
     # Hardcoded fallback to the dev repo. C4D loads the .pyp from a
-    # deployed copy under %APPDATA%/Maxon/.../plugins/BrickGenerator,
-    # so walking up from <here> can't find the brickify package — we
-    # need to point at the directory CONTAINING the brickify package.
+    # deployed copy under %APPDATA%/Maxon/.../plugins/BrickGen,
+    # so walking up from <here> can't find the package — we need to point
+    # at the directory CONTAINING both `brick` and `brickify`.
+    candidates.append(r"Z:\02_MKE\2026\BRICK\brick")
     candidates.append(r"Z:\02_MKE\2026\BRICK\brickify")
 
     walk = here
     for _ in range(6):
-        pkg_init = os.path.join(walk, "brickify", "__init__.py")
+        pkg_init = os.path.join(walk, "brick", "__init__.py")
         if os.path.isfile(pkg_init):
+            candidates.append(walk)
+        legacy_pkg_init = os.path.join(walk, "brickify", "__init__.py")
+        if os.path.isfile(legacy_pkg_init):
             candidates.append(walk)
         nested = os.path.join(walk, "brickify", "brickify", "__init__.py")
         if os.path.isfile(nested):
@@ -368,18 +407,18 @@ def _ensure_brickify_on_path():
             sys.path.insert(0, p)
 
 
-def _reload_brickify_modules():
-    """Hot-reload every loaded brickify.* module.
+def _reload_brick_modules():
+    """Hot-reload every loaded brick/brickify module.
 
-    Use case: the user edits brickify/voxelize.py (or fitter.py, etc.)
+    Use case: the user edits brick/voxelize.py (or fitter.py, etc.)
     on disk and clicks Rebuild. Without this, Python's import cache
     keeps the stale module objects bound and the rebuild has no effect
     until C4D is restarted.
     """
     import importlib
-    _ensure_brickify_on_path()
+    _ensure_brick_on_path()
     names = [n for n in list(sys.modules.keys())
-             if n == "brickify" or n.startswith("brickify.")]
+             if n == "brick" or n.startswith("brick.") or n == "brickify" or n.startswith("brickify.")]
     names.sort(key=lambda n: -n.count("."))
     for n in names:
         mod = sys.modules.get(n)
@@ -388,7 +427,7 @@ def _reload_brickify_modules():
         try:
             importlib.reload(mod)
         except Exception as exc:
-            print("[brickify] reload failed for {0}: {1}".format(n, exc))
+            print("[brick] reload failed for {0}: {1}".format(n, exc))
             sys.modules.pop(n, None)
 
 
@@ -397,7 +436,7 @@ def _reload_brickify_modules():
 # =====================================================================
 
 def mesh_to_polygon_object(mesh, name="brick"):
-    """Convert a brickify Mesh to a c4d.PolygonObject.
+    """Convert a brick Mesh to a c4d.PolygonObject.
 
     n-gons are converted to a triangle fan from the polygon centroid so
     that round caps stay centered. Quads and tris pass through unchanged.
@@ -463,20 +502,33 @@ def mesh_to_polygon_object(mesh, name="brick"):
     return obj
 
 
-def build_brick(width, depth, height_plates, quality):
-    """Return a brickify Mesh built by make_brick_hires at the given quality."""
-    from brickify.brick_geom_hires import make_brick_hires
+def build_brick(
+    width,
+    depth,
+    height_plates,
+    quality,
+    piece_type=BRICKGENERATOR_TYPE_BRICK,
+):
+    """Return a brick/plate Mesh built by make_brick_hires."""
+    from brick.brick_geom_hires import make_brick_hires
+
+    h = max(1, int(height_plates))
+    if int(piece_type) == BRICKGENERATOR_TYPE_PLATE:
+        h = 1
 
     kwargs = dict(QUALITY_PRESETS.get(quality, QUALITY_PRESETS[BRICKGENERATOR_QUALITY_HERO]))
-    return make_brick_hires(int(width), int(depth), int(height_plates), **kwargs)
+    if int(piece_type) == BRICKGENERATOR_TYPE_PLATE:
+        # Plate mode should be the smooth plate variant by default.
+        kwargs["with_studs"] = False
+    return make_brick_hires(int(width), int(depth), h, **kwargs)
 
 
 # =====================================================================
 # C4D plugin shell
 # =====================================================================
 
-class BrickGenerator(plugins.ObjectData):
-    """C4D ObjectData generator: Width / Depth / Height / Quality -> brick."""
+class BrickGen(plugins.ObjectData):
+    """C4D ObjectData generator: Width / Depth / Height / Type / Quality."""
 
     def __init__(self):
         super().__init__()
@@ -487,37 +539,78 @@ class BrickGenerator(plugins.ObjectData):
         op[BRICKGENERATOR_WIDTH] = 2
         op[BRICKGENERATOR_DEPTH] = 4
         op[BRICKGENERATOR_HEIGHT] = 3
+        op[BRICKGENERATOR_TYPE] = BRICKGENERATOR_TYPE_BRICK
         op[BRICKGENERATOR_QUALITY] = BRICKGENERATOR_QUALITY_STANDARD
         self._cache_key = None
         self._cache_obj = None
         return True
 
+    def Message(self, op, msg_type, data):
+        if msg_type == c4d.MSG_DESCRIPTION_POSTSETPARAMETER:
+            try:
+                desc_id = -1
+                try:
+                    desc_id = data["descid"][0].id
+                except Exception:
+                    try:
+                        desc_id = data["id"][0].id
+                    except Exception:
+                        desc_id = -1
+                if desc_id == BRICKGENERATOR_TYPE:
+                    op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                    c4d.EventAdd()
+            except Exception:
+                pass
+        return True
+
+    def GetDEnabling(self, op, desc_id, t_data, flags, itemdesc):
+        """Disable Height control while Type=Plate."""
+        try:
+            pid = desc_id[0].id
+        except Exception:
+            try:
+                pid = int(desc_id)
+            except Exception:
+                return True
+        if pid == BRICKGENERATOR_HEIGHT:
+            try:
+                piece_type = int(op[BRICKGENERATOR_TYPE] or BRICKGENERATOR_TYPE_BRICK)
+            except Exception:
+                piece_type = BRICKGENERATOR_TYPE_BRICK
+            return piece_type != BRICKGENERATOR_TYPE_PLATE
+        return True
+
     def GetVirtualObjects(self, op, hh):
-        _ensure_brickify_on_path()
+        _ensure_brick_on_path()
 
         try:
-            import brickify.mesh  # noqa: F401
+            import brick.mesh  # noqa: F401
         except ModuleNotFoundError as exc:
             raise RuntimeError(
-                "Failed to import brickify. Make sure the brickify "
+                "Failed to import brick. Make sure the brick "
                 "package is next to c4d_brick_generator.pyp (or set "
-                "BRICKIFY_ROOT) and that numpy/scipy are installed in "
+                "BRICK_ROOT/BRICKIFY_ROOT) and that numpy/scipy are installed in "
                 "Cinema 4D's Python environment."
             ) from exc
 
         width = max(1, int(op[BRICKGENERATOR_WIDTH]))
         depth = max(1, int(op[BRICKGENERATOR_DEPTH]))
         height = max(1, int(op[BRICKGENERATOR_HEIGHT]))
+        piece_type = int(op[BRICKGENERATOR_TYPE] or BRICKGENERATOR_TYPE_BRICK)
+        if piece_type not in (BRICKGENERATOR_TYPE_BRICK, BRICKGENERATOR_TYPE_PLATE):
+            piece_type = BRICKGENERATOR_TYPE_BRICK
         quality = int(op[BRICKGENERATOR_QUALITY])
         if quality not in QUALITY_PRESETS:
             quality = BRICKGENERATOR_QUALITY_STANDARD
 
-        cache_key = (width, depth, height, quality)
+        cache_key = (width, depth, height, piece_type, quality)
         if self._cache_key == cache_key and self._cache_obj is not None:
             return self._cache_obj.GetClone(c4d.COPYFLAGS_NONE)
 
-        mesh = build_brick(width, depth, height, quality)
-        name = "Brick_{w}x{d}x{h}".format(w=width, d=depth, h=height)
+        mesh = build_brick(width, depth, height, quality, piece_type)
+        out_h = 1 if piece_type == BRICKGENERATOR_TYPE_PLATE else height
+        prefix = "Plate" if piece_type == BRICKGENERATOR_TYPE_PLATE else "Brick"
+        name = "{p}_{w}x{d}x{h}".format(p=prefix, w=width, d=depth, h=out_h)
         result = mesh_to_polygon_object(mesh, name=name)
         self._cache_key = cache_key
         self._cache_obj = result.GetClone(c4d.COPYFLAGS_NONE)
@@ -525,7 +618,7 @@ class BrickGenerator(plugins.ObjectData):
 
 
 # =====================================================================
-# BrickifyAssembly: source mesh -> brick assembly
+# BrickAssembly: source mesh -> brick assembly
 # =====================================================================
 
 ASSEMBLY_QUALITY_PRESETS = {
@@ -679,6 +772,7 @@ def _source_material_color(source_obj):
 class BrickLibraryPickerDialog(c4d.gui.GeDialog):
     """Safe thumbnail picker outside the .res description parser."""
 
+    DLG_HERO = 50000
     DLG_PRESET_ALL = 50001
     DLG_PRESET_NONE = 50002
     DLG_PRESET_BRICKS = 50003
@@ -726,13 +820,28 @@ class BrickLibraryPickerDialog(c4d.gui.GeDialog):
 
     def CreateLayout(self):
         self.SetTitle("Brick Library Picker")
-        if not self.GroupBegin(1000, c4d.BFH_SCALEFIT, cols=3):
+        if not self.GroupBegin(999, c4d.BFH_SCALEFIT, cols=1):
+            return True
+        hero_bc = c4d.BaseContainer()
+        hero_bc.SetBool(c4d.BITMAPBUTTON_BUTTON, False)
+        hero_bc.SetBool(c4d.BITMAPBUTTON_BORDER, False)
+        hero_bc.SetLong(c4d.BITMAPBUTTON_ICONID1, int(ICON_BRICKIFY_HERO))
+        self.AddCustomGui(
+            self.DLG_HERO,
+            c4d.CUSTOMGUI_BITMAPBUTTON,
+            "",
+            c4d.BFH_CENTER,
+            820,
+            120,
+            hero_bc,
+        )
+        self.GroupEnd()
+
+        if not self.GroupBegin(1000, c4d.BFH_SCALEFIT, cols=4):
             return True
         self.AddButton(self.DLG_PRESET_ALL, c4d.BFH_SCALEFIT, name="All")
         self.AddButton(self.DLG_PRESET_NONE, c4d.BFH_SCALEFIT, name="None")
         self.AddButton(self.DLG_PRESET_INVERT, c4d.BFH_SCALEFIT, name="Invert")
-        self.AddButton(self.DLG_PRESET_BRICKS, c4d.BFH_SCALEFIT, name="Bricks")
-        self.AddButton(self.DLG_PRESET_PLATES, c4d.BFH_SCALEFIT, name="Plates")
         self.AddButton(self.DLG_PRESET_1X1, c4d.BFH_SCALEFIT, name="1x1")
         self.GroupEnd()
 
@@ -766,11 +875,11 @@ class BrickLibraryPickerDialog(c4d.gui.GeDialog):
 
     def CoreMessage(self, mid, bc):
         # Modeless follow-mode: while dialog is open, track current active
-        # BrickifyAssembly selection so artists don't need to reopen picker.
+        # BrickAssembly selection so artists don't need to reopen picker.
         try:
             doc = c4d.documents.GetActiveDocument()
             if doc is not None:
-                op = _active_brickify_assembly()
+                op = _active_brick_object()
                 if op is not None:
                     if op is not self._target:
                         self.set_target(op)
@@ -798,8 +907,6 @@ class BrickLibraryPickerDialog(c4d.gui.GeDialog):
         preset_map = {
             self.DLG_PRESET_ALL: BRICKIFYASSEMBLY_LIB_PRESET_ALL,
             self.DLG_PRESET_NONE: BRICKIFYASSEMBLY_LIB_PRESET_NONE,
-            self.DLG_PRESET_BRICKS: BRICKIFYASSEMBLY_LIB_PRESET_BRICKS,
-            self.DLG_PRESET_PLATES: BRICKIFYASSEMBLY_LIB_PRESET_PLATES,
             self.DLG_PRESET_1X1: BRICKIFYASSEMBLY_LIB_PRESET_1X1,
             self.DLG_PRESET_INVERT: BRICKIFYASSEMBLY_LIB_PRESET_INVERT,
         }
@@ -837,7 +944,7 @@ def _ensure_library_panel_dialog():
 def _open_library_panel(target=None):
     dlg = _ensure_library_panel_dialog()
     if target is None:
-        target = _active_brickify_assembly()
+        target = _active_brick_object()
     dlg.set_target(target)
     dlg.Open(
         c4d.DLG_TYPE_ASYNC,
@@ -850,7 +957,7 @@ def _open_library_panel(target=None):
 
 class BrickLibraryPanelCommand(plugins.CommandData):
     def Execute(self, doc):
-        _open_library_panel(_active_brickify_assembly())
+        _open_library_panel(_active_brick_object())
         return True
 
     def RestoreLayout(self, secret):
@@ -858,7 +965,7 @@ class BrickLibraryPanelCommand(plugins.CommandData):
         return dlg.Restore(pluginid=ID_BRICKLIBRARYPANEL, secret=secret)
 
 
-class BrickifyAssembly(plugins.ObjectData):
+class BrickAssembly(plugins.ObjectData):
     """Source polygon mesh -> brick-assembly hierarchy of instances."""
 
     def __init__(self):
@@ -875,9 +982,12 @@ class BrickifyAssembly(plugins.ObjectData):
         self._last_resolution_key = None
         self._startup_draft_pending = True
         self._managed_source = None
+        self._last_prune_warning_key = None
+        self._prune_auto_forced_off = False
 
     def Init(self, op, isCloneInit=False):
         op[BRICKIFYASSEMBLY_VOXEL_RESOLUTION] = VOXEL_RES_DEFAULT
+        op[BRICKIFYASSEMBLY_HERO] = 0
         op[BRICKIFYASSEMBLY_STUDS_ACROSS] = 16          # legacy fallback
         op[BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE] = False
         op[BRICKIFYASSEMBLY_STUD_SIZE] = 8.0
@@ -889,6 +999,9 @@ class BrickifyAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION] = False
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED] = 1
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT] = 0.6
+        op[BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS] = False
+        op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES] = True
+        op[BRICKIFYASSEMBLY_ENABLE_PLATES] = False
         op[BRICKIFYASSEMBLY_HIDE_SOURCE_MESH] = True
         op[BRICKIFYASSEMBLY_MERGE_PLATES] = True
         op[BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY] = True
@@ -913,6 +1026,8 @@ class BrickifyAssembly(plugins.ObjectData):
         self._last_resolution_key = None
         self._startup_draft_pending = True
         self._managed_source = None
+        self._last_prune_warning_key = None
+        self._prune_auto_forced_off = False
         # Ensure a fresh scene/file load triggers at least one generator
         # evaluation without requiring a manual OM interaction.
         try:
@@ -1008,7 +1123,7 @@ class BrickifyAssembly(plugins.ObjectData):
         """
         if not description.LoadDescription(ID_BRICKIFYASSEMBLY):
             print(
-                "[brickify] BrickifyAssembly: description.LoadDescription("
+                "[brick] BrickAssembly: description.LoadDescription("
                 "ID_BRICKIFYASSEMBLY) failed -- check res/description/"
                 "obrickifyassembly.res for non-ASCII bytes or syntax errors."
             )
@@ -1031,7 +1146,7 @@ class BrickifyAssembly(plugins.ObjectData):
             except Exception:
                 desc_id = -1
             if desc_id == BRICKIFYASSEMBLY_REBUILD:
-                _reload_brickify_modules()
+                _reload_brick_modules()
                 self._fit_cache_key = None
                 self._fit_placements = None
                 self._hierarchy_cache_key = None
@@ -1041,6 +1156,9 @@ class BrickifyAssembly(plugins.ObjectData):
                 self._pending_auto_since = 0.0
                 self._last_resolution_key = None
                 op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                # Force immediate reevaluation after the button press instead
+                # of waiting for viewport/object-manager interaction.
+                c4d.EventAdd()
             elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
                 self._open_library_picker(op)
             elif desc_id in (
@@ -1106,6 +1224,18 @@ class BrickifyAssembly(plugins.ObjectData):
                     < BRICKIFYASSEMBLY_BRICK_BASE + len(BRICK_TOGGLE_NAMES)
                 ):
                     _sync_library_mask_from_toggles(op)
+                if desc_id in (
+                    BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS,
+                    BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
+                ):
+                    # This toggle is commonly A/B tested while dialing a model;
+                    # force immediate reevaluation so users can see the effect
+                    # without requiring manual "Rebuild Now".
+                    self._fit_cache_key = None
+                    self._hierarchy_cache_key = None
+                    self._force_rebuild = True
+                    op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                    c4d.EventAdd()
                 if desc_id in (BRICKIFYASSEMBLY_SOURCE, BRICKIFYASSEMBLY_HIDE_SOURCE_MESH):
                     self._sync_source_visibility(op)
                     c4d.EventAdd()
@@ -1114,9 +1244,9 @@ class BrickifyAssembly(plugins.ObjectData):
         return True
 
     def _get_active_library(self, op):
-        """Return a brickify.BrickLibrary filtered to enabled toggles.
+        """Return a brick.BrickLibrary filtered to enabled toggles.
         """
-        from brickify.library import BrickLibrary, BrickType, DEFAULT_LIBRARY
+        from brick.library import BrickLibrary, BrickType, DEFAULT_LIBRARY
 
         # Keep legacy bool toggles in sync with native custom GUI bitmask.
         _apply_library_mask_to_toggles(op, _read_library_mask(op))
@@ -1125,6 +1255,10 @@ class BrickifyAssembly(plugins.ObjectData):
         by_name = {b.name: b for b in DEFAULT_LIBRARY}
         toggled_names = set(BRICK_TOGGLE_NAMES)
         selected_toggle_names = set()
+        try:
+            enable_plates = bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
+        except Exception:
+            enable_plates = False
 
         for i, name in enumerate(BRICK_TOGGLE_NAMES):
             try:
@@ -1140,6 +1274,12 @@ class BrickifyAssembly(plugins.ObjectData):
         if not selected_toggle_names:
             return BrickLibrary([])
 
+        if enable_plates:
+            for name in PLATE_LIBRARY_NAMES:
+                bt = by_name.get(name)
+                if bt is not None:
+                    enabled.append(bt)
+
         # Add non-toggle variants (extra heights) only for footprints that are
         # currently selected by toggle controls.
         selected_footprints = {
@@ -1149,6 +1289,9 @@ class BrickifyAssembly(plugins.ObjectData):
             if b.name in toggled_names:
                 # Canonical toggle-controlled members are already handled above.
                 continue
+            if b.name in PLATE_LIBRARY_NAMES:
+                # Plate footprints are globally controlled by Enable Plates.
+                continue
             if (b.width, b.depth) in selected_footprints:
                 enabled.append(b)
 
@@ -1157,8 +1300,9 @@ class BrickifyAssembly(plugins.ObjectData):
         # plate (h=1) and brick (h=3) entries in this C4D session.
         by_key = {(b.width, b.depth, b.height): b for b in enabled}
         footprints = {(b.width, b.depth) for b in enabled}
+        allowed_heights = (1, 2, 3, 4, 5, 6) if enable_plates else (2, 3, 4, 5, 6)
         for w, d in footprints:
-            for h in (1, 2, 3, 4, 5, 6):
+            for h in allowed_heights:
                 key = (w, d, h)
                 if key in by_key:
                     continue
@@ -1203,12 +1347,18 @@ class BrickifyAssembly(plugins.ObjectData):
         # meaningfully controllable from 1..6 plate units.
         max_bh = max(1, min(6, int(op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT])))
         randomize_heights = bool(op[BRICKIFYASSEMBLY_HEIGHT_VARIATION])
-        height_mix_seed = max(
-            0, min(1000000, int(op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED] or 1))
-        )
-        height_mix_amount = max(
-            0.0, min(1.0, float(op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT] or 0.6))
-        )
+        seed_raw = op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED]
+        if seed_raw is None:
+            seed_raw = 1
+        height_mix_seed = max(0, min(1000000, int(seed_raw)))
+
+        mix_raw = op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT]
+        if mix_raw is None:
+            mix_raw = 0.6
+        # Perceptual response shaping: keep the stronger look of the original
+        # mix behavior while spreading control a bit more evenly across 0..1.
+        mix_linear = max(0.0, min(1.0, float(mix_raw)))
+        height_mix_amount = mix_linear ** 1.3
         # When max_bh < 3, plates can't be promoted into bricks. The merge
         # step therefore must be suppressed so the fitter's plate output
         # stays plates.
@@ -1219,16 +1369,86 @@ class BrickifyAssembly(plugins.ObjectData):
         # specific mode, pruning to largest component collapses the model into
         # one center stack, so we auto-disable prune.
         lib_mask = _read_library_mask(op)
-        selected_toggle_names = [
-            name
-            for i, name in enumerate(BRICK_TOGGLE_NAMES)
-            if (lib_mask & (1 << i)) != 0
-        ]
-        only_1x1_library = bool(selected_toggle_names) and all(
+        # Keep legacy toggles synced before classifying library mode. The
+        # native GUI writes a bitmask, while older scenes rely on per-toggle
+        # bools; syncing here avoids stale mode detection.
+        _apply_library_mask_to_toggles(op, lib_mask)
+        try:
+            enable_plates = bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
+        except Exception:
+            enable_plates = False
+        selected_toggle_names = []
+        for i, name in enumerate(BRICK_TOGGLE_NAMES):
+            try:
+                if bool(op[_toggle_id(i)]):
+                    selected_toggle_names.append(name)
+            except Exception:
+                # If a toggle read fails, treat it as enabled to avoid
+                # accidentally entering restrictive auto-modes.
+                selected_toggle_names.append(name)
+        only_2x_library = (not enable_plates) and bool(selected_toggle_names) and all(
+            ("_2x" in n) for n in selected_toggle_names
+        )
+        only_1x1_library = (not enable_plates) and bool(selected_toggle_names) and all(
             (n.endswith("_1x1") or n.endswith("1x1")) for n in selected_toggle_names
         )
+        # With 2x-only libraries, detail-band restrictions can over-constrain
+        # the fitter and produce carved-out facades. Force detail strategy off
+        # so coverage stays stable for "2x only" workflows.
+        if only_2x_library and detail_mode != "off":
+            detail_mode = "off"
+            try:
+                op[BRICKIFYASSEMBLY_DETAIL_MODE] = BRICKIFYASSEMBLY_DETAIL_MODE_OFF
+            except Exception:
+                pass
+        if only_2x_library and (not use_manual_stud_size):
+            # 2x-only footprints tile in 2-cell quanta. At odd voxel resolution
+            # widths (common around ~0.7 slider values), one-cell perimeter
+            # strips become impossible to cover and look like "missing mass".
+            # Snap auto resolution to an even studs-across value in this mode.
+            if studs_across % 2 != 0:
+                studs_across = min(VOXEL_RES_MAX_STUDS, studs_across + 1)
         prune_user = bool(op[BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY])
+        # Hysteresis restore: if we auto-forced prune off at high Height Mix,
+        # restore the user's original intent when mix comes back down.
+        if (
+            (not prune_user)
+            and self._prune_auto_forced_off
+            and randomize_heights
+            and mix_linear <= PRUNE_AUTO_REENABLE_MIX_THRESHOLD
+        ):
+            try:
+                op[BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY] = True
+            except Exception:
+                pass
+            prune_user = True
+            self._prune_auto_forced_off = False
+        if not randomize_heights:
+            self._prune_auto_forced_off = False
         prune = prune_user and (not only_1x1_library)
+        prune_auto_disabled = False
+        prune_auto_reason = ""
+        if prune_user and only_1x1_library:
+            prune_auto_disabled = True
+            prune_auto_reason = "1x1-only library"
+        # High height-mix intentionally introduces local structure variation.
+        # In that mode, connectivity-prune can remove large valid regions.
+        if (
+            prune
+            and randomize_heights
+            and mix_linear >= PRUNE_AUTO_DISABLE_MIX_THRESHOLD
+        ):
+            prune = False
+            prune_auto_disabled = True
+            prune_auto_reason = "high Height Mix"
+        # Keep UI state honest: when auto-disable triggers, flip the checkbox
+        # off so users can see prune is inactive for this build.
+        if prune_auto_disabled and prune_user:
+            try:
+                op[BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY] = False
+            except Exception:
+                pass
+            self._prune_auto_forced_off = True
         cleanup_protrusions = max(0, int(op[BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS]
                                          or 0))
         # In 1x1-only mode, protrusion cleanup tends to remove valid shelf/
@@ -1237,9 +1457,26 @@ class BrickifyAssembly(plugins.ObjectData):
             cleanup_protrusions = 0
         # Preserve horizontal silhouette bands for 1x1 runs so stepped base
         # shelves stay intact instead of fragmenting into sparse leftovers.
-        preserve_silhouette = bool(only_1x1_library)
+        preserve_silhouette = bool(only_1x1_library or only_2x_library)
+        preserve_tiny_gaps = bool(op[BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS])
+        # UI override for plate placement policy.
+        surface_only_plates_ui = bool(op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES])
+        # Apply in both solid and shell voxel modes, but only when plate usage
+        # itself is enabled.
+        surface_only_plates = bool(surface_only_plates_ui and enable_plates)
         color_mode = int(op[BRICKIFYASSEMBLY_COLOR_MODE])
         visualization_mode = int(op[BRICKIFYASSEMBLY_VISUALIZATION_MODE] or 0)
+        # "Brick Size" and "Shell Depth" were removed from the UI cycle.
+        # Coerce legacy scene values to Source Color so old files remain valid.
+        if visualization_mode in (
+            BRICKIFYASSEMBLY_VISUALIZATION_MODE_BRICK_SIZE,
+            BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
+        ):
+            visualization_mode = BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE
+            try:
+                op[BRICKIFYASSEMBLY_VISUALIZATION_MODE] = visualization_mode
+            except Exception:
+                pass
         auto_rebuild = bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD])
 
         base_rgb = (180, 180, 180)
@@ -1248,7 +1485,7 @@ class BrickifyAssembly(plugins.ObjectData):
             if mat_rgb is not None:
                 base_rgb = mat_rgb
 
-        # Library curation key — bitmask over the 22 brick toggles. Goes
+        # Library curation key — bitmask over brick toggles. Goes
         # into the fit cache key so toggling a brick reruns the fitter.
         lib_mask = _read_library_mask(op)
 
@@ -1264,12 +1501,18 @@ class BrickifyAssembly(plugins.ObjectData):
             "randomize_heights": randomize_heights,
             "height_mix_seed": height_mix_seed,
             "height_mix_amount": height_mix_amount,
+            "height_mix_amount_ui": mix_linear,
             "merge_plates": merge_plates,
             "prune": prune,
             "prune_user": prune_user,
+            "prune_auto_disabled": prune_auto_disabled,
+            "prune_auto_reason": prune_auto_reason,
             "only_1x1_library": only_1x1_library,
             "cleanup_protrusions": cleanup_protrusions,
             "preserve_silhouette": preserve_silhouette,
+            "preserve_tiny_gaps": preserve_tiny_gaps,
+            "surface_only_plates": surface_only_plates,
+            "enable_plates": enable_plates,
             "color_mode": color_mode,
             "visualization_mode": visualization_mode,
             "auto_rebuild": auto_rebuild,
@@ -1298,6 +1541,9 @@ class BrickifyAssembly(plugins.ObjectData):
             params["prune"],
             params["cleanup_protrusions"],
             params["preserve_silhouette"],
+            params["preserve_tiny_gaps"],
+            params["surface_only_plates"],
+            params["enable_plates"],
             params["lib_mask"],
         )
 
@@ -1317,7 +1563,7 @@ class BrickifyAssembly(plugins.ObjectData):
         )
 
     def _refit_if_needed(self, op, doc):
-        from brickify.pipeline import brickify_mesh
+        from brick.pipeline import brick_mesh
 
         source_obj = op[BRICKIFYASSEMBLY_SOURCE]
         if source_obj is None:
@@ -1354,7 +1600,7 @@ class BrickifyAssembly(plugins.ObjectData):
             self._fit_info = {"note": "No brick types selected."}
             return True
 
-        placements, info = brickify_mesh(
+        placements, info = brick_mesh(
             verts, faces,
             vertex_colors=vcolors,
             default_color=params["base_rgb"],
@@ -1371,23 +1617,76 @@ class BrickifyAssembly(plugins.ObjectData):
             prune_connectivity=params["prune"],
             cleanup_protrusions=params["cleanup_protrusions"],
             preserve_silhouette=params["preserve_silhouette"],
+            preserve_tiny_gaps=params["preserve_tiny_gaps"],
+            surface_only_plates=params["surface_only_plates"],
             library=active_library,
             min_column_voxels=0,
         )
+        info["prune_auto_disabled"] = bool(params.get("prune_auto_disabled"))
+        info["prune_auto_reason"] = str(params.get("prune_auto_reason") or "")
+        info["prune_user"] = bool(params.get("prune_user"))
+        info["height_mix_amount_ui"] = float(params.get("height_mix_amount_ui", 0.0))
+        if params.get("prune_auto_disabled"):
+            warn_key = (
+                source_obj.GetGUID(),
+                bool(params.get("prune_user")),
+                bool(params.get("randomize_heights")),
+                round(float(params.get("height_mix_amount_ui", 0.0)), 3),
+                str(params.get("prune_auto_reason") or ""),
+            )
+            if warn_key != self._last_prune_warning_key:
+                try:
+                    c4d.GePrint(
+                        "[brick] Build Cleanup: 'Prune to Largest Component' "
+                        "auto-disabled ({0}). Reason: {1}. "
+                        "Set Height Mix below {2:.2f} (re-enable threshold "
+                        "{3:.2f}) or disable Height Mix to re-enable prune.".format(
+                            "ON" if bool(params.get("prune_user")) else "OFF",
+                            params.get("prune_auto_reason") or "n/a",
+                            PRUNE_AUTO_DISABLE_MIX_THRESHOLD,
+                            PRUNE_AUTO_REENABLE_MIX_THRESHOLD,
+                        )
+                    )
+                except Exception:
+                    pass
+                self._last_prune_warning_key = warn_key
+        else:
+            self._last_prune_warning_key = None
         self._fit_cache_key = fit_key
         self._fit_placements = placements
         self._fit_info = info
         return True
 
-    def _get_template_mesh(self, brick_type, quality, stud_size, plate_size):
-        from brickify.brick_geom_hires import make_brick_hires
+    def _get_template_mesh(
+        self,
+        brick_type,
+        quality,
+        stud_size,
+        plate_size,
+        *,
+        smooth_plate_visual=True,
+        force_smooth_top=False,
+    ):
+        from brick.brick_geom_hires import make_brick_hires
+        is_smooth_visual = int(
+            bool(
+                force_smooth_top
+                or (
+                    getattr(brick_type, "height", 0) == 1
+                    and bool(smooth_plate_visual)
+                )
+            )
+        )
         key = (brick_type.width, brick_type.depth, brick_type.height,
-               quality, round(stud_size, 6), round(plate_size, 6))
+               quality, round(stud_size, 6), round(plate_size, 6),
+               is_smooth_visual)
         if key in self._mesh_cache:
             return self._mesh_cache[key]
         kwargs = dict(ASSEMBLY_QUALITY_PRESETS[quality])
         kwargs["stud_size"] = stud_size
         kwargs["plate_size"] = plate_size
+        if is_smooth_visual:
+            kwargs["with_studs"] = False
         SCALE_REF = 8.0
         s = float(stud_size) / SCALE_REF
         SCALED_DEFAULTS = {
@@ -1448,11 +1747,30 @@ class BrickifyAssembly(plugins.ObjectData):
 
         type_to_template = {}
 
-        def _get_template_obj(brick_type, variant_key=None):
-            tkey = (brick_type.width, brick_type.depth, brick_type.height, variant_key)
+        def _get_template_obj(
+            brick_type,
+            variant_key=None,
+            smooth_plate_visual=True,
+            force_smooth_top=False,
+        ):
+            tkey = (
+                brick_type.width,
+                brick_type.depth,
+                brick_type.height,
+                variant_key,
+                int(bool(smooth_plate_visual)),
+                int(bool(force_smooth_top)),
+            )
             if tkey in type_to_template:
                 return type_to_template[tkey]
-            mesh = self._get_template_mesh(brick_type, quality, stud_size, plate_size)
+            mesh = self._get_template_mesh(
+                brick_type,
+                quality,
+                stud_size,
+                plate_size,
+                smooth_plate_visual=smooth_plate_visual,
+                force_smooth_top=force_smooth_top,
+            )
             t_obj = mesh_to_polygon_object(
                 mesh, name="tmpl_{0}x{1}x{2}p".format(
                     brick_type.width, brick_type.depth, brick_type.height
@@ -1465,20 +1783,38 @@ class BrickifyAssembly(plugins.ObjectData):
         mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", 2)
 
         from collections import defaultdict
-        by_type = defaultdict(list)
-        for p in self._fit_placements:
-            # Keep 90-degree placements in separate batches so we can use
-            # swapped-footprint templates and avoid per-instance rotation
-            # offset ambiguity in C4D matrix space.
-            tkey = (p.brick.width, p.brick.depth, p.brick.height, p.rotation_y)
-            by_type[tkey].append(p)
-
         shell_depths = info.get("placement_shell_depths") or []
         depth_by_obj = {
             id(p): int(shell_depths[i])
             for i, p in enumerate(self._fit_placements)
             if i < len(shell_depths)
         }
+        smooth_top_by_obj = {}
+        if bool(params.get("surface_only_plates")):
+            # Robust visual rule: when surface-only policy is active, render all
+            # non-plate placements with studless tops. This avoids rare "rogue"
+            # exposed studs that can appear with extreme height-mix solutions.
+            for p in self._fit_placements:
+                smooth_top_by_obj[id(p)] = bool(
+                    int(getattr(p.brick, "height", 0)) > 1
+                )
+
+        smooth_plate_visual = bool(params.get("surface_only_plates"))
+
+        by_type = defaultdict(list)
+        for p in self._fit_placements:
+            # Keep 90-degree placements in separate batches so we can use
+            # swapped-footprint templates and avoid per-instance rotation
+            # offset ambiguity in C4D matrix space.
+            smooth_top_visual = int(bool(smooth_top_by_obj.get(id(p), False)))
+            tkey = (
+                p.brick.width,
+                p.brick.depth,
+                p.brick.height,
+                p.rotation_y,
+                smooth_top_visual,
+            )
+            by_type[tkey].append(p)
 
         def _lerp(a, b, t):
             return a + (b - a) * max(0.0, min(1.0, t))
@@ -1532,7 +1868,7 @@ class BrickifyAssembly(plugins.ObjectData):
             if mat_key in debug_materials:
                 return debug_materials[mat_key]
             suffix = "Fill" if transparent else "Line"
-            name = "Brickify_Debug_{0}_{1}_{2}_{3}".format(
+            name = "Brick_Debug_{0}_{1}_{2}_{3}".format(
                 color_key[0], color_key[1], color_key[2], suffix
             )
             mat = None
@@ -1670,7 +2006,7 @@ class BrickifyAssembly(plugins.ObjectData):
             n_placements = len(self._fit_placements or [])
             try:
                 c4d.GePrint(
-                    "[brickify] Voxel Debug: n_voxels={0}, n_placements={1}, "
+                    "[brick] Voxel Debug: n_voxels={0}, n_placements={1}, "
                     "grid_dims={2}, voxel_components={3}, voxels_dropped={4}".format(
                         len(occ_list),
                         n_placements,
@@ -1723,7 +2059,7 @@ class BrickifyAssembly(plugins.ObjectData):
                 else:
                     try:
                         c4d.GePrint(
-                            "[brickify] Voxel Debug: no occupancy_cells "
+                            "[brick] Voxel Debug: no occupancy_cells "
                             "and no placements. Pipeline produced nothing."
                         )
                     except Exception:
@@ -1731,7 +2067,7 @@ class BrickifyAssembly(plugins.ObjectData):
             except Exception as exc:
                 try:
                     c4d.GePrint(
-                        "[brickify] Voxel Debug: error rendering "
+                        "[brick] Voxel Debug: error rendering "
                         "boxes: {0}".format(exc)
                     )
                 except Exception:
@@ -1782,6 +2118,7 @@ class BrickifyAssembly(plugins.ObjectData):
                 material_key = _color_key(batch_color)
                 debug_mat = None
                 template_variant = None
+                smooth_top_visual = bool(tkey[4]) if len(tkey) > 4 else False
                 if visualization_mode != BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE:
                     debug_mat = _get_debug_material(
                         material_key, batch_color, transparent=False
@@ -1798,7 +2135,12 @@ class BrickifyAssembly(plugins.ObjectData):
                     )
                 else:
                     template_brick = p0.brick
-                template = _get_template_obj(template_brick, template_variant)
+                template = _get_template_obj(
+                    template_brick,
+                    template_variant,
+                    smooth_plate_visual=smooth_plate_visual,
+                    force_smooth_top=smooth_top_visual,
+                )
                 _apply_object_color(template, batch_color)
                 _apply_material(template, debug_mat)
 
@@ -1850,13 +2192,13 @@ class BrickifyAssembly(plugins.ObjectData):
         return result
 
     def GetVirtualObjects(self, op, hh):
-        _ensure_brickify_on_path()
+        _ensure_brick_on_path()
 
         try:
-            import brickify.pipeline  # noqa: F401
+            import brick.pipeline  # noqa: F401
         except ModuleNotFoundError as exc:
             raise RuntimeError(
-                "Failed to import brickify.pipeline. Ensure the brickify "
+                "Failed to import brick.pipeline. Ensure the brick "
                 "package is reachable and numpy/scipy are installed in "
                 "Cinema 4D's Python environment."
             ) from exc
@@ -1921,6 +2263,10 @@ class BrickifyAssembly(plugins.ObjectData):
             params["merge_plates"],
             params["prune"],
             params["cleanup_protrusions"],
+            params["preserve_silhouette"],
+            params["preserve_tiny_gaps"],
+            params["surface_only_plates"],
+            params["enable_plates"],
             params["color_mode"],
             params["visualization_mode"],
             params["base_rgb"],
@@ -1977,8 +2323,8 @@ def _load_bitmap(path):
     return bmp
 
 
-def _register_brickify_icons():
-    """Register the hero banner icon and 22 brick thumbnails so the
+def _register_brick_icons():
+    """Register the hero banner icon and brick thumbnails so the
     description's BITMAPBUTTONs can resolve their ICONIDs."""
     here = os.path.dirname(os.path.abspath(__file__))
     res_dir = os.path.join(here, "res")
@@ -1991,11 +2337,11 @@ def _register_brickify_icons():
         try:
             c4d.gui.RegisterIcon(ICON_BRICKIFY_HERO, hero_bmp)
         except Exception as exc:
-            print("[brickify] hero icon register failed:", exc)
+            print("[brick] hero icon register failed:", exc)
     else:
-        print("[brickify] hero banner not found at", hero_path)
+        print("[brick] hero banner not found at", hero_path)
 
-    # 22 brick thumbnails. Use the @64 variants for crisper rendering on
+    # Brick thumbnails. Use the @64 variants for crisper rendering on
     # high-DPI displays — C4D scales down to the AM's row height.
     for i, name in enumerate(BRICK_TOGGLE_NAMES):
         for suffix in ("@64", "@2x", ""):
@@ -2007,18 +2353,18 @@ def _register_brickify_icons():
                         c4d.gui.RegisterIcon(ICON_BRICKIFY_BRICK_BASE + i, bmp)
                     except Exception as exc:
                         print(
-                            "[brickify] icon {0} register failed: {1}"
+                            "[brick] icon {0} register failed: {1}"
                             .format(name, exc)
                         )
                 break
         else:
-            print("[brickify] brick thumbnail missing:", name)
+            print("[brick] brick thumbnail missing:", name)
 
 
 def register():
     def _load_plugin_icon():
-        # The Object Manager tree shows this next to every BrickifyAssembly
-        # / BrickGenerator entry. brickify_icon.png is the dedicated 64x64
+        # The Object Manager tree shows this next to every BrickAssembly
+        # / BrickGen entry. brickify_icon.png is the dedicated 64x64
         # red 2x2 brick render produced by tools/prepare_branding_assets.py;
         # the isometric thumbnails are the AM gallery fallback for older
         # deployments that don't have the rendered icon yet.
@@ -2037,15 +2383,15 @@ def register():
     # Register brick thumbnail icons FIRST so the description widgets can
     # resolve them on first AM display.
     try:
-        _register_brickify_icons()
+        _register_brick_icons()
     except Exception as exc:
-        print("[brickify] icon registration error:", exc)
+        print("[brick] icon registration error:", exc)
 
     icon = _load_plugin_icon()
     ok1 = plugins.RegisterObjectPlugin(
         id=ID_BRICKGENERATOR,
         str=IDS_BRICKGENERATOR,
-        g=BrickGenerator,
+        g=BrickGen,
         description="obrickgenerator",
         info=c4d.OBJECT_GENERATOR,
         icon=icon,
@@ -2053,20 +2399,15 @@ def register():
     ok2 = plugins.RegisterObjectPlugin(
         id=ID_BRICKIFYASSEMBLY,
         str=IDS_BRICKIFYASSEMBLY,
-        g=BrickifyAssembly,
+        g=BrickAssembly,
         description="obrickifyassembly",
         info=c4d.OBJECT_GENERATOR | c4d.OBJECT_INPUT,
         icon=icon,
     )
-    ok3 = plugins.RegisterCommandPlugin(
-        id=ID_BRICKLIBRARYPANEL,
-        str=IDS_BRICKLIBRARYPANEL,
-        info=0,
-        icon=icon,
-        help="Open dockable Brick Library panel.",
-        dat=BrickLibraryPanelCommand(),
-    )
-    return ok1 and ok2 and ok3
+    # BrickLibraryPanelCommand is intentionally not registered as a standalone
+    # command plugin. The library UI is kept embedded in BrickIt's Attribute
+    # Manager instead of showing a separate "Brick Panel" plugin entry.
+    return ok1 and ok2
 
 
 if __name__ == "__main__":

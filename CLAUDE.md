@@ -1,4 +1,4 @@
-# CLAUDE.md — Brickify
+# CLAUDE.md — Brick
 
 Read this file before doing anything. The user has worked with multiple AI
 sessions on this and is tired of re-explaining decisions. Default to the
@@ -11,7 +11,7 @@ eventually, full LEGO assemblies converted from arbitrary 3D models). The
 generator runs as a C4D `ObjectData` plugin; the same Python package can
 also be driven from the command line.
 
-The C4D port is **live** — `BrickGenerator` is a working ObjectData
+The C4D port is **live** — `BrickGen` is a working ObjectData
 plugin that loads `brickify.brick_geom_hires.make_brick_hires`. Width,
 Depth, Height (plates), and Quality are exposed as object parameters.
 
@@ -24,7 +24,7 @@ Z:\02_MKE\2026\BRICK\brickify\        ← repo root
     brick_geom_hires.py                ← LIVE generator
     brick_geom.py                      ← deprecated SubD-cage version
     mesh.py, fitter.py, voxelize.py, ...
-  BrickGenerator\                      ← C4D plugin source
+  BrickGen\                      ← C4D plugin source
     c4d_brick_generator.pyp
     c4d_symbols.py
     res\
@@ -47,8 +47,8 @@ there is exactly one `brick_geom_hires.py` on disk and it lives at
 ## C4D plugin workflow
 
 C4D loads the plugin from
-`%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\BrickGenerator`,
-not directly from the repo. Edit canonically in `BrickGenerator/` here,
+`%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\BrickGen`,
+not directly from the repo. Edit canonically in `BrickGen/` here,
 then deploy with:
 
 ```
@@ -59,15 +59,15 @@ Geometry-only changes inside `brickify/brickify/*.py` do **not** need
 redeployment — the plugin imports the package live from
 `Z:\02_MKE\2026\BRICK\brickify` (hardcoded fallback in
 `_ensure_brickify_on_path`). Just restart C4D (or recreate the
-BrickGenerator object so its mesh cache invalidates).
+BrickGen object so its mesh cache invalidates).
 
-The plugin's `BrickGenerator` ObjectData caches results on
+The plugin's `BrickGen` ObjectData caches results on
 `(width, depth, height, quality)`. Changing any of those re-runs
 `make_brick_hires`.
 
 ### Daily test-run workflow (preferred)
 
-After each deploy that touches `BrickGenerator/`, restart C4D and reopen
+After each deploy that touches `BrickGen/`, restart C4D and reopen
 the standing test scene:
 
 ```
@@ -122,7 +122,7 @@ it.**
 ### Quality presets
 
 Defined identically in `tools/export_hires_brick.py` and
-`BrickGenerator/c4d_brick_generator.pyp`. If you change one, change the
+`BrickGen/c4d_brick_generator.pyp`. If you change one, change the
 other.
 
 - **draft** — `body_corner_segments=4, stud_segments=16, tube_segments=16,

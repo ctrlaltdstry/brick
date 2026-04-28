@@ -293,6 +293,106 @@ def _silhouette_lock_mask(occupancy: np.ndarray, *, band_width: int) -> np.ndarr
         mask[:, y, :] = dominant & (dist <= int(band_width))
     return mask
 
+
+def _preserve_tiny_gaps_pass(occupancy: np.ndarray) -> np.ndarray:
+    """Optionally remove thin bridge voxels to reopen tiny air channels.
+
+    This is conservative and intended as an artist-facing recovery mode for
+    stylized meshes where near-touching parts get fused at coarse resolutions.
+    """
+    if occupancy.size == 0 or not occupancy.any():
+        return occupancy
+
+    occ = occupancy.astype(bool, copy=True)
+    Nx, Ny, Nz = occ.shape
+
+    # Outside air mask (6-neighborhood from volume boundaries).
+    empty = ~occ
+    seed = np.zeros_like(empty, dtype=bool)
+    seed[0, :, :] = empty[0, :, :]
+    seed[-1, :, :] = empty[-1, :, :]
+    seed[:, 0, :] |= empty[:, 0, :]
+    seed[:, -1, :] |= empty[:, -1, :]
+    seed[:, :, 0] |= empty[:, :, 0]
+    seed[:, :, -1] |= empty[:, :, -1]
+    outside = ndimage.binary_propagation(
+        seed,
+        structure=ndimage.generate_binary_structure(3, 1),
+        mask=empty,
+    )
+
+    # Shift helpers with zero-fill boundaries.
+    def sh(a: np.ndarray, axis: int, step: int) -> np.ndarray:
+        out = np.zeros_like(a, dtype=bool)
+        if axis == 0:
+            if step > 0:
+                out[step:, :, :] = a[:-step, :, :]
+            else:
+                out[:step, :, :] = a[-step:, :, :]
+        elif axis == 1:
+            if step > 0:
+                out[:, step:, :] = a[:, :-step, :]
+            else:
+                out[:, :step, :] = a[:, -step:, :]
+        else:
+            if step > 0:
+                out[:, :, step:] = a[:, :, :-step]
+            else:
+                out[:, :, :step] = a[:, :, -step:]
+        return out
+
+    occ_xm = sh(occ, 0, +1)
+    occ_xp = sh(occ, 0, -1)
+    occ_ym = sh(occ, 1, +1)
+    occ_yp = sh(occ, 1, -1)
+    occ_zm = sh(occ, 2, +1)
+    occ_zp = sh(occ, 2, -1)
+    neigh6 = (
+        occ_xm.astype(np.uint8)
+        + occ_xp.astype(np.uint8)
+        + occ_ym.astype(np.uint8)
+        + occ_yp.astype(np.uint8)
+        + occ_zm.astype(np.uint8)
+        + occ_zp.astype(np.uint8)
+    )
+
+    out_xm = sh(outside, 0, +1)
+    out_xp = sh(outside, 0, -1)
+    out_ym = sh(outside, 1, +1)
+    out_yp = sh(outside, 1, -1)
+    out_zm = sh(outside, 2, +1)
+    out_zp = sh(outside, 2, -1)
+    opposite_outside_1 = (
+        (out_xm & out_xp)
+        | (out_ym & out_yp)
+        | (out_zm & out_zp)
+    )
+    # Also consider opposite outside-air across a 2-voxel span so this pass
+    # still has visible effect at coarse resolutions where accidental bridges
+    # are often 2 cells thick.
+    out_xm2 = sh(outside, 0, +2)
+    out_xp2 = sh(outside, 0, -2)
+    out_ym2 = sh(outside, 1, +2)
+    out_yp2 = sh(outside, 1, -2)
+    out_zm2 = sh(outside, 2, +2)
+    out_zp2 = sh(outside, 2, -2)
+    opposite_outside_2 = (
+        (out_xm2 & out_xp2)
+        | (out_ym2 & out_yp2)
+        | (out_zm2 & out_zp2)
+    )
+    opposite_outside = opposite_outside_1 | opposite_outside_2
+
+    # Remove only weakly-supported occupied voxels that sit between outside
+    # regions on opposite sides (likely accidental bridge voxels).
+    to_cut = occ & opposite_outside & (neigh6 <= 4)
+    if not to_cut.any():
+        return occ
+
+    occ[to_cut] = False
+    return occ
+
+
 def voxelize_mesh(
     vertices: np.ndarray,
     faces: np.ndarray,
@@ -310,6 +410,7 @@ def voxelize_mesh(
     cleanup_protrusions: int = 0,
     protrusion_layer_threshold: int = 9,
     preserve_silhouette: bool = False,
+    preserve_tiny_gaps: bool = False,
 ):
     """Voxelize a triangle mesh into the LEGO grid.
 
@@ -446,26 +547,74 @@ def voxelize_mesh(
         # boundaries, then treat everything else as occupied interior/surface.
         # A light close seals tiny rasterization pinholes first.
         seal_structure = np.ones((3, 3, 3), dtype=bool)
-        # Two close iterations robustly seal tiny rasterization pinholes.
-        # With one iteration some architectural meshes can leak/flood badly
-        # after grid-phase changes, producing unstable base occupancy.
-        sealed_surface = ndimage.binary_closing(
-            occ_surface, structure=seal_structure, iterations=2
-        )
-        empty = ~sealed_surface
-        outside_seed = np.zeros_like(empty, dtype=bool)
-        outside_seed[0, :, :] = empty[0, :, :]
-        outside_seed[-1, :, :] = empty[-1, :, :]
-        outside_seed[:, 0, :] |= empty[:, 0, :]
-        outside_seed[:, -1, :] |= empty[:, -1, :]
-        outside_seed[:, :, 0] |= empty[:, :, 0]
-        outside_seed[:, :, -1] |= empty[:, :, -1]
-        outside = ndimage.binary_propagation(
-            outside_seed,
-            structure=ndimage.generate_binary_structure(3, 1),
-            mask=empty,
-        )
-        occ = (~outside) | occ_surface
+        cc_structure = ndimage.generate_binary_structure(3, 1)
+        labels, n_surface_comp = ndimage.label(occ_surface, structure=cc_structure)
+        if n_surface_comp <= 1:
+            sealed_surface = ndimage.binary_closing(
+                occ_surface, structure=seal_structure, iterations=2
+            )
+            empty = ~sealed_surface
+            outside_seed = np.zeros_like(empty, dtype=bool)
+            outside_seed[0, :, :] = empty[0, :, :]
+            outside_seed[-1, :, :] = empty[-1, :, :]
+            outside_seed[:, 0, :] |= empty[:, 0, :]
+            outside_seed[:, -1, :] |= empty[:, -1, :]
+            outside_seed[:, :, 0] |= empty[:, :, 0]
+            outside_seed[:, :, -1] |= empty[:, :, -1]
+            outside = ndimage.binary_propagation(
+                outside_seed, structure=cc_structure, mask=empty
+            )
+            occ = (~outside) | occ_surface
+        else:
+            occ = np.zeros_like(occ_surface, dtype=bool)
+            # Guardrail for highly fragmented surfaces (sampling/pathological
+            # cases): keep the previous global solve for stability/performance.
+            if n_surface_comp > 128:
+                sealed_surface = ndimage.binary_closing(
+                    occ_surface, structure=seal_structure, iterations=2
+                )
+                empty = ~sealed_surface
+                outside_seed = np.zeros_like(empty, dtype=bool)
+                outside_seed[0, :, :] = empty[0, :, :]
+                outside_seed[-1, :, :] = empty[-1, :, :]
+                outside_seed[:, 0, :] |= empty[:, 0, :]
+                outside_seed[:, -1, :] |= empty[:, -1, :]
+                outside_seed[:, :, 0] |= empty[:, :, 0]
+                outside_seed[:, :, -1] |= empty[:, :, -1]
+                outside = ndimage.binary_propagation(
+                    outside_seed, structure=cc_structure, mask=empty
+                )
+                occ = (~outside) | occ_surface
+            else:
+                for lid in range(1, n_surface_comp + 1):
+                    comp = labels == lid
+                    if not comp.any():
+                        continue
+                    xs, ys, zs = np.where(comp)
+                    x0 = max(0, int(xs.min()) - 1)
+                    x1 = min(Nx, int(xs.max()) + 2)
+                    y0 = max(0, int(ys.min()) - 1)
+                    y1 = min(Ny, int(ys.max()) + 2)
+                    z0 = max(0, int(zs.min()) - 1)
+                    z1 = min(Nz, int(zs.max()) + 2)
+                    sub_surface = comp[x0:x1, y0:y1, z0:z1]
+                    sub_sealed = ndimage.binary_closing(
+                        sub_surface, structure=seal_structure, iterations=2
+                    )
+                    sub_empty = ~sub_sealed
+                    sub_seed = np.zeros_like(sub_empty, dtype=bool)
+                    sub_seed[0, :, :] = sub_empty[0, :, :]
+                    sub_seed[-1, :, :] = sub_empty[-1, :, :]
+                    sub_seed[:, 0, :] |= sub_empty[:, 0, :]
+                    sub_seed[:, -1, :] |= sub_empty[:, -1, :]
+                    sub_seed[:, :, 0] |= sub_empty[:, :, 0]
+                    sub_seed[:, :, -1] |= sub_empty[:, :, -1]
+                    sub_outside = ndimage.binary_propagation(
+                        sub_seed, structure=cc_structure, mask=sub_empty
+                    )
+                    sub_occ = (~sub_outside) | sub_surface
+                    occ[x0:x1, y0:y1, z0:z1] |= sub_occ
+                occ |= occ_surface
     else:
         raise ValueError(f"unknown mode: {mode}")
 
@@ -600,6 +749,9 @@ def voxelize_mesh(
             border_value=0,
         )
         occ = occ & ~eroded
+
+    if preserve_tiny_gaps:
+        occ = _preserve_tiny_gaps_pass(occ)
 
     if silhouette_lock is not None:
         occ = occ | silhouette_lock
