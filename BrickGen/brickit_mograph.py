@@ -3,6 +3,11 @@ from types import SimpleNamespace
 
 import c4d
 
+from brickit_animation import (
+    exposed_top_cap_ids,
+    ordered_placements,
+    smooth_top_cap_placements_for_coverage,
+)
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -28,7 +33,7 @@ def _create_mograph_handoff(self, op):
     if not self._refit_if_needed(op, doc, params):
         _brick_log("[brick] MoGraph handoff: fit is not available")
         return False
-    placements = list(self._fit_placements or [])
+    placements = ordered_placements(self._fit_placements or [])
     info = self._fit_info or {}
     if not placements or not info:
         _brick_log("[brick] MoGraph handoff: no placements to hand off")
@@ -68,7 +73,16 @@ def _create_mograph_handoff(self, op):
         _brick_log("[brick] MoGraph handoff: fit origin is missing")
         return False
     quality = params["quality"]
-    smooth_plate_visual = bool(params.get("surface_only_plates"))
+    smooth_plate_visual = False
+    smooth_cap_ids = set()
+    if bool(params.get("surface_only_plates")):
+        smooth_cap_ids = exposed_top_cap_ids(placements)
+        generated_caps = smooth_top_cap_placements_for_coverage(
+            placements,
+            params.get("top_surface_coverage", 1.0),
+        )
+        placements = ordered_placements(list(placements) + generated_caps)
+        smooth_cap_ids.update(id(p) for p in generated_caps)
     mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_RENDERINSTANCE", 1)
 
     type_to_template = {}
@@ -156,11 +170,7 @@ def _create_mograph_handoff(self, op):
         type_to_template[tkey] = proto
         return proto
 
-    # Handoff should preserve the fitted brick types exactly. The shared
-    # template generator already makes height-1 plate templates studless
-    # when Smooth Top Surfaces is enabled; do not force taller bricks to use
-    # studless templates here.
-    smooth_top_by_obj = {}
+    smooth_top_by_obj = {cap_id: True for cap_id in smooth_cap_ids}
 
     from types import SimpleNamespace
 

@@ -4,6 +4,11 @@ from types import SimpleNamespace
 
 import c4d
 
+from brickit_animation import (
+    exposed_top_cap_ids,
+    phased_build_animation_states,
+    smooth_top_cap_placements_for_coverage,
+)
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -79,19 +84,40 @@ def _build_hierarchy(self, op):
         )
         if tkey in type_to_template:
             return type_to_template[tkey]
-        mesh = self._get_template_mesh(
-            brick_type,
+        cache_key = (
+            brick_type.width,
+            brick_type.depth,
+            brick_type.height,
             quality,
-            stud_size,
-            plate_size,
-            smooth_plate_visual=smooth_plate_visual,
-            force_smooth_top=force_smooth_top,
+            round(float(stud_size), 6),
+            round(float(plate_size), 6),
+            int(bool(smooth_plate_visual)),
+            int(bool(force_smooth_top)),
         )
-        t_obj = mesh_to_polygon_object(
-            mesh, name="tmpl_{0}x{1}x{2}p".format(
-                brick_type.width, brick_type.depth, brick_type.height
+        template_cache = getattr(self, "_template_obj_cache", None)
+        if template_cache is None:
+            template_cache = {}
+            self._template_obj_cache = template_cache
+        source_obj = template_cache.get(cache_key)
+        if source_obj is None:
+            mesh = self._get_template_mesh(
+                brick_type,
+                quality,
+                stud_size,
+                plate_size,
+                smooth_plate_visual=smooth_plate_visual,
+                force_smooth_top=force_smooth_top,
             )
-        )
+            source_obj = mesh_to_polygon_object(
+                mesh, name="tmpl_{0}x{1}x{2}p".format(
+                    brick_type.width, brick_type.depth, brick_type.height
+                )
+            )
+            template_cache[cache_key] = source_obj
+        try:
+            t_obj = source_obj.GetClone(c4d.COPYFLAGS_NONE)
+        except Exception:
+            t_obj = source_obj
         t_obj.InsertUnder(templates_root)
         type_to_template[tkey] = t_obj
         return t_obj
@@ -105,20 +131,41 @@ def _build_hierarchy(self, op):
         for i, p in enumerate(self._fit_placements)
         if i < len(shell_depths)
     }
-    smooth_top_by_obj = {}
+    animation_placements = list(self._fit_placements or [])
+    smooth_cap_ids = set()
     if bool(params.get("surface_only_plates")):
-        # Robust visual rule: when surface-only policy is active, render all
-        # non-plate placements with studless tops. This avoids rare "rogue"
-        # exposed studs that can appear with extreme height-mix solutions.
-        for p in self._fit_placements:
-            smooth_top_by_obj[id(p)] = bool(
-                int(getattr(p.brick, "height", 0)) > 1
-            )
+        smooth_cap_ids = exposed_top_cap_ids(animation_placements)
+        generated_caps = smooth_top_cap_placements_for_coverage(
+            animation_placements,
+            params.get("top_surface_coverage", 1.0),
+        )
+        animation_placements.extend(generated_caps)
+        smooth_cap_ids.update(id(p) for p in generated_caps)
+    smooth_top_by_obj = {cap_id: True for cap_id in smooth_cap_ids}
 
-    smooth_plate_visual = bool(params.get("surface_only_plates"))
+    smooth_plate_visual = False
+    animation_states = phased_build_animation_states(
+        animation_placements,
+        params.get("build_progress", 1.0),
+        top_cap_ids=smooth_cap_ids,
+        top_surface_phase=params.get("top_surface_phase", 0.15),
+        y_offset=params.get("build_y_offset", 25.0),
+        stagger=params.get("build_stagger", 0.10),
+        motion_curve=params.get("build_motion_curve", 4),
+        custom_curve=params.get("build_custom_curve"),
+    )
+    visible_placements = [
+        state.placement
+        for state in animation_states
+        if state.local_progress > 0.0
+    ]
+    animation_state_by_obj = {
+        id(state.placement): state
+        for state in animation_states
+    }
 
     by_type = defaultdict(list)
-    for p in self._fit_placements:
+    for p in visible_placements:
         # Keep 90-degree placements in separate batches so we can use
         # swapped-footprint templates and avoid per-instance rotation
         # offset ambiguity in C4D matrix space.
@@ -406,7 +453,9 @@ def _build_hierarchy(self, op):
             matrices = []
             for p in batch:
                 wx = float(origin[0] + p.x * stud_size)
-                wy = float(origin[1] + p.y * plate_size)
+                state = animation_state_by_obj.get(id(p))
+                y_offset = float(state.y_offset) if state is not None else 0.0
+                wy = float(origin[1] + p.y * plate_size + y_offset)
                 wz = float(origin[2] + p.z * stud_size)
                 m = c4d.Matrix()
                 m.off = c4d.Vector(wx, wy, wz)
@@ -425,7 +474,9 @@ def _build_hierarchy(self, op):
         logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
         logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
         logo_surface_bias = -float(plate_size) * logo_sink
-        for p in self._fit_placements:
+        for p in visible_placements:
+            state = animation_state_by_obj.get(id(p))
+            y_offset = float(state.y_offset) if state is not None else 0.0
             smooth_top_visual = bool(smooth_top_by_obj.get(id(p), False))
             if smooth_top_visual:
                 continue
@@ -436,6 +487,7 @@ def _build_hierarchy(self, op):
                 + (p.y + p.h) * plate_size
                 + stud_h
                 + logo_surface_bias
+                + y_offset
             )
             for sx in range(int(p.w)):
                 for sz in range(int(p.d)):

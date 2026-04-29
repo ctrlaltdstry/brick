@@ -63,6 +63,7 @@ class BrickAssembly(plugins.ObjectData):
         self._hierarchy_cache_key = None
         self._force_rebuild = False
         self._mesh_cache = {}
+        self._template_obj_cache = {}
         self._logo_cache = {}
         self._last_hierarchy_obj = None
         self._last_resolution_key = None
@@ -199,6 +200,36 @@ class BrickAssembly(plugins.ObjectData):
     def _interactive_preview_params(self, params):
         return _params_interactive_preview_params(self, params)
 
+    def _add_custom_curve_description(self, description):
+        try:
+            bc = c4d.GetCustomDataTypeDefault(c4d.CUSTOMDATATYPE_SPLINE)
+            bc[c4d.DESC_NAME] = "Build Custom Curve"
+            bc[c4d.DESC_SHORT_NAME] = "Build Custom Curve"
+            bc[c4d.DESC_CUSTOMGUI] = c4d.CUSTOMGUI_SPLINE
+            bc[c4d.SPLINECONTROL_GRID_H] = True
+            bc[c4d.SPLINECONTROL_GRID_V] = True
+            bc[c4d.SPLINECONTROL_VALUE_EDIT_H] = True
+            bc[c4d.SPLINECONTROL_VALUE_EDIT_V] = True
+            bc[c4d.SPLINECONTROL_X_MIN] = 0.0
+            bc[c4d.SPLINECONTROL_X_MAX] = 1.0
+            bc[c4d.SPLINECONTROL_X_STEPS] = 0.01
+            bc[c4d.SPLINECONTROL_Y_MIN] = 0.0
+            bc[c4d.SPLINECONTROL_Y_MAX] = 1.0
+            bc[c4d.SPLINECONTROL_Y_STEPS] = 0.01
+            bc[c4d.SPLINECONTROL_MINSIZE_H] = 320
+            bc[c4d.SPLINECONTROL_MINSIZE_V] = 120
+            desc_id = c4d.DescID(
+                c4d.DescLevel(
+                    BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE,
+                    c4d.CUSTOMDATATYPE_SPLINE,
+                    ID_BRICKIFYASSEMBLY,
+                )
+            )
+            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_TAB_MOGRAPH))
+            description.SetParameter(desc_id, bc, group_id)
+        except Exception:
+            pass
+
     def GetDDescription(self, op, description, flags):
         """Load obrickifyassembly.res from disk.
 
@@ -225,6 +256,7 @@ class BrickAssembly(plugins.ObjectData):
                 op[BRICKIFYASSEMBLY_VOXEL_RESOLUTION] = snapped
         except Exception:
             pass
+        self._add_custom_curve_description(description)
         return True, flags | c4d.DESCFLAGS_DESC_LOADED
 
     def GetDEnabling(self, op, desc_id, t_data, flags, itemdesc):
@@ -251,6 +283,11 @@ class BrickAssembly(plugins.ObjectData):
         ):
             try:
                 return bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
+            except Exception:
+                return True
+        if pid == BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE:
+            try:
+                return int(op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE]) == BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM
             except Exception:
                 return True
         return True
@@ -287,6 +324,19 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_LOGO_HEIGHT] = 0.06
         op[BRICKIFYASSEMBLY_LOGO_BLEND] = 1.0
         op[BRICKIFYASSEMBLY_LOGO_SINK] = BRICKGEN_LOGO_DEFAULT_SINK
+        op[BRICKIFYASSEMBLY_BUILD_PROGRESS] = 100.0
+        op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0
+        op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
+        op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE] = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
+        try:
+            curve = c4d.SplineData()
+            curve.MakeLinearSplineBezier(2)
+            curve.SetRange(0.0, 1.0, 0.01, 0.0, 1.0, 0.01)
+            op[BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE] = curve
+        except Exception:
+            pass
+        op[BRICKIFYASSEMBLY_TOP_SURFACE_PHASE] = 15.0
+        op[BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE] = 100.0
         # Default: start with no brick types selected; artists opt-in via the
         # thumbnail library / quick select controls.
         for i in range(len(BRICK_TOGGLE_NAMES)):
@@ -304,6 +354,7 @@ class BrickAssembly(plugins.ObjectData):
         self._hierarchy_cache_key = None
         self._force_rebuild = False
         self._mesh_cache = {}
+        self._template_obj_cache = {}
         self._logo_cache = {}
         self._last_hierarchy_obj = None
         self._last_resolution_key = None

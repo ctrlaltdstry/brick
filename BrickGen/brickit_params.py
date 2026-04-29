@@ -12,6 +12,7 @@ from logo_helpers import (
     logo_fill_to_diameter_ratio as _logo_fill_to_diameter_ratio,
 )
 from quality_presets import ASSEMBLY_QUALITY_PRESETS
+from brickit_animation import custom_curve_signature
 
 
 # Voxel-resolution slider mapping. The UI is 0..1 normalized; internally
@@ -215,6 +216,42 @@ def _resolve_params(self, op, source_obj):
     logo_height = max(0.02, min(0.25, float(op[BRICKIFYASSEMBLY_LOGO_HEIGHT] or 0.06)))
     logo_blend = max(0.0, min(1.0, float(op[BRICKIFYASSEMBLY_LOGO_BLEND] or 0.0)))
     logo_sink = max(0.0, min(0.05, float(op[BRICKIFYASSEMBLY_LOGO_SINK] or 0.0)))
+    build_progress_raw = op[BRICKIFYASSEMBLY_BUILD_PROGRESS]
+    if build_progress_raw is None:
+        build_progress_raw = 100.0
+    build_progress = max(0.0, min(1.0, float(build_progress_raw) / 100.0))
+    build_y_offset_raw = op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET]
+    if build_y_offset_raw is None:
+        build_y_offset_raw = 25.0
+    build_y_offset = max(0.0, min(100.0, float(build_y_offset_raw)))
+    build_stagger_raw = op[BRICKIFYASSEMBLY_BUILD_STAGGER]
+    if build_stagger_raw is None:
+        build_stagger_raw = 10.0
+    build_stagger = max(0.0, min(1.0, float(build_stagger_raw) / 100.0))
+    build_motion_curve = int(
+        op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE]
+        or BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
+    )
+    if build_motion_curve not in (
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_IN,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_OUT,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SPRING,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM,
+    ):
+        build_motion_curve = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
+    build_custom_curve = op[BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE]
+    build_custom_curve_key = custom_curve_signature(build_custom_curve)
+    top_surface_phase_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_PHASE]
+    if top_surface_phase_raw is None:
+        top_surface_phase_raw = 15.0
+    top_surface_phase = max(0.0, min(1.0, float(top_surface_phase_raw) / 100.0))
+    top_surface_coverage_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE]
+    if top_surface_coverage_raw is None:
+        top_surface_coverage_raw = 100.0
+    top_surface_coverage = max(0.0, min(1.0, float(top_surface_coverage_raw) / 100.0))
 
     # Library curation key — bitmask over brick toggles. Goes
     # into the fit cache key so toggling a brick reruns the fitter.
@@ -257,6 +294,14 @@ def _resolve_params(self, op, source_obj):
         "logo_height": logo_height,
         "logo_blend": logo_blend,
         "logo_sink": logo_sink,
+        "build_progress": build_progress,
+        "build_y_offset": build_y_offset,
+        "build_stagger": build_stagger,
+        "build_motion_curve": build_motion_curve,
+        "build_custom_curve": build_custom_curve,
+        "build_custom_curve_key": build_custom_curve_key,
+        "top_surface_phase": top_surface_phase,
+        "top_surface_coverage": top_surface_coverage,
         "lib_mask": lib_mask,
         "interactive_preview": False,
         "interactive_preview_actual_studs_across": studs_across,

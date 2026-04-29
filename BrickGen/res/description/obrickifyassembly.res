@@ -379,6 +379,72 @@ CONTAINER obrickifyassembly
         DEFAULT 1;
         COLUMNS 1;
 
+        REAL BRICKIFYASSEMBLY_BUILD_PROGRESS
+        {
+            NAME BRICKIFYASSEMBLY_BUILD_PROGRESS;
+            CUSTOMGUI REALSLIDER;
+            MIN 0.0;
+            MAX 100.0;
+            STEP 0.01;
+            DEFAULT 100.0;
+        }
+
+        REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET
+        {
+            NAME BRICKIFYASSEMBLY_BUILD_Y_OFFSET;
+            CUSTOMGUI REALSLIDER;
+            MIN 0.0;
+            MAX 100.0;
+            STEP 0.1;
+            DEFAULT 25.0;
+        }
+
+        REAL BRICKIFYASSEMBLY_BUILD_STAGGER
+        {
+            NAME BRICKIFYASSEMBLY_BUILD_STAGGER;
+            CUSTOMGUI REALSLIDER;
+            MIN 0.0;
+            MAX 100.0;
+            STEP 0.1;
+            DEFAULT 10.0;
+        }
+
+        LONG BRICKIFYASSEMBLY_BUILD_MOTION_CURVE
+        {
+            NAME BRICKIFYASSEMBLY_BUILD_MOTION_CURVE;
+            DEFAULT 4;
+            CYCLE
+            {
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_IN;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_OUT;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SPRING;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC;
+                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM;
+            }
+        }
+
+        REAL BRICKIFYASSEMBLY_TOP_SURFACE_PHASE
+        {
+            NAME BRICKIFYASSEMBLY_TOP_SURFACE_PHASE;
+            CUSTOMGUI REALSLIDER;
+            MIN 0.0;
+            MAX 100.0;
+            STEP 0.1;
+            DEFAULT 15.0;
+        }
+
+        REAL BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE
+        {
+            NAME BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE;
+            CUSTOMGUI REALSLIDER;
+            MIN 0.0;
+            MAX 100.0;
+            STEP 0.1;
+            DEFAULT 100.0;
+        }
+
         BUTTON BRICKIFYASSEMBLY_CREATE_MOGRAPH
         {
             NAME BRICKIFYASSEMBLY_CREATE_MOGRAPH;

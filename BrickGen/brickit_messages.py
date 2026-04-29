@@ -35,6 +35,13 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_REBUILD,
         BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER,
         BRICKIFYASSEMBLY_VISUALIZATION_MODE,
+        BRICKIFYASSEMBLY_BUILD_PROGRESS,
+        BRICKIFYASSEMBLY_BUILD_Y_OFFSET,
+        BRICKIFYASSEMBLY_BUILD_STAGGER,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE,
+        BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE,
+        BRICKIFYASSEMBLY_TOP_SURFACE_PHASE,
+        BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE,
     ):
         return False
     return desc_id in (
@@ -75,6 +82,7 @@ def Message(self, op, msg_type, data):
             self._hierarchy_cache_key = None
             self._force_rebuild = True
             self._mesh_cache = {}
+            self._template_obj_cache = {}
             self._logo_cache = {}
             self._last_resolution_key = None
             self._interactive_preview_active = False
