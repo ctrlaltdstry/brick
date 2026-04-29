@@ -328,6 +328,7 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0
         op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
         op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE] = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
+        op[BRICKIFYASSEMBLY_BUILD_SCALE_IN] = False
         try:
             curve = c4d.SplineData()
             curve.MakeLinearSplineBezier(2)

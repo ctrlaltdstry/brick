@@ -425,6 +425,12 @@ CONTAINER obrickifyassembly
             }
         }
 
+        BOOL BRICKIFYASSEMBLY_BUILD_SCALE_IN
+        {
+            NAME BRICKIFYASSEMBLY_BUILD_SCALE_IN;
+            DEFAULT 0;
+        }
+
         REAL BRICKIFYASSEMBLY_TOP_SURFACE_PHASE
         {
             NAME BRICKIFYASSEMBLY_TOP_SURFACE_PHASE;

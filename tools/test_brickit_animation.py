@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "BrickGen"))
 from brickit_animation import (  # noqa: E402
     BUILD_ANIMATION_DEFAULT_Y_OFFSET,
     BUILD_ANIMATION_MIN_EFFECTIVE_STAGGER,
+    BUILD_ANIMATION_MIN_SCALE,
     BUILD_MOTION_CURVE_EASE,
     BUILD_MOTION_CURVE_EASE_IN,
     BUILD_MOTION_CURVE_EASE_OUT,
@@ -25,6 +26,7 @@ from brickit_animation import (  # noqa: E402
     BUILD_MOTION_CURVE_SPRING,
     BUILD_MOTION_CURVE_CUSTOM,
     apply_motion_curve,
+    build_scale_for_progress,
     build_animation_states,
     custom_curve_signature,
     exposed_top_cap_ids,
@@ -218,6 +220,17 @@ def test_custom_motion_curve_is_sampled():
     assert math.isclose(states[0].y_offset, 87.5)
 
 
+def test_scale_in_uses_small_minimum_scale():
+    assert math.isclose(build_scale_for_progress(0.0, enabled=False), 1.0)
+    assert math.isclose(
+        build_scale_for_progress(0.0, enabled=True),
+        BUILD_ANIMATION_MIN_SCALE,
+    )
+    assert math.isclose(build_scale_for_progress(1.0, enabled=True), 1.0)
+    halfway = build_scale_for_progress(0.5, enabled=True)
+    assert BUILD_ANIMATION_MIN_SCALE < halfway < 1.0
+
+
 def test_default_animation_values_are_gentler_than_original():
     states = build_animation_states([_p("a", 0, 0, 0)], 0.0)
     assert math.isclose(states[0].y_offset, BUILD_ANIMATION_DEFAULT_Y_OFFSET)
@@ -316,6 +329,7 @@ def main():
     test_low_nonzero_stagger_has_minimum_visible_window()
     test_motion_curves_are_selectable()
     test_custom_motion_curve_is_sampled()
+    test_scale_in_uses_small_minimum_scale()
     test_default_animation_values_are_gentler_than_original()
     test_exposed_top_caps_are_final_state_only()
     test_missing_smooth_caps_cover_exposed_studs_on_tall_bricks()

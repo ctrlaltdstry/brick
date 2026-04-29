@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import c4d
 
 from brickit_animation import (
+    build_scale_for_progress,
     exposed_top_cap_ids,
     phased_build_animation_states,
     smooth_top_cap_placements_for_coverage,
@@ -163,6 +164,7 @@ def _build_hierarchy(self, op):
         id(state.placement): state
         for state in animation_states
     }
+    scale_bricks_in = bool(params.get("build_scale_in", False))
 
     by_type = defaultdict(list)
     for p in visible_placements:
@@ -458,6 +460,13 @@ def _build_hierarchy(self, op):
                 wy = float(origin[1] + p.y * plate_size + y_offset)
                 wz = float(origin[2] + p.z * stud_size)
                 m = c4d.Matrix()
+                scale = build_scale_for_progress(
+                    state.local_progress if state is not None else 1.0,
+                    scale_bricks_in,
+                )
+                m.v1 *= scale
+                m.v2 *= scale
+                m.v3 *= scale
                 m.off = c4d.Vector(wx, wy, wz)
                 matrices.append(m)
 
@@ -477,6 +486,10 @@ def _build_hierarchy(self, op):
         for p in visible_placements:
             state = animation_state_by_obj.get(id(p))
             y_offset = float(state.y_offset) if state is not None else 0.0
+            scale = build_scale_for_progress(
+                state.local_progress if state is not None else 1.0,
+                scale_bricks_in,
+            )
             smooth_top_visual = bool(smooth_top_by_obj.get(id(p), False))
             if smooth_top_visual:
                 continue
@@ -497,6 +510,9 @@ def _build_hierarchy(self, op):
                         top_y,
                         float(origin[2] + (p.z + sz + 0.5) * stud_size),
                     )
+                    m.v1 *= scale
+                    m.v2 *= scale
+                    m.v3 *= scale
                     _apply_logo_quarter_turn(m, logo_rotation)
                     logo_matrices.append(m)
         if logo_matrices:

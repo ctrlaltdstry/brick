@@ -93,6 +93,7 @@ def GetVirtualObjects(self, op, hh):
         round(float(params.get("build_y_offset", 25.0)), 3),
         round(float(params.get("build_stagger", 0.10)), 5),
         int(params.get("build_motion_curve", BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM)),
+        bool(params.get("build_scale_in", False)),
         params.get("build_custom_curve_key"),
         round(float(params.get("top_surface_phase", 0.15)), 5),
         round(float(params.get("top_surface_coverage", 1.0)), 5),

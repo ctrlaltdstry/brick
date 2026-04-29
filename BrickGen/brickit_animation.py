@@ -7,6 +7,7 @@ BUILD_ANIMATION_DEFAULT_Y_OFFSET = 25.0
 BUILD_ANIMATION_DEFAULT_STAGGER = 0.10
 BUILD_ANIMATION_MIN_EFFECTIVE_STAGGER = 0.03
 BUILD_ANIMATION_SLAM_EXPONENT = 3.0
+BUILD_ANIMATION_MIN_SCALE = 0.001
 
 BUILD_MOTION_CURVE_EASE = 0
 BUILD_MOTION_CURVE_EASE_IN = 1
@@ -219,6 +220,14 @@ def apply_motion_curve(t, curve=BUILD_MOTION_CURVE_SLAM, custom_curve=None):
     if curve == BUILD_MOTION_CURVE_QUADRATIC:
         return t * t
     return t ** BUILD_ANIMATION_SLAM_EXPONENT
+
+
+def build_scale_for_progress(local_progress, enabled=False):
+    if not enabled:
+        return 1.0
+    return BUILD_ANIMATION_MIN_SCALE + (
+        (1.0 - BUILD_ANIMATION_MIN_SCALE) * _clamp01(local_progress)
+    )
 
 
 def build_animation_states(

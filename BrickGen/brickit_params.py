@@ -242,6 +242,7 @@ def _resolve_params(self, op, source_obj):
         BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM,
     ):
         build_motion_curve = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
+    build_scale_in = bool(op[BRICKIFYASSEMBLY_BUILD_SCALE_IN])
     build_custom_curve = op[BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE]
     build_custom_curve_key = custom_curve_signature(build_custom_curve)
     top_surface_phase_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_PHASE]
@@ -298,6 +299,7 @@ def _resolve_params(self, op, source_obj):
         "build_y_offset": build_y_offset,
         "build_stagger": build_stagger,
         "build_motion_curve": build_motion_curve,
+        "build_scale_in": build_scale_in,
         "build_custom_curve": build_custom_curve,
         "build_custom_curve_key": build_custom_curve_key,
         "top_surface_phase": top_surface_phase,
