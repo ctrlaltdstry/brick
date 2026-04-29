@@ -13,42 +13,19 @@ import os
 import sys
 
 
-QUALITY_PRESETS = {
-    "draft": dict(
-        body_corner_segments=4,
-        stud_segments=16, stud_fillet_segments=2,
-        tube_segments=16, tube_fillet_segments=2,
-        rib_segments=2,
-    ),
-    "standard": dict(
-        body_corner_segments=8,
-        stud_segments=32, stud_fillet_segments=4,
-        tube_segments=32, tube_fillet_segments=4,
-        rib_segments=4,
-    ),
-    "hero": dict(
-        body_corner_segments=16,
-        stud_segments=128, stud_fillet_segments=8,
-        tube_segments=128, tube_fillet_segments=8,
-        rib_segments=8,
-        body_fillet_radius=0.4,
-        stud_fillet_radius=0.18,
-        tube_fillet_radius=0.18,
-        rib_fillet_radius=0.10,
-    ),
-}
-
-
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(here)
     sys.path.insert(0, project_root)
+    sys.path.insert(0, os.path.join(project_root, "BrickGen"))
+
+    from quality_presets import QUALITY_PRESETS_BY_NAME
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--width", type=int, default=2)
     ap.add_argument("--depth", type=int, default=3)
     ap.add_argument("--height", type=int, default=3, help="height in plates")
-    ap.add_argument("--quality", choices=list(QUALITY_PRESETS), default="hero")
+    ap.add_argument("--quality", choices=list(QUALITY_PRESETS_BY_NAME), default="hero")
     ap.add_argument("--tag", default="filletfix")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -56,7 +33,7 @@ def main():
     from brick.brick_geom_hires import make_brick_hires
     from brick.mesh_export import write_obj
 
-    kwargs = dict(QUALITY_PRESETS[args.quality])
+    kwargs = dict(QUALITY_PRESETS_BY_NAME[args.quality])
     mesh = make_brick_hires(args.width, args.depth, args.height, **kwargs)
 
     out = args.out or os.path.join(

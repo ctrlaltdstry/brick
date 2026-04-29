@@ -57,5 +57,76 @@ CONTAINER obrickgenerator
                 BRICKGENERATOR_QUALITY_HERO;
             }
         }
+
+        GROUP BRICKGENERATOR_GROUP_LOGO
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+
+            BOOL BRICKGENERATOR_ENABLE_LOGO
+            {
+                NAME BRICKGENERATOR_ENABLE_LOGO;
+                DEFAULT 0;
+            }
+
+            LINK BRICKGENERATOR_LOGO_SOURCE
+            {
+                NAME BRICKGENERATOR_LOGO_SOURCE;
+                ACCEPT { Obase; }
+            }
+
+            LONG BRICKGENERATOR_LOGO_ROTATION
+            {
+                NAME BRICKGENERATOR_LOGO_ROTATION;
+                DEFAULT 0;
+                CYCLE
+                {
+                    BRICKGENERATOR_LOGO_ROTATION_0;
+                    BRICKGENERATOR_LOGO_ROTATION_90;
+                    BRICKGENERATOR_LOGO_ROTATION_180;
+                    BRICKGENERATOR_LOGO_ROTATION_270;
+                }
+            }
+
+            REAL BRICKGENERATOR_LOGO_DIAMETER
+            {
+                NAME BRICKGENERATOR_LOGO_DIAMETER;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 1.0;
+                DEFAULT 0.0;
+            }
+
+            REAL BRICKGENERATOR_LOGO_HEIGHT
+            {
+                NAME BRICKGENERATOR_LOGO_HEIGHT;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.02;
+                MAX 0.25;
+                STEP 0.01;
+                DEFAULT 0.06;
+            }
+
+            REAL BRICKGENERATOR_LOGO_BLEND
+            {
+                NAME BRICKGENERATOR_LOGO_BLEND;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 1.0;
+                STEP 0.05;
+                DEFAULT 1.0;
+            }
+
+            REAL BRICKGENERATOR_LOGO_SINK
+            {
+                NAME BRICKGENERATOR_LOGO_SINK;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 0.05;
+                STEP 0.001;
+                DEFAULT 0.015;
+            }
+        }
     }
 }

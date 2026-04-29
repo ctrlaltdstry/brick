@@ -101,6 +101,35 @@ is optional and decoupled from the pipeline — by design.
 `assembly.py` still calls the old `make_brick_mesh`, not
 `make_brick_hires`. Swap before next full pipeline run.
 
+### BrickIt Make Physically Accurate mode contract — DO NOT REGRESS
+
+This took several visual-debug rounds to get right. The checkbox is not
+just a cosmetic label for pruning:
+
+- **Unchecked = artist-friendly mode.** It must preserve the source model's
+  visible boundary/silhouette as closely as possible, even when the selected
+  brick footprint cannot tile that boundary cleanly. Do not let large selected
+  bricks drift/overhang outside the model. Instead, keep strict selected-brick
+  placement and use exact `artist_fill_1x1_h*` visual filler placements for
+  leftover occupied boundary cells.
+- **Checked = physically accurate mode.** It may apply connectivity pruning,
+  but pruning must remove small floating debris only. Do not collapse every fit
+  to one largest component when that amputates meaningful architectural chunks
+  like a tower top.
+- C4D Volume shell sampling intentionally uses the native Maxon
+  `MeshToVolume` SDF band (`abs(sdf) <= shell_threshold`). Do not switch it to
+  inside-only shell sampling unless the user explicitly asks; that made both
+  shell and solid workflows worse in the standing Empire test scene.
+
+Guardrail test:
+
+```
+python tools/test_artist_mode_regression.py
+```
+
+Run it before changing `brickify/fitter.py`, `brickify/pipeline.py`, or the
+`Make Physically Accurate` wiring in `BrickGen/c4d_brick_generator.pyp`.
+
 ## The brick generator (current focus)
 
 Two implementations exist. **Use `brick_geom_hires.py`. The other one
@@ -133,8 +162,8 @@ other.
 - **standard** — `body_corner_segments=8, stud_segments=32,
   tube_segments=32, rib_segments=4`. ~5k tris. Default for the C4D
   plugin.
-- **hero** — `body_corner_segments=16, stud_segments=128,
-  tube_segments=128, rib_segments=8`. Plus
+- **hero** — `body_corner_segments=16, stud_segments=100,
+  tube_segments=100, rib_segments=8`. Plus
   `body_fillet_radius=0.4, stud_fillet_radius=0.18,
   tube_fillet_radius=0.18, rib_fillet_radius=0.10`. ~50k verts on a 2×3.
   Hero is what the user wants for renders.

@@ -1,32 +1,20 @@
-"""Sanity-check the SDS brick mesh for manifoldness and orientation."""
+"""Sanity-check BrickGen headless mesh manifoldness and orientation."""
+import argparse
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Stub c4d
-class _S:
-    pass
-c4d = _S(); c4d.plugins = _S(); c4d.plugins.ObjectData = object
-c4d.plugins.RegisterObjectPlugin = lambda **k: None
-c4d.PolygonObject = lambda *a, **k: None
-c4d.CPolygon = lambda *a, **k: None
-c4d.Vector = lambda *a, **k: None
-c4d.OBJECT_GENERATOR = c4d.COPYFLAGS_NONE = c4d.MSG_UPDATE = c4d.Tpolygonselection = 0
-sys.modules['c4d'] = c4d
+from tools.plugin_headless import load_plugin_module, build_brick_mesh
 
-import importlib.machinery, importlib.util
-plugin_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "c4d_brick_generator.pyp")
-loader = importlib.machinery.SourceFileLoader("c4d_brick_generator", plugin_path)
-spec = importlib.util.spec_from_loader("c4d_brick_generator", loader)
-mod = importlib.util.module_from_spec(spec)
-loader.exec_module(mod)
+mod = load_plugin_module()
 
 
-def check(width, depth, height):
-    print(f"\n=== Brick {width}x{depth}x{height} ===")
-    mesh = mod.build_sds_brick(width, depth, height)
+def check(width, depth, height, *, quality="hero", piece_type="brick"):
+    print(f"\n=== Brick {width}x{depth}x{height} ({piece_type}, {quality}) ===")
+    mesh = build_brick_mesh(
+        mod, width, depth, height, quality=quality, piece_type=piece_type
+    )
     print(mesh.stats())
 
     edges = {}  # frozenset((a,b)) -> list of (face_id, dir)  dir=+1 if a->b in face
@@ -68,6 +56,23 @@ def check(width, depth, height):
 
 
 if __name__ == "__main__":
-    check(2, 3, 3)
-    check(1, 4, 1)
-    check(2, 2, 1)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--width", type=int, default=None)
+    ap.add_argument("--depth", type=int, default=None)
+    ap.add_argument("--height", type=int, default=None, help="height in plates")
+    ap.add_argument("--quality", choices=["draft", "standard", "hero"], default="hero")
+    ap.add_argument("--piece-type", choices=["brick", "plate"], default="brick")
+    args = ap.parse_args()
+
+    if args.width is not None and args.depth is not None and args.height is not None:
+        check(
+            args.width,
+            args.depth,
+            args.height,
+            quality=args.quality,
+            piece_type=args.piece_type,
+        )
+    else:
+        check(2, 3, 3, quality=args.quality, piece_type=args.piece_type)
+        check(1, 4, 1, quality=args.quality, piece_type=args.piece_type)
+        check(2, 2, 1, quality=args.quality, piece_type=args.piece_type)

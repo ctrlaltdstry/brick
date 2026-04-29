@@ -1,8 +1,8 @@
 """Turn a list of BrickPlacement objects into a single quad-modeled mesh.
 
 This is the bridge between brickify's PLACEMENT pipeline (palette / fitter /
-connectivity, all integer grid coords) and the new GEOMETRY pipeline
-(brick_geom / svg_logo / mesh_export, all quad meshes in mesh-space units).
+connectivity, all integer grid coords) and the live baked-fillet GEOMETRY
+pipeline (brick_geom_hires / svg_logo / mesh_export, all in mesh-space units).
 
 Per the artist-friendly default we agreed on, brick positions are
 multiplied by stud_size / plate_size so the assembly lives in the SAME
@@ -15,8 +15,8 @@ bodies", or all "logo islands", with C4D's selection-by-name feature.
 """
 from typing import List, Optional, Iterable
 import numpy as np
-from .mesh import Mesh, affine_translate, affine_rotate_y, affine_scale
-from .brick_geom import make_brick_mesh
+from .mesh import Mesh, affine_translate, affine_rotate_y
+from .brick_geom_hires import make_brick_hires, make_low_res_collider
 from .palette import LegoPalette
 from .fitter import BrickPlacement
 
@@ -27,7 +27,7 @@ def build_assembly(
     *,
     stud_size: float = 8.0,
     plate_size: float = 3.2,
-    fillet_inset: float = 0.30,    # passed to make_brick_mesh as edge_fillet_radius
+    fillet_inset: float = 0.30,    # passed to make_brick_hires as body_fillet_radius
     with_studs: bool = True,
     with_underside: bool = True,
     with_tubes: bool = True,
@@ -39,7 +39,7 @@ def build_assembly(
 ) -> Mesh:
     """Generate one merged Mesh containing every brick in `placements`.
 
-    Each brick is built fresh from make_brick_mesh -- this is a
+    Each brick is built fresh from make_brick_hires -- this is a
     prototype, so we don't dedupe by brick type; for production the
     plugin would build one mesh per brick TYPE and instantiate it many
     times via C4D MoGraph or transform-list cloners. The OBJ output is
@@ -53,19 +53,30 @@ def build_assembly(
     def get_brick(w_studs: int, d_studs: int, h_plates: int) -> Mesh:
         key = (w_studs, d_studs, h_plates)
         if key not in cache:
-            cache[key] = make_brick_mesh(
-                w_studs, d_studs, h_plates,
-                stud_size=stud_size,
-                plate_size=plate_size,
-                edge_fillet_radius=fillet_inset,
-                with_studs=with_studs,
-                with_underside=with_underside,
-                with_tubes=with_tubes,
-                with_stud_indents=with_stud_indents,
-                with_ribs=with_ribs,
-                low_res=low_res,
-                logo=logo,
-            )
+            if low_res:
+                brick_mesh = make_low_res_collider(
+                    w_studs,
+                    d_studs,
+                    h_plates,
+                    stud_size=stud_size,
+                    plate_size=plate_size,
+                )
+            else:
+                brick_mesh = make_brick_hires(
+                    w_studs,
+                    d_studs,
+                    h_plates,
+                    stud_size=stud_size,
+                    plate_size=plate_size,
+                    body_fillet_radius=fillet_inset,
+                    with_studs=with_studs,
+                    with_underside=with_underside,
+                    with_tubes=with_tubes,
+                    with_stud_indents=with_stud_indents,
+                    with_ribs=with_ribs,
+                    logo=logo,
+                )
+            cache[key] = brick_mesh
         return cache[key]
 
     out = Mesh()

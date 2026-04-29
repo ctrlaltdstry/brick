@@ -95,20 +95,17 @@ class Mesh:
         # Quantize vertex positions to `tol` precision.
         scale = 1.0 / tol
         keys = np.round(self.vertices * scale).astype(np.int64)
-        # Build a map from key -> first occurrence index
-        key_strings = [tuple(k.tolist()) for k in keys]
-        old_to_new = np.zeros(len(self.vertices), dtype=np.int64)
-        seen = {}
-        new_verts = []
-        for old_i, k in enumerate(key_strings):
-            if k in seen:
-                old_to_new[old_i] = seen[k]
-            else:
-                new_idx = len(new_verts)
-                seen[k] = new_idx
-                old_to_new[old_i] = new_idx
-                new_verts.append(self.vertices[old_i])
-        self.vertices = np.array(new_verts)
+        _, first_indices, inverse = np.unique(
+            keys,
+            axis=0,
+            return_index=True,
+            return_inverse=True,
+        )
+        first_order = np.argsort(first_indices)
+        unique_to_new = np.empty(len(first_indices), dtype=np.int64)
+        unique_to_new[first_order] = np.arange(len(first_indices), dtype=np.int64)
+        old_to_new = unique_to_new[inverse]
+        self.vertices = self.vertices[first_indices[first_order]].copy()
         # Remap faces, dropping degenerates.
         new_faces = []
         new_groups: Dict[str, List[int]] = {g: [] for g in self.groups}

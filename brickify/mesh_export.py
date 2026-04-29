@@ -20,28 +20,30 @@ def write_obj(mesh: Mesh, path: str, *, object_name: str = "brick") -> None:
     triangulation. Emits 'g <group>' directives so each polygon group is
     selectable on import.
     """
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(f"# brickify -- generated quad-modeled brick\n")
         f.write(f"# {mesh.stats()}\n")
         f.write(f"o {object_name}\n")
-        for v in mesh.vertices:
-            f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
+        f.writelines(
+            f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n"
+            for v in mesh.vertices
+        )
         # group faces by group name; faces not in any group go in default
-        face_to_group = {}
+        grouped_faces = {}
+        grouped_face_indices = set()
         for g, indices in mesh.groups.items():
-            for i in indices:
-                face_to_group[i] = g
+            grouped_faces[g] = list(indices)
+            grouped_face_indices.update(indices)
         # emit faces in group order so 'g' transitions are clean
-        for g in sorted(set(face_to_group.values())):
+        for g in sorted(grouped_faces):
             f.write(f"g {g}\n")
             f.write(f"s 1\n")  # smoothing group on; importer can override
-            for i, face in enumerate(mesh.faces):
-                if face_to_group.get(i) != g:
-                    continue
+            for i in grouped_faces[g]:
+                face = mesh.faces[i]
                 # OBJ uses 1-based indices
                 f.write("f " + " ".join(str(v + 1) for v in face) + "\n")
         # Faces in no group:
-        leftover = [i for i in range(len(mesh.faces)) if i not in face_to_group]
+        leftover = [i for i in range(len(mesh.faces)) if i not in grouped_face_indices]
         if leftover:
             f.write("g default\n")
             for i in leftover:

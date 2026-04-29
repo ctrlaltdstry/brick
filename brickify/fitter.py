@@ -102,10 +102,13 @@ class BrickFitter:
         detail_mask: Optional[np.ndarray] = None,
         max_detail_footprint: int = 0,
         surface_only_plates: bool = False,
+        relaxed_boundary_fit: bool = False,
+        min_relaxed_occupancy_ratio: float = 0.33,
     ) -> List[BrickPlacement]:
         Nx, Ny, Nz = occupancy.shape
         # placement_id[x,y,z] = index into placements list, or -1
         placement_id = -np.ones(occupancy.shape, dtype=np.int32)
+        covered = np.zeros(occupancy.shape, dtype=bool)
         placements: List[BrickPlacement] = []
 
         # Fast immutable box queries for the static occupancy/detail grids.
@@ -117,19 +120,6 @@ class BrickFitter:
             ((1, 0), (1, 0), (1, 0)),
             mode="constant",
         )
-
-        def box_sum(prefix: np.ndarray, x0: int, y0: int, z0: int,
-                    x1: int, y1: int, z1: int) -> int:
-            return int(
-                prefix[x1, y1, z1]
-                - prefix[x0, y1, z1]
-                - prefix[x1, y0, z1]
-                - prefix[x1, y1, z0]
-                + prefix[x0, y0, z1]
-                + prefix[x0, y1, z0]
-                + prefix[x1, y0, z0]
-                - prefix[x0, y0, z0]
-            )
 
         detail_prefix = None
         if detail_mask is not None and max_detail_footprint > 0:
@@ -176,11 +166,24 @@ class BrickFitter:
             and occupied_colors.size > 0
             and bool(np.ptp(occupied_colors, axis=0).sum() > 0)
         )
+        colors_are_uniform = bool(
+            occupied_colors.size > 0
+            and np.ptp(occupied_colors, axis=0).sum() == 0
+        )
+        uniform_avg = None
+        uniform_rgb = (180, 180, 180)
+        if colors_are_uniform:
+            uniform_avg = occupied_colors[0].astype(np.float32)
+            uniform_rgb = (
+                int(np.clip(uniform_avg[0], 0, 255)),
+                int(np.clip(uniform_avg[1], 0, 255)),
+                int(np.clip(uniform_avg[2], 0, 255)),
+            )
         use_height_mix = self.randomize_heights and self.max_brick_height > 1
         height_span = max(1, int(self.max_brick_height) - 1)
 
         # All brick orientations, sorted by volume desc.
-        orientations: List[Tuple[BrickType, int]] = []
+        orientations: List[Tuple[BrickType, int, int, int, int, int, int]] = []
         seen = set()
         bricks_by_vol = sorted(self.library.bricks, key=lambda b: -b.volume)
         for b in bricks_by_vol:
@@ -189,19 +192,29 @@ class BrickFitter:
             for rot in (0, 90):
                 w = b.depth if rot == 90 else b.width
                 d = b.width if rot == 90 else b.depth
+                h = b.height
+                vol = w * d * h
+                footprint = w * d
                 key = (w, d, b.height, b.ldraw_code)
                 if key in seen:
                     continue
                 seen.add(key)
-                orientations.append((b, rot))
+                orientations.append((b, rot, w, d, h, vol, footprint))
 
         # Precompute a "scan order" that prefers cells with more uncovered
         # neighbors at the same level (helps pack large bricks into open
         # regions first). For prototype, just lex order: y then z then x.
         for y in range(Ny):
+            layer_occ = occupancy[:, y, :]
+            if not layer_occ.any():
+                continue
             for z in range(Nz):
-                for x in range(Nx):
-                    if not occupancy[x, y, z] or placement_id[x, y, z] != -1:
+                xs = np.flatnonzero(layer_occ[:, z])
+                if xs.size == 0:
+                    continue
+                for x_raw in xs:
+                    x = int(x_raw)
+                    if covered[x, y, z]:
                         continue
                     target_h = 1
                     if use_height_mix:
@@ -209,117 +222,209 @@ class BrickFitter:
                             self._hash32(self.height_mix_seed, x, z)
                             % int(self.max_brick_height)
                         )
-                    best: Optional[Tuple[float, BrickType, int]] = None
-                    for brick, rot in orientations:
-                        w = brick.depth if rot == 90 else brick.width
-                        d = brick.width if rot == 90 else brick.depth
-                        h = brick.height
-                        # bounds
-                        if x + w > Nx or y + h > Ny or z + d > Nz:
+                    best: Optional[Tuple[float, BrickType, int, int, int]] = None
+                    for brick, rot, w, d, h, vol, footprint in orientations:
+                        if y + h > Ny:
                             continue
-                        # all cells occupied & uncovered?
-                        vol = w * d * h
-                        if box_sum(occ_prefix, x, y, z, x + w, y + h, z + d) != vol:
-                            continue
-                        if surface_only_plates and h == 1:
-                            sub_top = top_exposed[x:x + w, y:y + h, z:z + d]
-                            if not bool(sub_top.all()):
-                                continue
-                            sub_side = side_exposed[x:x + w, y:y + h, z:z + d]
-                            # Must touch true outside exposure so enclosed
-                            # interior top pockets do not get plates.
-                            if not bool(sub_side.any()):
-                                continue
-                        sub_pid = placement_id[x:x + w, y:y + h, z:z + d]
-                        if (sub_pid != -1).any():
-                            continue
-                        # score
-                        if detail_prefix is not None:
-                            has_detail = box_sum(
-                                detail_prefix, x, y, z,
-                                x + w, y + h, z + d,
-                            ) > 0
-                            if has_detail and (w * d) > max_detail_footprint:
-                                continue
-                        # stagger: count distinct bricks directly below
-                        stagger = 0
-                        if y > 0:
-                            below = placement_id[x:x + w, y - 1, z:z + d]
-                            uniq = np.unique(below)
-                            stagger = int(np.sum(uniq != -1))
-                        # color variance (low = clean color)
-                        if use_color_score:
-                            cells_color = colors[x:x + w, y:y + h, z:z + d].reshape(-1, 3)
-                            cvar = float(cells_color.astype(np.float32).var(axis=0).sum())
-                        else:
-                            cvar = 0.0
-                        score = (
-                            vol * self.vol_weight
-                            + stagger * self.stagger_weight
-                            - cvar * self.color_weight
-                        )
-                        if surface_only_plates:
-                            if h == 1:
-                                # Favor smooth-top plate caps on exterior top
-                                # surfaces, but keep this as scoring (not a
-                                # hard constraint) to avoid coverage regressions.
-                                score += 1000.0
-                            else:
-                                # Discourage tall bricks from consuming cells
-                                # that are good candidates for plate caps.
-                                ext_hits = box_sum(
-                                    exterior_top_prefix,
-                                    x, y, z,
-                                    x + w, y + h, z + d,
+                        candidate_xs = (x,)
+                        candidate_zs = (z,)
+                        for x0 in candidate_xs:
+                            for z0 in candidate_zs:
+                                x1 = x0 + w
+                                y1 = y + h
+                                z1 = z0 + d
+                                if x1 > Nx or z1 > Nz:
+                                    continue
+                                cx0 = max(0, x0)
+                                cz0 = max(0, z0)
+                                cx1 = min(Nx, x1)
+                                cz1 = min(Nz, z1)
+                                if cx0 >= cx1 or cz0 >= cz1:
+                                    continue
+                                inside_vol = (cx1 - cx0) * h * (cz1 - cz0)
+                                occ_count = int(
+                                    occ_prefix[cx1, y1, cz1]
+                                    - occ_prefix[cx0, y1, cz1]
+                                    - occ_prefix[cx1, y, cz1]
+                                    - occ_prefix[cx1, y1, cz0]
+                                    + occ_prefix[cx0, y, cz1]
+                                    + occ_prefix[cx0, y1, cz0]
+                                    + occ_prefix[cx1, y, cz0]
+                                    - occ_prefix[cx0, y, cz0]
                                 )
-                                if ext_hits > 0:
-                                    score -= 250.0 * float(ext_hits)
-                        if use_height_mix:
-                            # Encourage local target heights (seeded per X/Z),
-                            # but keep it soft so structural/footprint quality
-                            # still dominates where needed.
-                            pref = 1.0 - (
-                                abs(int(h) - int(target_h)) / float(height_span)
-                            )
-                            gain = (
-                                self.height_mix_amount
-                                * float(w * d * int(self.max_brick_height))
-                            )
-                            score += (
-                                (pref - 0.5)
-                                * 2.0
-                                * gain
-                            )
-                        if best is None or score > best[0]:
-                            best = (score, brick, rot)
+                                if occ_count != vol:
+                                    continue
+                                ext_hits = 0
+                                if surface_only_plates:
+                                    ext_hits = int(
+                                        exterior_top_prefix[cx1, y1, cz1]
+                                        - exterior_top_prefix[cx0, y1, cz1]
+                                        - exterior_top_prefix[cx1, y, cz1]
+                                        - exterior_top_prefix[cx1, y1, cz0]
+                                        + exterior_top_prefix[cx0, y, cz1]
+                                        + exterior_top_prefix[cx0, y1, cz0]
+                                        + exterior_top_prefix[cx1, y, cz0]
+                                        - exterior_top_prefix[cx0, y, cz0]
+                                    )
+                                    if h > 1 and ext_hits > 0:
+                                        # Smooth top surfaces must be a 1-plate cap.
+                                        # Taller bricks can support them from below,
+                                        # but must not consume the visible cap cells.
+                                        continue
+                                    if h == 1 and ext_hits > 0:
+                                        sub_top = top_exposed[cx0:cx1, y:y1, cz0:cz1]
+                                        if not bool(sub_top.all()):
+                                            continue
+                                        sub_side = side_exposed[cx0:cx1, y:y1, cz0:cz1]
+                                        # Must touch true outside exposure so enclosed
+                                        # interior top pockets do not get plates.
+                                        if not bool(sub_side.any()):
+                                            continue
+                                if covered[cx0:cx1, y:y1, cz0:cz1].any():
+                                    continue
+                                # score
+                                if detail_prefix is not None:
+                                    detail_count = int(
+                                        detail_prefix[cx1, y1, cz1]
+                                        - detail_prefix[cx0, y1, cz1]
+                                        - detail_prefix[cx1, y, cz1]
+                                        - detail_prefix[cx1, y1, cz0]
+                                        + detail_prefix[cx0, y, cz1]
+                                        + detail_prefix[cx0, y1, cz0]
+                                        + detail_prefix[cx1, y, cz0]
+                                        - detail_prefix[cx0, y, cz0]
+                                    )
+                                    has_detail = detail_count > 0
+                                    if has_detail and footprint > max_detail_footprint:
+                                        continue
+                                # stagger: count distinct bricks directly below
+                                stagger = 0
+                                if y > 0:
+                                    below = placement_id[cx0:cx1, y - 1, cz0:cz1]
+                                    flat_below = below.ravel()
+                                    if flat_below.size == 1:
+                                        stagger = int(flat_below[0] != -1)
+                                    else:
+                                        uniq = np.unique(flat_below)
+                                        stagger = int(np.sum(uniq != -1))
+                                # color variance (low = clean color)
+                                if use_color_score:
+                                    cells_color = colors[cx0:cx1, y:y1, cz0:cz1].reshape(-1, 3)
+                                    cvar = float(cells_color.astype(np.float32).var(axis=0).sum())
+                                else:
+                                    cvar = 0.0
+                                score = (
+                                    occ_count * self.vol_weight
+                                    + (occ_count / max(1, vol)) * self.vol_weight
+                                    + stagger * self.stagger_weight
+                                    - cvar * self.color_weight
+                                )
+                                if surface_only_plates:
+                                    if h == 1 and ext_hits > 0:
+                                        # Favor smooth-top plate caps on exterior top
+                                        # surfaces. Non-cap plates remain just normal
+                                        # filler when a taller brick cannot be used.
+                                        score += 1000.0
+                                if use_height_mix:
+                                    # Encourage local target heights (seeded per X/Z),
+                                    # but keep it soft so structural/footprint quality
+                                    # still dominates where needed.
+                                    pref = 1.0 - (
+                                        abs(int(h) - int(target_h)) / float(height_span)
+                                    )
+                                    gain = (
+                                        self.height_mix_amount
+                                        * float(footprint * int(self.max_brick_height))
+                                    )
+                                    score += (
+                                        (pref - 0.5)
+                                        * 2.0
+                                        * gain
+                                    )
+                                if best is None or score > best[0]:
+                                    best = (score, brick, rot, x0, z0)
 
                     if best is None:
+                        if relaxed_boundary_fit:
+                            # Artist mode must preserve occupied boundary cells
+                            # even when the selected brick footprint cannot tile
+                            # the source. Fill the leftover voxel exactly with a
+                            # 1x1 visual brick/plate instead of overhanging a
+                            # larger footprint outside the model.
+                            fill_h = 1
+                            max_fill_h = min(max(1, int(self.max_brick_height)), Ny - y)
+                            while (
+                                fill_h < max_fill_h
+                                and bool(occupancy[x, y + fill_h, z])
+                                and not bool(covered[x, y + fill_h, z])
+                            ):
+                                fill_h += 1
+                            avg = colors[x:x + 1, y:y + fill_h, z:z + 1].reshape(-1, 3).astype(np.float32).mean(axis=0)
+                            rgb = (
+                                int(np.clip(avg[0], 0, 255)),
+                                int(np.clip(avg[1], 0, 255)),
+                                int(np.clip(avg[2], 0, 255)),
+                            )
+                            color_idx = -1
+                            if self.palette is not None:
+                                color_idx = int(self.palette.nearest_index(np.array([avg]))[0])
+                            filler = BrickType(
+                                "artist_fill_1x1_h{0}".format(fill_h),
+                                1,
+                                1,
+                                int(fill_h),
+                                "artist_fill_1x1_h{0}".format(fill_h),
+                            )
+                            p = BrickPlacement(
+                                filler,
+                                x,
+                                y,
+                                z,
+                                0,
+                                color_idx=color_idx,
+                                rgb=rgb,
+                            )
+                            placements.append(p)
+                            pid = len(placements) - 1
+                            covered[x:x + 1, y:y + fill_h, z:z + 1] = True
+                            placement_id[x:x + 1, y:y + fill_h, z:z + 1] = pid
+                            continue
                         # Should not happen if 1x1 plate is in library.
                         # Fallback: leave uncovered (will be reported).
                         continue
 
-                    _, brick, rot = best
+                    _, brick, rot, px, pz = best
                     w = brick.depth if rot == 90 else brick.width
                     d = brick.width if rot == 90 else brick.depth
                     h = brick.height
+                    cx0 = max(0, px)
+                    cz0 = max(0, pz)
+                    cx1 = min(Nx, px + w)
+                    cz1 = min(Nz, pz + d)
+                    y1 = y + h
                     # average color over the brick's voxels -- store raw RGB
                     # always; palette index only when palette is available
-                    cells_color = colors[x:x + w, y:y + h, z:z + d].reshape(-1, 3)
-                    avg = cells_color.astype(np.float32).mean(axis=0)
-                    rgb = (int(np.clip(avg[0], 0, 255)),
-                           int(np.clip(avg[1], 0, 255)),
-                           int(np.clip(avg[2], 0, 255)))
+                    if uniform_avg is not None:
+                        avg = uniform_avg
+                        rgb = uniform_rgb
+                    else:
+                        cells_color = colors[cx0:cx1, y:y1, cz0:cz1].reshape(-1, 3)
+                        avg = cells_color.astype(np.float32).mean(axis=0)
+                        rgb = (int(np.clip(avg[0], 0, 255)),
+                               int(np.clip(avg[1], 0, 255)),
+                               int(np.clip(avg[2], 0, 255)))
                     if self.palette is not None:
                         color_idx = int(self.palette.nearest_index(
                             np.array([avg]))[0])
                     else:
                         color_idx = -1
 
-                    p = BrickPlacement(brick, x, y, z, rot,
+                    p = BrickPlacement(brick, px, y, pz, rot,
                                        color_idx=color_idx, rgb=rgb)
                     placements.append(p)
                     pid = len(placements) - 1
-                    placement_id[x:x + w, y:y + h, z:z + d] = pid
+                    covered[cx0:cx1, y:y1, cz0:cz1] = True
+                    placement_id[cx0:cx1, y:y1, cz0:cz1] = pid
 
         return placements
 

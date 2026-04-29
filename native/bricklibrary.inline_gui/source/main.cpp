@@ -304,8 +304,9 @@ void BrickLibraryThumbUserArea::DrawMsg(Int32 x1, Int32 y1, Int32 x2, Int32 y2, 
 			DrawRectangle(innerX0, innerY0, innerX1, innerY1);
 		}
 
-		// Draw label last with explicit text colors for readability.
-		DrawSetTextCol(Vector(0.96, 0.96, 0.96), Vector(0.15, 0.15, 0.15));
+		// Label is drawn last — keep it dark on the light-grey thumb backdrops without
+		// the thick dark "subtitle bar" the light-on-dark pairing produced.
+		DrawSetTextCol(Vector(0.05, 0.05, 0.08), Vector(0.93, 0.93, 0.93));
 		DrawText(String(g_brick_labels[i]), innerX0 + 2, innerY0 + 1, DRAWTEXT_STD_ALIGN);
 
 		// Full-bleed thumbnails cover the tile, so draw selection chrome last.

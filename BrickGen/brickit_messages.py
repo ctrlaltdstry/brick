@@ -1,0 +1,215 @@
+"""BrickIt ObjectData message and command handling."""
+import time
+
+import c4d
+
+from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
+from brickit_params import (
+    INTERACTIVE_PREVIEW_EDIT_WINDOW,
+    _snap_voxel_resolution,
+)
+from library_panel import (
+    BRICK_TOGGLE_NAMES,
+    apply_library_mask_to_toggles as _apply_library_mask_to_toggles,
+    apply_library_preset_to_object as _apply_library_preset_to_object,
+    open_library_panel as _open_library_panel,
+    read_library_mask as _read_library_mask,
+    sync_library_mask_from_toggles as _sync_library_mask_from_toggles,
+    toggle_id as _toggle_id,
+)
+from plugin_bootstrap import reload_brick_modules as _reload_brick_modules
+
+
+def _apply_library_preset(self, op, preset_id):
+    _apply_library_preset_to_object(op, preset_id)
+
+def _open_library_picker(self, op):
+    _open_library_panel(op)
+
+def _is_interactive_preview_param(self, desc_id):
+    if desc_id in (
+        BRICKIFYASSEMBLY_VOXEL_RESOLUTION,
+        BRICKIFYASSEMBLY_SOURCE,
+        BRICKIFYASSEMBLY_HIDE_SOURCE_MESH,
+        BRICKIFYASSEMBLY_AUTO_REBUILD,
+        BRICKIFYASSEMBLY_REBUILD,
+        BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER,
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE,
+    ):
+        return False
+    return desc_id in (
+        BRICKIFYASSEMBLY_VOXEL_MODE,
+        BRICKIFYASSEMBLY_QUALITY,
+        BRICKIFYASSEMBLY_MERGE_PLATES,
+        BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY,
+        BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT,
+        BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS,
+        BRICKIFYASSEMBLY_SHELL_THICKNESS,
+        BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE,
+        BRICKIFYASSEMBLY_STUD_SIZE,
+        BRICKIFYASSEMBLY_DETAIL_MODE,
+        BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS,
+        BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
+        BRICKIFYASSEMBLY_ENABLE_PLATES,
+        BRICKIFYASSEMBLY_VOXEL_BACKEND,
+    )
+
+
+def Message(self, op, msg_type, data):
+    if msg_type == c4d.MSG_DESCRIPTION_COMMAND:
+        try:
+            desc_id = data["id"][0].id
+        except Exception:
+            desc_id = -1
+        if desc_id == BRICKIFYASSEMBLY_REBUILD:
+            self._cancel_resolution_live_timer()
+            _reload_brick_modules()
+            self._fit_cache_key = None
+            self._fit_placements = None
+            self._voxel_cache_key = None
+            self._voxel_cache_voxels = None
+            self._preview_voxel_cache_key = None
+            self._preview_voxel_cache_voxels = None
+            self._source_cache_key = None
+            self._source_cache_data = None
+            self._hierarchy_cache_key = None
+            self._force_rebuild = True
+            self._mesh_cache = {}
+            self._logo_cache = {}
+            self._last_resolution_key = None
+            self._interactive_preview_active = False
+            self._interactive_preview_desc_id = -1
+            self._interactive_preview_log_key = None
+            self._interactive_last_edit_at = 0.0
+            self._interactive_last_desc_id = -1
+            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            # Force immediate reevaluation after the button press instead
+            # of waiting for viewport/object-manager interaction.
+            c4d.EventAdd()
+        elif desc_id == BRICKIFYASSEMBLY_CREATE_MOGRAPH:
+            self._create_mograph_handoff(op)
+        elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
+            self._open_library_picker(op)
+        elif desc_id in (
+            BRICKIFYASSEMBLY_LIB_PRESET_ALL,
+            BRICKIFYASSEMBLY_LIB_PRESET_NONE,
+            BRICKIFYASSEMBLY_LIB_PRESET_BRICKS,
+            BRICKIFYASSEMBLY_LIB_PRESET_PLATES,
+            BRICKIFYASSEMBLY_LIB_PRESET_1X1,
+            BRICKIFYASSEMBLY_LIB_PRESET_INVERT,
+        ):
+            self._apply_library_preset(op, desc_id)
+        elif (
+            BRICKIFYASSEMBLY_THUMB_BASE
+            <= desc_id
+            < BRICKIFYASSEMBLY_THUMB_BASE + len(BRICK_TOGGLE_NAMES)
+        ):
+            i = int(desc_id - BRICKIFYASSEMBLY_THUMB_BASE)
+            tid = _toggle_id(i)
+            try:
+                op[tid] = not bool(op[tid])
+            except Exception:
+                op[tid] = True
+            _sync_library_mask_from_toggles(op)
+            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            c4d.EventAdd()
+        elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE:
+            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 2
+            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            c4d.EventAdd()
+        elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED:
+            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 3
+            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            c4d.EventAdd()
+        elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY:
+            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 6
+            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            c4d.EventAdd()
+    elif msg_type == c4d.MSG_DESCRIPTION_POSTSETPARAMETER:
+        # Force immediate reevaluation while editing controls when
+        # auto-rebuild is enabled (avoids waiting for viewport interaction).
+        try:
+            desc_id = -1
+            try:
+                desc_id = data["descid"][0].id
+            except Exception:
+                try:
+                    desc_id = data["id"][0].id
+                except Exception:
+                    desc_id = -1
+            if desc_id == BRICKIFYASSEMBLY_VOXEL_RESOLUTION:
+                try:
+                    snapped = _snap_voxel_resolution(
+                        op[BRICKIFYASSEMBLY_VOXEL_RESOLUTION]
+                    )
+                    op[BRICKIFYASSEMBLY_VOXEL_RESOLUTION] = snapped
+                except Exception:
+                    pass
+            try:
+                set_flags = int(data["flags"])
+            except Exception:
+                try:
+                    set_flags = int(data.get("flags", 0))
+                except Exception:
+                    set_flags = 0
+            in_drag = bool(set_flags & c4d.DESCFLAGS_SET_INDRAG)
+            now = time.perf_counter()
+            if self._is_interactive_preview_param(desc_id):
+                rapid_edit = (
+                    desc_id == self._interactive_last_desc_id
+                    and (now - float(self._interactive_last_edit_at or 0.0))
+                    <= INTERACTIVE_PREVIEW_EDIT_WINDOW
+                )
+                self._interactive_preview_active = bool(in_drag or rapid_edit)
+                self._interactive_preview_desc_id = int(desc_id)
+                self._interactive_last_edit_at = now
+                self._interactive_last_desc_id = int(desc_id)
+                if not self._interactive_preview_active:
+                    self._interactive_preview_log_key = None
+            elif not in_drag:
+                self._interactive_preview_active = False
+                self._interactive_preview_log_key = None
+            # Resolution + Live Update: debounce rebuilds while scrubbing.
+            if desc_id == BRICKIFYASSEMBLY_VOXEL_RESOLUTION:
+                if bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD]):
+                    if in_drag:
+                        self._cancel_resolution_live_timer()
+                    else:
+                        self._schedule_resolution_live_rebuild(op)
+            elif desc_id == BRICKIFYASSEMBLY_AUTO_REBUILD:
+                if not bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD]):
+                    self._cancel_resolution_live_timer()
+                op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                c4d.EventAdd()
+            else:
+                op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                c4d.EventAdd()
+            if desc_id == BRICKIFYASSEMBLY_LIBRARY_MASK:
+                _apply_library_mask_to_toggles(op, _read_library_mask(op))
+                op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                c4d.EventAdd()
+            elif (
+                BRICKIFYASSEMBLY_BRICK_BASE
+                <= desc_id
+                < BRICKIFYASSEMBLY_BRICK_BASE + len(BRICK_TOGGLE_NAMES)
+            ):
+                _sync_library_mask_from_toggles(op)
+            if desc_id in (
+                BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS,
+                BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
+            ):
+                # This toggle is commonly A/B tested while dialing a model;
+                # force immediate reevaluation so users can see the effect
+                # without requiring manual "Rebuild Now".
+                self._fit_cache_key = None
+                self._hierarchy_cache_key = None
+                self._force_rebuild = True
+                op.SetDirty(c4d.DIRTYFLAGS_DATA)
+                c4d.EventAdd()
+            if desc_id in (BRICKIFYASSEMBLY_SOURCE, BRICKIFYASSEMBLY_HIDE_SOURCE_MESH):
+                self._sync_source_visibility(op)
+                c4d.EventAdd()
+        except Exception:
+            pass
+    return True
+

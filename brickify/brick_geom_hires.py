@@ -41,7 +41,7 @@ bounding box for rigid-body simulation use.
 """
 import numpy as np
 from typing import Optional, Tuple
-from .mesh import Mesh
+from .mesh import Mesh, affine_translate
 
 
 # ---------------------------------------------------------------------
@@ -86,6 +86,8 @@ def make_brick_hires(
     rib_protrusion_ratio: float = 0.04,
     rib_fillet_radius: float = 0.12,
     rib_segments: int = 4,
+    # ---- optional stud logo ----
+    logo: Optional[Mesh] = None,
 ) -> Mesh:
     """Build a high-resolution LEGO brick with real fillets baked in.
     Returns a Mesh with triangles/quads and named polygon groups.
@@ -138,6 +140,9 @@ def make_brick_hires(
                     fillet_segs=stud_fillet_segments,
                     group="studs",
                 )
+                if logo is not None:
+                    T = affine_translate(np.array([cx, H + stud_h, cz]))
+                    mesh.merge(logo, transform=T)
 
         # Body top panel with one circular hole per stud. Hole radius
         # matches the stud's first profile ring (R_outer = stud_r +
@@ -1254,7 +1259,7 @@ def _emit_ceiling_with_holes(
     # Deduplicate (some perimeter points might collide with rim if
     # rim_radius is large). We'll just make sure they're distinct.
     # Actually simple: use np.unique.
-    pts_unique, inv = np.unique(pts_2d.round(6), axis=0, return_inverse=True)
+    pts_unique = np.unique(pts_2d.round(6), axis=0)
     if len(pts_unique) < len(pts_2d):
         pts_2d = pts_unique
 
@@ -1284,23 +1289,17 @@ def _emit_ceiling_with_holes(
     base = mesh.append_verts(verts_3d)
 
     # For each triangle, check if its centroid lies inside any hole.
-    # If yes, skip the triangle.
-    for simplex in tri.simplices:
-        # simplex is a triple of indices into pts_2d
+    # Vectorizing this filter avoids a Python loop over every triangle/hole pair.
+    simplices = tri.simplices
+    centroids = pts_2d[simplices].mean(axis=1)
+    hole_arr = np.asarray(holes, dtype=np.float64)
+    dx = centroids[:, 0:1] - hole_arr[None, :, 0]
+    dz = centroids[:, 1:2] - hole_arr[None, :, 1]
+    r2 = (hole_arr[None, :, 2] * 0.999) ** 2
+    keep = ~np.any((dx * dx + dz * dz) < r2, axis=1)
+
+    for simplex in simplices[keep]:
         a, b, c = simplex
-        # Centroid in 2D
-        cx_tri = (pts_2d[a, 0] + pts_2d[b, 0] + pts_2d[c, 0]) / 3
-        cz_tri = (pts_2d[a, 1] + pts_2d[b, 1] + pts_2d[c, 1]) / 3
-        # Check holes
-        skip = False
-        for cxh, czh, rh in holes:
-            d2 = (cx_tri - cxh) ** 2 + (cz_tri - czh) ** 2
-            if d2 < (rh * 0.999) ** 2:
-                # Centroid is INSIDE the hole -- don't emit
-                skip = True
-                break
-        if skip:
-            continue
 
         # Delaunay returns CCW in the (x, z) plane, which is CCW from
         # +Y looking down. Keep that winding for face_up=True (+Y

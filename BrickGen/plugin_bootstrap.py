@@ -1,0 +1,113 @@
+"""Bootstrap and logging helpers shared by BrickGen plugin modules."""
+import importlib
+import os
+import site
+import sys
+import tempfile
+import time
+
+import c4d
+
+
+BRICK_LOG_PATH = os.path.join(tempfile.gettempdir(), "brickgen.log")
+
+
+def brick_log(message):
+    """Mirror plugin diagnostics to C4D console and a file Cursor can read."""
+    text = str(message)
+    try:
+        c4d.GePrint(text)
+    except Exception:
+        try:
+            print(text)
+        except Exception:
+            pass
+    try:
+        if os.path.exists(BRICK_LOG_PATH) and os.path.getsize(BRICK_LOG_PATH) > 2 * 1024 * 1024:
+            os.remove(BRICK_LOG_PATH)
+        with open(BRICK_LOG_PATH, "a", encoding="utf-8") as handle:
+            handle.write("{0} {1}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), text))
+    except Exception:
+        pass
+
+
+def ensure_brick_on_path():
+    """Make sure the brick package is importable."""
+    here = os.path.dirname(os.path.abspath(__file__))
+
+    candidates = []
+    env_root = os.environ.get("BRICK_ROOT") or os.environ.get("BRICKIFY_ROOT")
+    if env_root:
+        candidates.append(env_root)
+
+    # C4D loads the deployed plugin from AppData, so keep explicit dev roots.
+    candidates.append(r"Z:\02_MKE\2026\BRICK\brick")
+    candidates.append(r"Z:\02_MKE\2026\BRICK\brickify")
+
+    walk = here
+    for _ in range(6):
+        pkg_init = os.path.join(walk, "brick", "__init__.py")
+        if os.path.isfile(pkg_init):
+            candidates.append(walk)
+        legacy_pkg_init = os.path.join(walk, "brickify", "__init__.py")
+        if os.path.isfile(legacy_pkg_init):
+            candidates.append(walk)
+        nested = os.path.join(walk, "brickify", "brickify", "__init__.py")
+        if os.path.isfile(nested):
+            candidates.append(os.path.join(walk, "brickify"))
+        parent = os.path.dirname(walk)
+        if parent == walk:
+            break
+        walk = parent
+    candidates.append(here)
+
+    try:
+        candidates.extend(site.getsitepackages())
+    except Exception:
+        pass
+    try:
+        candidates.append(site.getusersitepackages())
+    except Exception:
+        pass
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        py_tag = "Python{0}{1}".format(
+            sys.version_info.major, sys.version_info.minor
+        )
+        candidates.append(os.path.join(appdata, "Python", py_tag, "site-packages"))
+
+    ordered = []
+    seen = set()
+    for p in candidates:
+        if not p:
+            continue
+        p_norm = os.path.normcase(os.path.normpath(p))
+        if p_norm in seen:
+            continue
+        if not os.path.isdir(p):
+            continue
+        seen.add(p_norm)
+        ordered.append(p)
+
+    for p in reversed(ordered):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+
+def reload_brick_modules():
+    """Hot-reload every loaded brick/brickify module."""
+    ensure_brick_on_path()
+    names = [
+        n for n in list(sys.modules.keys())
+        if n == "brick" or n.startswith("brick.") or n == "brickify" or n.startswith("brickify.")
+    ]
+    names.sort(key=lambda n: -n.count("."))
+    for n in names:
+        mod = sys.modules.get(n)
+        if mod is None:
+            continue
+        try:
+            importlib.reload(mod)
+        except Exception as exc:
+            brick_log("[brick] reload failed for {0}: {1}".format(n, exc))
+            sys.modules.pop(n, None)
