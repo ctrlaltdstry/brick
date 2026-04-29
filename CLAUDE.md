@@ -12,14 +12,14 @@ generator runs as a C4D `ObjectData` plugin; the same Python package can
 also be driven from the command line.
 
 The C4D port is **live** — `BrickGen` is a working ObjectData
-plugin that loads `brickify.brick_geom_hires.make_brick_hires`. Width,
+plugin that loads `brick.brick_geom_hires.make_brick_hires`. Width,
 Depth, Height (plates), and Quality are exposed as object parameters.
 
 ## Project layout
 
 ```
-Z:\02_MKE\2026\BRICK\brickify\        ← repo root
-  brickify\                            ← Python package
+Z:\02_MKE\2026\BRICK\brick\           ← repo root
+  brick\                               ← Python package
     __init__.py
     brick_geom_hires.py                ← LIVE generator
     brick_geom.py                      ← deprecated SubD-cage version
@@ -36,13 +36,12 @@ Z:\02_MKE\2026\BRICK\brickify\        ← repo root
   CLAUDE.md
 ```
 
-**Package nesting trap, do not repeat**: the layout is exactly two
-levels (`brickify/brickify/*.py`). At one point there was an extra middle
-`brickify/` and a stray `brick_geom_hires.py` got written next to the
-package instead of inside it. Imports silently resolved to a stale older
-copy. If "old-looking" output appears unexpectedly, sanity-check that
-there is exactly one `brick_geom_hires.py` on disk and it lives at
-`brickify/brickify/brick_geom_hires.py`.
+**Package nesting trap, do not repeat**: the implementation package is
+`brick/*.py` directly under this repo. At one point there was an extra
+middle `brickify/` and a stray `brick_geom_hires.py` got written next to
+the package instead of inside it. Imports silently resolved to a stale
+older copy. If "old-looking" output appears unexpectedly, sanity-check
+that the live `brick_geom_hires.py` lives at `brick/brick_geom_hires.py`.
 
 ## C4D plugin workflow
 
@@ -55,10 +54,10 @@ then deploy with:
 powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1
 ```
 
-Geometry-only changes inside `brickify/brickify/*.py` do **not** need
+Geometry-only changes inside `brick/*.py` do **not** need
 redeployment — the plugin imports the package live from
-`Z:\02_MKE\2026\BRICK\brickify` (hardcoded fallback in
-`_ensure_brickify_on_path`). Just restart C4D (or recreate the
+`Z:\02_MKE\2026\BRICK\brick` (hardcoded fallback in
+`ensure_brick_on_path`). Just restart C4D (or recreate the
 BrickGen object so its mesh cache invalidates).
 
 The plugin's `BrickGen` ObjectData caches results on
@@ -127,7 +126,7 @@ Guardrail test:
 python tools/test_artist_mode_regression.py
 ```
 
-Run it before changing `brickify/fitter.py`, `brickify/pipeline.py`, or the
+Run it before changing `brick/fitter.py`, `brick/pipeline.py`, or the
 `Make Physically Accurate` wiring in `BrickGen/c4d_brick_generator.pyp`.
 
 ## The brick generator (current focus)
@@ -324,8 +323,8 @@ visualization but not for hero shots.
   patches.
 - **Three-level package nesting**: an extra middle `brickify/` directory
   caused new code written one level too shallow to silently get ignored
-  in favor of an older copy inside the actual package. Layout flattened
-  to standard two levels.
+  in favor of an older copy inside the actual package. Layout is now the
+  repo root plus the canonical `brick/` package.
 
 ## What's NOT done yet
 

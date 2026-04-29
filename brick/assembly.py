@@ -1,6 +1,6 @@
 """Turn a list of BrickPlacement objects into a single quad-modeled mesh.
 
-This is the bridge between brickify's PLACEMENT pipeline (palette / fitter /
+This is the bridge between Brick's placement pipeline (palette / fitter /
 connectivity, all integer grid coords) and the live baked-fillet GEOMETRY
 pipeline (brick_geom_hires / svg_logo / mesh_export, all in mesh-space units).
 

@@ -128,7 +128,7 @@ def export_ldraw(placements: List[BrickPlacement], palette: LegoPalette, path: s
     lines = [
         f"0 {model_name}",
         f"0 Name: {model_name}.ldr",
-        f"0 Author: brickify",
+        f"0 Author: brick",
         f"0 !LICENSE Redistributable under CCAL version 2.0",
         f"0 BFC CERTIFY CCW",
         f"",

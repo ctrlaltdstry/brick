@@ -1,17 +1,8 @@
 """Brick package namespace.
 
-This package is the new canonical import path and delegates module loading
-to the existing `brickify` implementation to preserve compatibility.
+This is the canonical Python package used by the BrickGen Cinema 4D plugin
+and command-line tools.
 """
-
-from pathlib import Path
-
-# Keep this package's own directory and also expose the legacy implementation
-# directory so `import brick.pipeline` resolves to `brickify/pipeline.py`.
-_HERE = Path(__file__).resolve().parent
-_LEGACY_IMPL = _HERE.parent / "brickify"
-__path__ = [str(_HERE), str(_LEGACY_IMPL)]
-
 from .palette import LegoPalette, DEFAULT_PALETTE
 from .library import BrickType, BrickLibrary, DEFAULT_LIBRARY
 from .voxelize import voxelize_mesh, load_obj, make_sphere, make_torus

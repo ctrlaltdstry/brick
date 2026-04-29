@@ -1,4 +1,4 @@
-"""Generate a single brick via brickify.brick_geom_hires.make_brick_hires
+"""Generate a single brick via brick.brick_geom_hires.make_brick_hires
 and write it as an OBJ in the project root.
 
 Defaults match the 'hero' preset used to produce brick_2x3_hero_4.obj

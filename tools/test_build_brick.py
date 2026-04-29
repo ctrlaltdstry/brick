@@ -9,9 +9,9 @@ from tools.plugin_headless import load_plugin_module, build_brick_mesh
 
 
 def export_obj(mesh, path):
-    """Write mesh to OBJ with one polygon group (g) per brickify group."""
+    """Write mesh to OBJ with one polygon group (g) per brick group."""
     with open(path, "w") as f:
-        f.write("# brickify test export\n")
+        f.write("# brick test export\n")
         for v in mesh.vertices:
             f.write(f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}\n")
         # group faces

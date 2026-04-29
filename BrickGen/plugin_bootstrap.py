@@ -36,25 +36,18 @@ def ensure_brick_on_path():
     here = os.path.dirname(os.path.abspath(__file__))
 
     candidates = []
-    env_root = os.environ.get("BRICK_ROOT") or os.environ.get("BRICKIFY_ROOT")
+    env_root = os.environ.get("BRICK_ROOT")
     if env_root:
         candidates.append(env_root)
 
     # C4D loads the deployed plugin from AppData, so keep explicit dev roots.
     candidates.append(r"Z:\02_MKE\2026\BRICK\brick")
-    candidates.append(r"Z:\02_MKE\2026\BRICK\brickify")
 
     walk = here
     for _ in range(6):
         pkg_init = os.path.join(walk, "brick", "__init__.py")
         if os.path.isfile(pkg_init):
             candidates.append(walk)
-        legacy_pkg_init = os.path.join(walk, "brickify", "__init__.py")
-        if os.path.isfile(legacy_pkg_init):
-            candidates.append(walk)
-        nested = os.path.join(walk, "brickify", "brickify", "__init__.py")
-        if os.path.isfile(nested):
-            candidates.append(os.path.join(walk, "brickify"))
         parent = os.path.dirname(walk)
         if parent == walk:
             break
@@ -95,11 +88,11 @@ def ensure_brick_on_path():
 
 
 def reload_brick_modules():
-    """Hot-reload every loaded brick/brickify module."""
+    """Hot-reload every loaded brick module."""
     ensure_brick_on_path()
     names = [
         n for n in list(sys.modules.keys())
-        if n == "brick" or n.startswith("brick.") or n == "brickify" or n.startswith("brickify.")
+        if n == "brick" or n.startswith("brick.")
     ]
     names.sort(key=lambda n: -n.count("."))
     for n in names:

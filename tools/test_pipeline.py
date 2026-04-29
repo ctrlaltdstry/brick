@@ -1,4 +1,4 @@
-"""Smoke test for brickify.pipeline.
+"""Smoke test for brick.pipeline.
 
 Loads tools/test_inputs/monkey.obj, runs the full pipeline at low
 resolution, and prints stats. No C4D.

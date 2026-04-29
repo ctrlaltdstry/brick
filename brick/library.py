@@ -94,7 +94,7 @@ _TALLER_VARIANTS = []
 for h in (2, 4, 5, 6):
     for w, d in _FOOTPRINTS:
         # Synthetic part family for fitting control: these are geometry-valid
-        # in brickify/C4D, but not official LDraw stock part IDs.
+        # in Brick/C4D, but not official LDraw stock part IDs.
         _TALLER_VARIANTS.append(
             BrickType(
                 "brick_h{0}_{1}x{2}".format(h, w, d),

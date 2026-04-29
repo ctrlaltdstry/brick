@@ -124,7 +124,7 @@ class BrickGen(plugins.ObjectData):
             raise RuntimeError(
                 "Failed to import brick. Make sure the brick "
                 "package is next to c4d_brick_generator.pyp (or set "
-                "BRICK_ROOT/BRICKIFY_ROOT) and that numpy/scipy are installed in "
+                "BRICK_ROOT) and that numpy/scipy are installed in "
                 "Cinema 4D's Python environment."
             ) from exc
 

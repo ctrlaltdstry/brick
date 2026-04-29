@@ -78,7 +78,7 @@ def main():
 
     out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", out)
     with open(out_path, "w") as f:
-        f.write(f"# brickify placements at studs_across={studs}\n")
+        f.write(f"# brick placements at studs_across={studs}\n")
         f.write(f"# stud={stud:.4f} plate={plate:.4f}\n")
         f.write("mtllib placements.mtl\n")
         v_offset = 1

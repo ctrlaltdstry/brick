@@ -21,7 +21,7 @@ def write_obj(mesh: Mesh, path: str, *, object_name: str = "brick") -> None:
     selectable on import.
     """
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"# brickify -- generated quad-modeled brick\n")
+        f.write(f"# brick -- generated quad-modeled brick\n")
         f.write(f"# {mesh.stats()}\n")
         f.write(f"o {object_name}\n")
         f.writelines(
