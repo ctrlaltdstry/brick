@@ -33,7 +33,7 @@ from .fitter import (
 )
 from .voxelize import STUD_MM, PLATE_RATIO
 from .voxel_backends import voxelize_with_backend, normalize_voxel_backend
-from .connectivity import check_connectivity
+from .connectivity import check_buildability, check_connectivity
 
 
 DETAIL_FIT_SETTINGS = {
@@ -292,6 +292,48 @@ def _prune_floating_fragments_by_voxel_island(
     return kept, dropped, summary
 
 
+def _physical_repair_summary(buildability_report: Dict[str, Any]) -> Dict[str, Any]:
+    """Explain what kind of repair would be needed without changing geometry."""
+    if not buildability_report.get("checked", True):
+        return {
+            "needed": False,
+            "status": "not_checked",
+            "reason": "artist_friendly_mode",
+        }
+    if bool(buildability_report.get("buildable", False)):
+        return {
+            "needed": False,
+            "status": "buildable",
+            "reason": "",
+        }
+
+    n_floating = int(buildability_report.get("n_floating_components", 0) or 0)
+    n_grounded = int(buildability_report.get("n_grounded_components", 0) or 0)
+    n_unsupported = int(buildability_report.get("n_unsupported", 0) or 0)
+    same_layer = buildability_report.get("same_layer_islands") or []
+    if n_grounded > 1:
+        status = "needs_bridge"
+        reason = (
+            "multiple grounded subassemblies need a top piece or refit that "
+            "overlaps both footprints"
+        )
+    elif n_floating > 0 or n_unsupported > 0:
+        status = "needs_support"
+        reason = "floating bricks need a vertical support path to the base"
+    else:
+        status = "needs_refit"
+        reason = "assembly is not a single clutch-connected component"
+    return {
+        "needed": True,
+        "status": status,
+        "reason": reason,
+        "candidate_bridge_islands": int(len(same_layer)),
+        "floating_components": n_floating,
+        "grounded_components": n_grounded,
+        "unsupported_placements": n_unsupported,
+    }
+
+
 def brickify_mesh(
     vertices: np.ndarray,
     faces: np.ndarray,
@@ -438,12 +480,19 @@ def brickify_mesh(
     prune_skipped = False
     prune_drop_ratio = 0.0
     subassembly_report: List[Dict[str, Any]] = []
+    pre_prune_buildability_report: Dict[str, Any] = {"checked": False}
+    final_buildability_report: Dict[str, Any] = {"checked": False}
+    physical_repair_report: Dict[str, Any] = _physical_repair_summary(
+        final_buildability_report
+    )
     connectivity_relaxed = bool(effective_prune_connectivity)
     shell_connectivity_relaxed = (
         str(voxel_mode).lower() == "shell" and connectivity_relaxed
     )
     t0 = time.perf_counter()
     if effective_prune_connectivity:
+        pre_prune_buildability_report = check_buildability(placements)
+        pre_prune_buildability_report["checked"] = True
         # Physically accurate mode should remove floating fragments, but not
         # amputate major architectural sections when the coupling graph misses
         # valid contact. If a prune would remove too much of a voxel island,
@@ -468,9 +517,14 @@ def brickify_mesh(
     t0 = time.perf_counter()
     if effective_prune_connectivity:
         final_connectivity_report = check_connectivity(placements)
+        final_buildability_report = check_buildability(placements)
+        final_buildability_report["checked"] = True
+        physical_repair_report = _physical_repair_summary(final_buildability_report)
         timings["final_connectivity_seconds"] = float(time.perf_counter() - t0)
     else:
         final_connectivity_report = pre_prune_report
+        final_buildability_report = {"checked": False, "buildable": False}
+        physical_repair_report = _physical_repair_summary(final_buildability_report)
         timings["final_connectivity_seconds"] = 0.0
 
     t_info0 = time.perf_counter()
@@ -538,6 +592,9 @@ def brickify_mesh(
         "subassemblies": subassembly_report,
         "subassembly_count": int(len(subassembly_report)),
         "final_connectivity": final_connectivity_report,
+        "buildability": pre_prune_buildability_report,
+        "final_buildability": final_buildability_report,
+        "physical_repair": physical_repair_report,
         "occupancy_cells": occupancy_cells,
         "timings": timings,
     }

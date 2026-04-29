@@ -9,23 +9,26 @@ We also report *articulation points* (single bricks whose removal would
 split the model in two), which are weak spots a real build would benefit
 from being engineered out.
 """
-from typing import List, Tuple, Set, Dict
+from typing import Any, List, Tuple, Set, Dict
 from collections import defaultdict, deque
 from .fitter import BrickPlacement
 
 
-def _footprints_overlap(p: BrickPlacement, q: BrickPlacement) -> bool:
-    return not (
-        p.x + p.w <= q.x or q.x + q.w <= p.x or
-        p.z + p.d <= q.z or q.z + q.d <= p.z
-    )
+def _footprint_overlap_cells(p: BrickPlacement, q: BrickPlacement) -> int:
+    x_overlap = min(p.x + p.w, q.x + q.w) - max(p.x, q.x)
+    z_overlap = min(p.z + p.d, q.z + q.d) - max(p.z, q.z)
+    if x_overlap <= 0 or z_overlap <= 0:
+        return 0
+    return int(x_overlap * z_overlap)
 
 
-def build_coupling_graph(placements: List[BrickPlacement]) -> Dict[int, Set[int]]:
-    """Edge from i to j iff brick j sits directly on i (or vice versa)
-    AND their footprints overlap by at least one stud-cell."""
-    graph: Dict[int, Set[int]] = defaultdict(set)
-    # bucket placements by their bottom Y level to avoid n^2 over the whole list
+def build_support_graph(
+    placements: List[BrickPlacement],
+) -> Tuple[Dict[int, Set[int]], Dict[int, Set[int]], List[Dict[str, int]]]:
+    """Return directed bottom-to-top support edges and their clutch counts."""
+    supports: Dict[int, Set[int]] = defaultdict(set)
+    supported_by: Dict[int, Set[int]] = defaultdict(set)
+    clutch_edges: List[Dict[str, int]] = []
     by_bottom: Dict[int, List[int]] = defaultdict(list)
     by_top: Dict[int, List[int]] = defaultdict(list)
     for i, p in enumerate(placements):
@@ -33,14 +36,36 @@ def build_coupling_graph(placements: List[BrickPlacement]) -> Dict[int, Set[int]
         by_top[p.y + p.h].append(i)
 
     for top_y, ids_below in by_top.items():
-        # bricks whose top is at top_y: these support bricks whose bottom is at top_y
         for j in by_bottom.get(top_y, []):
             q = placements[j]
             for i in ids_below:
                 p = placements[i]
-                if _footprints_overlap(p, q):
-                    graph[i].add(j)
-                    graph[j].add(i)
+                studs = _footprint_overlap_cells(p, q)
+                if studs <= 0:
+                    continue
+                supports[i].add(j)
+                supported_by[j].add(i)
+                clutch_edges.append({
+                    "below": int(i),
+                    "above": int(j),
+                    "studs": int(studs),
+                })
+
+    for i in range(len(placements)):
+        supports[i]
+        supported_by[i]
+    return dict(supports), dict(supported_by), clutch_edges
+
+
+def build_coupling_graph(placements: List[BrickPlacement]) -> Dict[int, Set[int]]:
+    """Edge from i to j iff brick j sits directly on i (or vice versa)
+    AND their footprints overlap by at least one stud-cell."""
+    graph: Dict[int, Set[int]] = defaultdict(set)
+    supports, _, _ = build_support_graph(placements)
+    for i, ids_above in supports.items():
+        for j in ids_above:
+            graph[i].add(j)
+            graph[j].add(i)
     # ensure all nodes appear
     for i in range(len(placements)):
         graph[i]  # touch
@@ -115,6 +140,119 @@ def check_connectivity(placements: List[BrickPlacement]) -> dict:
         "largest_component_size": len(comps[0]) if comps else 0,
         "articulation_points": aps,
         "n_articulation_points": len(aps),
+    }
+
+
+def _same_layer_islands(placements: List[BrickPlacement]) -> List[Dict[str, Any]]:
+    by_layer: Dict[int, List[int]] = defaultdict(list)
+    for i, p in enumerate(placements):
+        by_layer[p.y].append(i)
+
+    islands: List[Dict[str, Any]] = []
+    for y, ids in sorted(by_layer.items()):
+        if len(ids) <= 1:
+            continue
+        graph: Dict[int, Set[int]] = defaultdict(set)
+        cell_owner: Dict[Tuple[int, int], int] = {}
+        for i in ids:
+            graph[i]
+            p = placements[i]
+            for x in range(p.x, p.x + p.w):
+                for z in range(p.z, p.z + p.d):
+                    cell_owner[(x, z)] = i
+        for i in ids:
+            p = placements[i]
+            for x in range(p.x, p.x + p.w):
+                for nz in (p.z - 1, p.z + p.d):
+                    j = cell_owner.get((x, nz))
+                    if j is not None and j != i:
+                        graph[i].add(j)
+                        graph[j].add(i)
+            for z in range(p.z, p.z + p.d):
+                for nx in (p.x - 1, p.x + p.w):
+                    j = cell_owner.get((nx, z))
+                    if j is not None and j != i:
+                        graph[i].add(j)
+                        graph[j].add(i)
+        seen: Set[int] = set()
+        for start in ids:
+            if start in seen:
+                continue
+            stack = [start]
+            seen.add(start)
+            comp: List[int] = []
+            while stack:
+                cur = stack.pop()
+                comp.append(cur)
+                for nb in graph.get(cur, ()):
+                    if nb not in seen:
+                        seen.add(nb)
+                        stack.append(nb)
+            if len(comp) > 1:
+                islands.append({
+                    "y": int(y),
+                    "indices": sorted(int(i) for i in comp),
+                    "size": int(len(comp)),
+                })
+    return islands
+
+
+def check_buildability(placements: List[BrickPlacement]) -> dict:
+    """Report real bottom-to-top clutch buildability for placements.
+
+    A placement is grounded when it starts on y=0, or when it is connected to
+    such a base placement through directed support edges. Same-layer side
+    contact is reported for diagnostics, but it is never a structural edge.
+    """
+    n = len(placements)
+    graph = build_coupling_graph(placements)
+    components = connected_components(graph, n)
+    supports, supported_by, clutch_edges = build_support_graph(placements)
+    base_indices = sorted(i for i, p in enumerate(placements) if p.y == 0)
+
+    grounded: Set[int] = set(base_indices)
+    q = deque(base_indices)
+    while q:
+        cur = q.popleft()
+        for above in supports.get(cur, ()):
+            if above not in grounded:
+                grounded.add(above)
+                q.append(above)
+
+    ungrounded = sorted(i for i in range(n) if i not in grounded)
+    unsupported = sorted(
+        i for i, p in enumerate(placements)
+        if p.y > 0 and not supported_by.get(i)
+    )
+    grounded_components = []
+    floating_components = []
+    for comp in components:
+        row = sorted(int(i) for i in comp)
+        if any(i in grounded for i in comp):
+            grounded_components.append(row)
+        else:
+            floating_components.append(row)
+
+    return {
+        "buildable": bool(n == 0 or (not ungrounded and len(components) <= 1)),
+        "single_component": bool(len(components) <= 1),
+        "graph": graph,
+        "support_graph": supports,
+        "supported_by": supported_by,
+        "clutch_edges": clutch_edges,
+        "components": components,
+        "n_components": int(len(components)),
+        "base_indices": base_indices,
+        "grounded_indices": sorted(int(i) for i in grounded),
+        "ungrounded_indices": ungrounded,
+        "unsupported_indices": unsupported,
+        "n_ungrounded": int(len(ungrounded)),
+        "n_unsupported": int(len(unsupported)),
+        "grounded_components": grounded_components,
+        "floating_components": floating_components,
+        "n_grounded_components": int(len(grounded_components)),
+        "n_floating_components": int(len(floating_components)),
+        "same_layer_islands": _same_layer_islands(placements),
     }
 
 

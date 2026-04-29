@@ -326,14 +326,20 @@ def _refit_if_needed(self, op, doc, params=None):
     info["prune_user"] = bool(params.get("prune_user"))
     info["height_mix_amount_ui"] = float(params.get("height_mix_amount_ui", 0.0))
     try:
+        final_buildability = info.get("final_buildability") or {}
+        physical_repair = info.get("physical_repair") or {}
         _brick_log(
             "[brick] Physically Accurate: ui={0}, effective={1}, dropped={2}, "
-            "components_before={3}, components_after={4}".format(
+            "components_before={3}, components_after={4}, buildable={5}, "
+            "ungrounded={6}, repair={7}".format(
                 bool(params.get("prune_user")),
                 bool(info.get("prune_connectivity_effective", False)),
                 int(info.get("n_dropped", 0) or 0),
                 int((info.get("connectivity") or {}).get("n_components", 0) or 0),
                 int((info.get("final_connectivity") or {}).get("n_components", 0) or 0),
+                bool(final_buildability.get("buildable", False)),
+                int(final_buildability.get("n_ungrounded", 0) or 0),
+                str(physical_repair.get("status", "")),
             )
         )
     except Exception:
