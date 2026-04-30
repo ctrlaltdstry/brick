@@ -92,7 +92,10 @@ def _get_active_library(self, op):
     # plate (h=1) and brick (h=3) entries in this C4D session.
     by_key = {(b.width, b.depth, b.height): b for b in enabled}
     footprints = {(b.width, b.depth) for b in enabled}
-    allowed_heights = (1, 2, 3, 4, 5, 6) if enable_plates else (2, 3, 4, 5, 6)
+    # Height-1 source voxels still need a legal coverage candidate when the
+    # user disables official plates. Keep those as synthetic brick_h1_* parts;
+    # the plate toggle only controls plate library entries and smooth caps.
+    allowed_heights = (1, 2, 3, 4, 5, 6)
     for w, d in footprints:
         for h in allowed_heights:
             key = (w, d, h)
@@ -149,6 +152,7 @@ def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
         params["voxel_mode"],
         params["shell_thickness"],
     )
+
 
 def _get_cached_source_arrays(self, source_obj, doc):
     source_key = self._source_state_key(source_obj)
@@ -292,6 +296,12 @@ def _refit_if_needed(self, op, doc, params=None):
                 self._voxel_cache_voxels = None
             precomputed_voxels = None
 
+    include_debug_info = params.get("visualization_mode") in (
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME,
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
+    )
+
     placements, info = brick_mesh(
         verts, faces,
         default_color=BRICKIT_DEFAULT_RGB,
@@ -315,11 +325,7 @@ def _refit_if_needed(self, op, doc, params=None):
         library=active_library,
         min_column_voxels=0,
         precomputed_voxels=precomputed_voxels,
-        include_debug_info=params["visualization_mode"] in (
-            BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
-            BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME,
-            BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
-        ),
+        include_debug_info=include_debug_info,
     )
     info["prune_auto_disabled"] = bool(params.get("prune_auto_disabled"))
     info["prune_auto_reason"] = str(params.get("prune_auto_reason") or "")
@@ -328,15 +334,18 @@ def _refit_if_needed(self, op, doc, params=None):
     try:
         final_buildability = info.get("final_buildability") or {}
         physical_repair = info.get("physical_repair") or {}
+        coverage = info.get("coverage") or {}
         _brick_log(
             "[brick] Physically Accurate: ui={0}, effective={1}, dropped={2}, "
-            "components_before={3}, components_after={4}, buildable={5}, "
-            "ungrounded={6}, repair={7}".format(
+            "components_before={3}, components_after={4}, coverage={5:.3f}, "
+            "uncovered={6}, buildable={7}, ungrounded={8}, repair={9}".format(
                 bool(params.get("prune_user")),
                 bool(info.get("prune_connectivity_effective", False)),
                 int(info.get("n_dropped", 0) or 0),
                 int((info.get("connectivity") or {}).get("n_components", 0) or 0),
                 int((info.get("final_connectivity") or {}).get("n_components", 0) or 0),
+                float(coverage.get("coverage_ratio", 1.0) or 0.0),
+                int(coverage.get("uncovered", 0) or 0),
                 bool(final_buildability.get("buildable", False)),
                 int(final_buildability.get("n_ungrounded", 0) or 0),
                 str(physical_repair.get("status", "")),

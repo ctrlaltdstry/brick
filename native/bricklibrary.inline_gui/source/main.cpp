@@ -12,8 +12,9 @@ static const Int32 g_brickhero_customgui_id = 1070998;
 static const Int32 g_brick_count = 15;
 static const Int32 g_cols = 6;
 static const Int32 g_userarea_id = 2000;
-static const Int32 g_status_text_id = 2001;
 static const Int32 g_hero_userarea_id = 3000;
+static const Int32 g_library_min_width = 420;
+static const Int32 g_library_grid_height = 252;
 
 static const Char* g_brick_labels[g_brick_count] = {
 	"1x1", "1x2", "1x3", "1x4", "1x6", "1x8",
@@ -66,22 +67,16 @@ public:
 
 	virtual Bool CreateLayout() override
 	{
-		GroupBegin(1000, BFH_SCALEFIT | BFV_SCALEFIT, 1, 0, ""_s, 0);
-		GroupBorderSpace(4, 4, 4, 4);
-		C4DGadget* gadget = AddUserArea(g_userarea_id, BFH_SCALEFIT | BFV_SCALEFIT, 420, 230);
+		GroupBegin(1000, BFH_SCALEFIT | BFV_TOP, 1, 0, ""_s, 0);
+		GroupBorderSpace(0, 0, 0, 0);
+		C4DGadget* gadget = AddUserArea(g_userarea_id, BFH_SCALEFIT | BFV_TOP, g_library_min_width, g_library_grid_height);
 		AttachUserArea(_area, gadget);
-		AddStaticText(g_status_text_id, BFH_LEFT, 0, 0, ""_s, BORDER_NONE);
 		GroupEnd();
 		return SUPER::CreateLayout();
 	}
 
 	virtual Bool InitValues() override
 	{
-		if (_tristate)
-			SetString(g_status_text_id, "Mixed Selection"_s);
-		else
-			SetString(g_status_text_id, FormatString("Enabled bricks: @", CountEnabled(_bitmask)));
-
 		_area.Redraw();
 		return true;
 	}
@@ -144,17 +139,6 @@ public:
 	}
 
 private:
-	static Int32 CountEnabled(Int32 bitmask)
-	{
-		Int32 count = 0;
-		for (Int32 i = 0; i < g_brick_count; ++i)
-		{
-			if ((bitmask & (1 << i)) != 0)
-				++count;
-		}
-		return count;
-	}
-
 	void LoadThumbnails()
 	{
 		const Filename pluginPath = GeGetPluginPath();
@@ -162,8 +146,8 @@ private:
 		const Filename roots[4] = {
 			pluginPath + Filename("res") + Filename("icons") + Filename("bricks"),
 			pluginDir + Filename("res") + Filename("icons") + Filename("bricks"),
+			pluginDir + Filename("Brick") + Filename("res") + Filename("icons") + Filename("bricks"),
 			pluginDir + Filename("BrickGen") + Filename("res") + Filename("icons") + Filename("bricks"),
-			pluginDir + Filename("BrickGenerator") + Filename("res") + Filename("icons") + Filename("bricks"),
 		};
 
 		for (Int32 i = 0; i < g_brick_count; ++i)
@@ -213,7 +197,7 @@ private:
 Bool BrickLibraryThumbUserArea::GetMinSize(Int32& w, Int32& h)
 {
 	w = 420;
-	h = 230;
+	h = g_library_grid_height;
 	return true;
 }
 
@@ -382,8 +366,8 @@ static BaseBitmap* LoadHeroBitmap()
 	const Filename roots[4] = {
 		pluginPath + Filename("res"),
 		pluginDir + Filename("res"),
+		pluginDir + Filename("Brick") + Filename("res"),
 		pluginDir + Filename("BrickGen") + Filename("res"),
-		pluginDir + Filename("BrickGenerator") + Filename("res"),
 	};
 	const String heroFile = "brickify_hero.png"_s;
 	for (const Filename& root : roots)

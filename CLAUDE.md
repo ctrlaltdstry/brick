@@ -11,7 +11,7 @@ eventually, full LEGO assemblies converted from arbitrary 3D models). The
 generator runs as a C4D `ObjectData` plugin; the same Python package can
 also be driven from the command line.
 
-The C4D port is **live** — `BrickGen` is a working ObjectData
+The C4D port is **live** — `Brick` is a working ObjectData
 plugin that loads `brick.brick_geom_hires.make_brick_hires`. Width,
 Depth, Height (plates), and Quality are exposed as object parameters.
 
@@ -24,7 +24,7 @@ Z:\02_MKE\2026\BRICK\brick\           ← repo root
     brick_geom_hires.py                ← LIVE generator
     brick_geom.py                      ← deprecated SubD-cage version
     mesh.py, fitter.py, voxelize.py, ...
-  BrickGen\                      ← C4D plugin source
+  BrickGen\                      ← C4D plugin source, deployed as Brick
     c4d_brick_generator.pyp
     c4d_symbols.py
     res\
@@ -46,7 +46,7 @@ that the live `brick_geom_hires.py` lives at `brick/brick_geom_hires.py`.
 ## C4D plugin workflow
 
 C4D loads the plugin from
-`%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\BrickGen`,
+`%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\Brick`,
 not directly from the repo. Edit canonically in `BrickGen/` here,
 then deploy with:
 
@@ -58,9 +58,9 @@ Geometry-only changes inside `brick/*.py` do **not** need
 redeployment — the plugin imports the package live from
 `Z:\02_MKE\2026\BRICK\brick` (hardcoded fallback in
 `ensure_brick_on_path`). Just restart C4D (or recreate the
-BrickGen object so its mesh cache invalidates).
+Brick object so its mesh cache invalidates).
 
-The plugin's `BrickGen` ObjectData caches results on
+The plugin's `Brick` ObjectData caches results on
 `(width, depth, height, quality)`. Changing any of those re-runs
 `make_brick_hires`.
 

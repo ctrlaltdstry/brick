@@ -52,23 +52,50 @@ CONTAINER obrickifyassembly
                 NAME BRICKIFYASSEMBLY_HIDE_SOURCE_MESH;
                 DEFAULT 1;
             }
+
+            BOOL BRICKIFYASSEMBLY_AUTO_REBUILD
+            {
+                NAME BRICKIFYASSEMBLY_AUTO_REBUILD;
+                DEFAULT 1;
+            }
+
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_1
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_1;
+            }
+
+            BUTTON BRICKIFYASSEMBLY_REBUILD
+            {
+                NAME BRICKIFYASSEMBLY_REBUILD;
+            }
         }
 
-        GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY_THUMBS
+        GROUP BRICKIFYASSEMBLY_TAB_LAYOUT
         {
             DEFAULT 1;
-            LAYOUTGROUP;
             COLUMNS 1;
 
-            GROUP
+            STATICTEXT BRICKIFYASSEMBLY_LABEL_CHOOSE_BRICKS
             {
-                SCALE_H;
+                NAME BRICKIFYASSEMBLY_LABEL_CHOOSE_BRICKS;
+            }
 
-                LONG BRICKIFYASSEMBLY_LIBRARY_MASK
+            GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY_THUMBS
+            {
+                DEFAULT 1;
+                LAYOUTGROUP;
+                COLUMNS 1;
+
+                GROUP
                 {
-                    CUSTOMGUI CUSTOMGUIBRICKLIBRARY;
-                    ANIM OFF;
                     SCALE_H;
+
+                    LONG BRICKIFYASSEMBLY_LIBRARY_MASK
+                    {
+                        CUSTOMGUI CUSTOMGUIBRICKLIBRARY;
+                        ANIM OFF;
+                        SCALE_H;
+                    }
                 }
             }
 
@@ -77,7 +104,7 @@ CONTAINER obrickifyassembly
                 NAME BRICKIFYASSEMBLY_GROUP_LIBRARY_PRESETS;
             }
 
-            GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY_GRID
+            GROUP
             {
                 DEFAULT 1;
                 COLUMNS 4;
@@ -100,164 +127,249 @@ CONTAINER obrickifyassembly
                 }
             }
 
-            BOOL BRICKIFYASSEMBLY_ENABLE_PLATES
+            GROUP BRICKIFYASSEMBLY_GROUP_BRICK_FITTING
             {
-                NAME BRICKIFYASSEMBLY_ENABLE_PLATES;
+                DEFAULT 1;
+                COLUMNS 1;
+
+                BOOL BRICKIFYASSEMBLY_ENABLE_PLATES
+                {
+                    NAME BRICKIFYASSEMBLY_ENABLE_PLATES;
+                    DEFAULT 0;
+                }
+
+                LONG BRICKIFYASSEMBLY_DETAIL_MODE
+                {
+                    NAME BRICKIFYASSEMBLY_DETAIL_MODE;
+                    DEFAULT 1;
+                    CYCLE
+                    {
+                        BRICKIFYASSEMBLY_DETAIL_MODE_OFF;
+                        BRICKIFYASSEMBLY_DETAIL_MODE_BALANCED;
+                        BRICKIFYASSEMBLY_DETAIL_MODE_PRESERVE;
+                    }
+                }
+
+                LONG BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT
+                {
+                    NAME BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT;
+                    MIN 1;
+                    MAX 6;
+                    STEP 1;
+                    DEFAULT 3;
+                }
+
+                BOOL BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY
+                {
+                    NAME BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY;
+                    DEFAULT 0;
+                }
+            }
+
+            GROUP BRICKIFYASSEMBLY_GROUP_HEIGHT_PRESETS
+            {
+                DEFAULT 1;
+                COLUMNS 1;
+
+                GROUP
+                {
+                    DEFAULT 1;
+                    COLUMNS 3;
+
+                    BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE
+                    {
+                        NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE;
+                    }
+                    BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED
+                    {
+                        NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED;
+                    }
+                    BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY
+                    {
+                        NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY;
+                    }
+                }
+            }
+
+            GROUP BRICKIFYASSEMBLY_GROUP_BRICK_ADJUSTMENTS
+            {
+                DEFAULT 1;
+                COLUMNS 1;
+
+                REAL BRICKIFYASSEMBLY_BRICK_SEPARATION
+                {
+                    NAME BRICKIFYASSEMBLY_BRICK_SEPARATION;
+                    CUSTOMGUI REALSLIDER;
+                    SCALE_H;
+                    MIN 0.0;
+                    MAX 1.0;
+                    STEP 0.01;
+                    DEFAULT 0.0;
+                }
+
+                BOOL BRICKIFYASSEMBLY_HUMANIZE_BRICKS
+                {
+                    NAME BRICKIFYASSEMBLY_HUMANIZE_BRICKS;
+                    DEFAULT 0;
+                }
+
+                LONG BRICKIFYASSEMBLY_HUMANIZE_SEED
+                {
+                    NAME BRICKIFYASSEMBLY_HUMANIZE_SEED;
+                    MIN 0;
+                    MAX 1000000;
+                    STEP 1;
+                    DEFAULT 1;
+                }
+
+                REAL BRICKIFYASSEMBLY_HUMANIZE_POSITION
+                {
+                    NAME BRICKIFYASSEMBLY_HUMANIZE_POSITION;
+                    CUSTOMGUI REALSLIDER;
+                    SCALE_H;
+                    MIN 0.0;
+                    MAX 1.0;
+                    STEP 0.01;
+                    DEFAULT 0.0;
+                }
+
+                REAL BRICKIFYASSEMBLY_HUMANIZE_ROTATION
+                {
+                    NAME BRICKIFYASSEMBLY_HUMANIZE_ROTATION;
+                    CUSTOMGUI REALSLIDER;
+                    SCALE_H;
+                    MIN 0.0;
+                    MAX 2.0;
+                    STEP 0.01;
+                    DEFAULT 0.0;
+                }
+            }
+
+            GROUP BRICKIFYASSEMBLY_GROUP_HEIGHT_MIX
+            {
+                DEFAULT 1;
+                COLUMNS 1;
+
+                BOOL BRICKIFYASSEMBLY_MERGE_PLATES
+                {
+                    NAME BRICKIFYASSEMBLY_MERGE_PLATES;
+                    DEFAULT 1;
+                }
+
+                BOOL BRICKIFYASSEMBLY_HEIGHT_VARIATION
+                {
+                    NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION;
+                    DEFAULT 0;
+                }
+
+                LONG BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED
+                {
+                    NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED;
+                    MIN 0;
+                    MAX 1000000;
+                    STEP 1;
+                    DEFAULT 1;
+                }
+
+                REAL BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT
+                {
+                    NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT;
+                    CUSTOMGUI REALSLIDER;
+                    MIN 0.0;
+                    MAX 1.0;
+                    STEP 0.01;
+                    DEFAULT 0.6;
+                }
+            }
+
+        }
+
+        GROUP BRICKIFYASSEMBLY_GROUP_VOXEL
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+
+            LONG BRICKIFYASSEMBLY_VOXEL_BACKEND
+            {
+                NAME BRICKIFYASSEMBLY_VOXEL_BACKEND;
+                DEFAULT 1;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_VOXEL_BACKEND_INTERNAL;
+                    BRICKIFYASSEMBLY_VOXEL_BACKEND_C4D_VOLUME;
+                }
+            }
+
+            REAL BRICKIFYASSEMBLY_VOXEL_RESOLUTION
+            {
+                NAME BRICKIFYASSEMBLY_VOXEL_RESOLUTION;
+                MIN 0.1;
+                MAX 1.0;
+                STEP 0.1;
+                DEFAULT 1.0;
+            }
+
+            LONG BRICKIFYASSEMBLY_VOXEL_MODE
+            {
+                NAME BRICKIFYASSEMBLY_VOXEL_MODE;
+                DEFAULT 0;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_VOXEL_MODE_SOLID;
+                    BRICKIFYASSEMBLY_VOXEL_MODE_SHELL;
+                }
+            }
+
+            LONG BRICKIFYASSEMBLY_SHELL_THICKNESS
+            {
+                NAME BRICKIFYASSEMBLY_SHELL_THICKNESS;
+                MIN 1;
+                MAX 8;
+                STEP 1;
+                DEFAULT 3;
+            }
+
+            LONG BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS
+            {
+                NAME BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS;
+                MIN 0;
+                MAX 4;
+                STEP 1;
+                DEFAULT 1;
+            }
+
+            BOOL BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS
+            {
+                NAME BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS;
                 DEFAULT 0;
             }
-
         }
-    }
 
-    GROUP BRICKIFYASSEMBLY_TAB_SHAPE
-    {
-        DEFAULT 1;
-        COLUMNS 1;
-
-        LONG BRICKIFYASSEMBLY_VOXEL_BACKEND
+        GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY
         {
-            NAME BRICKIFYASSEMBLY_VOXEL_BACKEND;
             DEFAULT 1;
-            CYCLE
+            COLUMNS 1;
+
+            GROUP
             {
-                BRICKIFYASSEMBLY_VOXEL_BACKEND_INTERNAL;
-                BRICKIFYASSEMBLY_VOXEL_BACKEND_C4D_VOLUME;
+                DEFAULT 1;
+                COLUMNS 3;
+
+                BUTTON BRICKIFYASSEMBLY_CREATE_MOGRAPH
+                {
+                    NAME BRICKIFYASSEMBLY_CREATE_MOGRAPH;
+                }
+
+                BUTTON BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH
+                {
+                    NAME BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH;
+                }
+
+                BUTTON BRICKIFYASSEMBLY_SWAP_PROXY_RENDER
+                {
+                    NAME BRICKIFYASSEMBLY_SWAP_PROXY_RENDER;
+                }
             }
-        }
-
-        REAL BRICKIFYASSEMBLY_VOXEL_RESOLUTION
-        {
-            NAME BRICKIFYASSEMBLY_VOXEL_RESOLUTION;
-            MIN 0.1;
-            MAX 1.0;
-            STEP 0.1;
-            DEFAULT 1.0;
-        }
-
-        LONG BRICKIFYASSEMBLY_VOXEL_MODE
-        {
-            NAME BRICKIFYASSEMBLY_VOXEL_MODE;
-            DEFAULT 0;
-            CYCLE
-            {
-                BRICKIFYASSEMBLY_VOXEL_MODE_SOLID;
-                BRICKIFYASSEMBLY_VOXEL_MODE_SHELL;
-            }
-        }
-
-        LONG BRICKIFYASSEMBLY_SHELL_THICKNESS
-        {
-            NAME BRICKIFYASSEMBLY_SHELL_THICKNESS;
-            MIN 1;
-            MAX 8;
-            STEP 1;
-            DEFAULT 3;
-        }
-
-        LONG BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS
-        {
-            NAME BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS;
-            MIN 0;
-            MAX 4;
-            STEP 1;
-            DEFAULT 1;
-        }
-
-        SEPARATOR {}
-        SEPARATOR {}
-
-        BOOL BRICKIFYASSEMBLY_AUTO_REBUILD
-        {
-            NAME BRICKIFYASSEMBLY_AUTO_REBUILD;
-            DEFAULT 1;
-        }
-
-        BUTTON BRICKIFYASSEMBLY_REBUILD
-        {
-            NAME BRICKIFYASSEMBLY_REBUILD;
-        }
-    }
-
-    GROUP BRICKIFYASSEMBLY_TAB_LAYOUT
-    {
-        DEFAULT 1;
-        COLUMNS 1;
-
-        LONG BRICKIFYASSEMBLY_DETAIL_MODE
-        {
-            NAME BRICKIFYASSEMBLY_DETAIL_MODE;
-            DEFAULT 1;
-            CYCLE
-            {
-                BRICKIFYASSEMBLY_DETAIL_MODE_OFF;
-                BRICKIFYASSEMBLY_DETAIL_MODE_BALANCED;
-                BRICKIFYASSEMBLY_DETAIL_MODE_PRESERVE;
-            }
-        }
-
-        LONG BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT
-        {
-            NAME BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT;
-            MIN 1;
-            MAX 6;
-            STEP 1;
-            DEFAULT 3;
-        }
-
-        GROUP BRICKIFYASSEMBLY_GROUP_HEIGHT_PRESETS
-        {
-            DEFAULT 1;
-            COLUMNS 3;
-
-            BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE
-            {
-                NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE;
-            }
-            BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED
-            {
-                NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED;
-            }
-            BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY
-            {
-                NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY;
-            }
-        }
-
-        BOOL BRICKIFYASSEMBLY_HEIGHT_VARIATION
-        {
-            NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION;
-            DEFAULT 0;
-        }
-
-        LONG BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED
-        {
-            NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED;
-            MIN 0;
-            MAX 1000000;
-            STEP 1;
-            DEFAULT 1;
-        }
-
-        REAL BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT
-        {
-            NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 1.0;
-            STEP 0.01;
-            DEFAULT 0.6;
-        }
-
-        BOOL BRICKIFYASSEMBLY_MERGE_PLATES
-        {
-            NAME BRICKIFYASSEMBLY_MERGE_PLATES;
-            DEFAULT 1;
-        }
-
-        BOOL BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY
-        {
-            NAME BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY;
-            DEFAULT 0;
         }
     }
 
@@ -266,16 +378,63 @@ CONTAINER obrickifyassembly
         DEFAULT 1;
         COLUMNS 1;
 
-        LONG BRICKIFYASSEMBLY_QUALITY
+        GROUP BRICKIFYASSEMBLY_GROUP_DISPLAY
         {
-            NAME BRICKIFYASSEMBLY_QUALITY;
             DEFAULT 1;
-            CYCLE
+            COLUMNS 1;
+
+            LONG BRICKIFYASSEMBLY_QUALITY
             {
-                BRICKIFYASSEMBLY_QUALITY_DRAFT;
-                BRICKIFYASSEMBLY_QUALITY_STANDARD;
-                BRICKIFYASSEMBLY_QUALITY_HERO;
+                NAME BRICKIFYASSEMBLY_QUALITY;
+                DEFAULT 1;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_QUALITY_DRAFT;
+                    BRICKIFYASSEMBLY_QUALITY_STANDARD;
+                    BRICKIFYASSEMBLY_QUALITY_HERO;
+                }
             }
+
+            LONG BRICKIFYASSEMBLY_VISUALIZATION_MODE
+            {
+                NAME BRICKIFYASSEMBLY_VISUALIZATION_MODE;
+                DEFAULT 0;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE;
+                    BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME;
+                    BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG;
+                }
+            }
+        }
+
+        GROUP BRICKIFYASSEMBLY_GROUP_ACTIONS
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+
+            BOOL BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES
+            {
+                NAME BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES;
+                DEFAULT 1;
+            }
+
+            REAL BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE
+            {
+                NAME BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.1;
+                DEFAULT 100.0;
+            }
+
+            BOOL BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER
+            {
+                NAME BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER;
+                DEFAULT 0;
+            }
+
         }
 
         GROUP BRICKIFYASSEMBLY_GROUP_LOGO
@@ -348,112 +507,99 @@ CONTAINER obrickifyassembly
                 DEFAULT 0.015;
             }
         }
-
-        LONG BRICKIFYASSEMBLY_VISUALIZATION_MODE
-        {
-            NAME BRICKIFYASSEMBLY_VISUALIZATION_MODE;
-            DEFAULT 0;
-            CYCLE
-            {
-                BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE;
-                BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME;
-                BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG;
-            }
-        }
-
-        BOOL BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES
-        {
-            NAME BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES;
-            DEFAULT 1;
-        }
-
-        BOOL BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS
-        {
-            NAME BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS;
-            DEFAULT 0;
-        }
     }
 
     GROUP BRICKIFYASSEMBLY_TAB_MOGRAPH
     {
         DEFAULT 1;
         COLUMNS 1;
+        SCALE_H;
 
-        REAL BRICKIFYASSEMBLY_BUILD_PROGRESS
+        GROUP BRICKIFYASSEMBLY_GROUP_RESOLUTION
         {
-            NAME BRICKIFYASSEMBLY_BUILD_PROGRESS;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 100.0;
-            STEP 0.01;
-            DEFAULT 100.0;
-        }
+            DEFAULT 1;
+            COLUMNS 1;
+            SCALE_H;
 
-        REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET
-        {
-            NAME BRICKIFYASSEMBLY_BUILD_Y_OFFSET;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 100.0;
-            STEP 0.1;
-            DEFAULT 25.0;
-        }
-
-        REAL BRICKIFYASSEMBLY_BUILD_STAGGER
-        {
-            NAME BRICKIFYASSEMBLY_BUILD_STAGGER;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 100.0;
-            STEP 0.1;
-            DEFAULT 10.0;
-        }
-
-        LONG BRICKIFYASSEMBLY_BUILD_MOTION_CURVE
-        {
-            NAME BRICKIFYASSEMBLY_BUILD_MOTION_CURVE;
-            DEFAULT 4;
-            CYCLE
+            REAL BRICKIFYASSEMBLY_BUILD_PROGRESS
             {
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_IN;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_OUT;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SPRING;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC;
-                BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM;
+                NAME BRICKIFYASSEMBLY_BUILD_PROGRESS;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.01;
+                DEFAULT 100.0;
             }
-        }
 
-        BOOL BRICKIFYASSEMBLY_BUILD_SCALE_IN
-        {
-            NAME BRICKIFYASSEMBLY_BUILD_SCALE_IN;
-            DEFAULT 0;
-        }
+            REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_Y_OFFSET;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.1;
+                DEFAULT 25.0;
+            }
 
-        REAL BRICKIFYASSEMBLY_TOP_SURFACE_PHASE
-        {
-            NAME BRICKIFYASSEMBLY_TOP_SURFACE_PHASE;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 100.0;
-            STEP 0.1;
-            DEFAULT 15.0;
-        }
+            REAL BRICKIFYASSEMBLY_BUILD_STAGGER
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_STAGGER;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.1;
+                DEFAULT 10.0;
+            }
 
-        REAL BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE
-        {
-            NAME BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE;
-            CUSTOMGUI REALSLIDER;
-            MIN 0.0;
-            MAX 100.0;
-            STEP 0.1;
-            DEFAULT 100.0;
-        }
+            LONG BRICKIFYASSEMBLY_BUILD_MOTION_CURVE
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_MOTION_CURVE;
+                SCALE_H;
+                DEFAULT 4;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_IN;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_EASE_OUT;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SPRING;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM;
+                }
+            }
 
-        BUTTON BRICKIFYASSEMBLY_CREATE_MOGRAPH
-        {
-            NAME BRICKIFYASSEMBLY_CREATE_MOGRAPH;
+            BOOL BRICKIFYASSEMBLY_BUILD_SCALE_IN
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_SCALE_IN;
+                DEFAULT 0;
+            }
+
+            BOOL BRICKIFYASSEMBLY_TOP_SURFACE_BLEND
+            {
+                NAME BRICKIFYASSEMBLY_TOP_SURFACE_BLEND;
+                DEFAULT 0;
+            }
+
+            BOOL BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION;
+                DEFAULT 0;
+            }
+
+            REAL BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 360.0;
+                STEP 0.1;
+                DEFAULT 5.0;
+            }
+
         }
     }
 

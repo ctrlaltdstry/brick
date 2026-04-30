@@ -394,10 +394,75 @@ def make_low_res_collider(
     # Include stud height in collision bounds so studs don't sink into
     # collisions with surrounding bricks above.
     H = height_plates * plate_size + plate_size * 0.55  # body + stud height
+    return _make_collider_box(W, D, H)
+
+
+def make_proxy_collider(
+    width_studs: int,
+    depth_studs: int,
+    height_plates: int,
+    *,
+    stud_size: float = 8.0,
+    plate_size: float = 3.2,
+    inset: float = 0.0,
+    with_studs: bool = True,
+) -> Mesh:
+    """Low-cost proxy brick for MoGraph/RBD simulation prep.
+
+    This keeps the useful collision silhouette: hollow underside shell plus
+    optional coarse studs. Tubes, underside ribs, and stud-ceiling indents are
+    omitted.
+    """
+    mesh = make_brick_hires(
+        width_studs,
+        depth_studs,
+        height_plates,
+        stud_size=stud_size,
+        plate_size=plate_size,
+        body_corner_segments=1,
+        stud_segments=6,
+        stud_fillet_segments=1,
+        tube_segments=6,
+        tube_fillet_segments=1,
+        rib_segments=1,
+        body_fillet_radius=0.0,
+        stud_fillet_radius=0.0,
+        tube_fillet_radius=0.0,
+        rib_fillet_radius=0.0,
+        with_studs=with_studs,
+        with_underside=True,
+        with_tubes=False,
+        with_stud_indents=False,
+        with_ribs=False,
+    )
+    inset = max(0.0, float(inset or 0.0))
+    width = float(width_studs) * float(stud_size)
+    depth = float(depth_studs) * float(stud_size)
+    max_inset = max(0.0, min(width, depth) * 0.49)
+    inset = min(inset, max_inset)
+    if inset > 0.0 and width > 0.0 and depth > 0.0 and len(mesh.vertices):
+        sx = max(0.0, width - inset * 2.0) / width
+        sz = max(0.0, depth - inset * 2.0) / depth
+        mesh.vertices[:, 0] = inset + mesh.vertices[:, 0] * sx
+        mesh.vertices[:, 2] = inset + mesh.vertices[:, 2] * sz
+    return mesh
+
+
+def _make_collider_box(
+    width: float,
+    depth: float,
+    height: float,
+    *,
+    inset: float = 0.0,
+) -> Mesh:
+    x0 = inset
+    z0 = inset
+    x1 = width - inset
+    z1 = depth - inset
     m = Mesh()
     base = m.append_verts(np.array([
-        [0, 0, 0], [W, 0, 0], [W, 0, D], [0, 0, D],
-        [0, H, 0], [W, H, 0], [W, H, D], [0, H, D],
+        [x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1],
+        [x0, height, z0], [x1, height, z0], [x1, height, z1], [x0, height, z1],
     ]))
     def v(i): return base + i
     m.add_group_face("collider", (v(0), v(1), v(2), v(3)))   # bottom

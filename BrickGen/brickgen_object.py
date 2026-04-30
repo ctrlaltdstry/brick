@@ -1,4 +1,4 @@
-"""BrickGen single-brick ObjectData plugin."""
+"""Brick single-brick ObjectData plugin."""
 import c4d
 from c4d import plugins
 
@@ -222,7 +222,7 @@ class BrickGen(plugins.ObjectData):
         result = brick_po
         if logo_template is not None:
             root = c4d.BaseObject(c4d.Onull)
-            root.SetName("BrickGen_{0}".format(name))
+            root.SetName("Brick_{0}".format(name))
 
             brick_po.InsertUnder(root)
 

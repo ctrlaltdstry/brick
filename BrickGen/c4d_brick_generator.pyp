@@ -1,4 +1,4 @@
-"""Cinema 4D plugin entry point for BrickGen and BrickIt."""
+"""Cinema 4D plugin entry point for Brick and BrickIt."""
 import os
 import sys
 
@@ -72,7 +72,7 @@ def _register_brick_icons():
 def register():
     def _load_plugin_icon():
         # The Object Manager tree shows this next to every BrickAssembly
-        # / BrickGen entry. brickify_icon.png is the dedicated 64x64
+        # / Brick entry. brickify_icon.png is the dedicated 64x64
         # red 2x2 brick render produced by tools/prepare_branding_assets.py;
         # the isometric thumbnails are the AM gallery fallback for older
         # deployments that don't have the rendered icon yet.

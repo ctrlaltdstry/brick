@@ -45,6 +45,7 @@ DETAIL_FIT_SETTINGS = {
 MAX_SAFE_CONNECTIVITY_PRUNE_DROP_RATIO = 0.35
 MIN_SIGNIFICANT_FRAGMENT_PLACEMENTS = 24
 MIN_SIGNIFICANT_FRAGMENT_RATIO = 0.02
+MIN_TOP_FRAGMENT_VOXELS = 4
 
 
 def auto_stud_size(vertices: np.ndarray, studs_across: int) -> float:
@@ -157,6 +158,67 @@ def _interior_void_cells(occupancy: np.ndarray) -> List[Tuple[int, int, int]]:
     return cells
 
 
+def _placement_coverage_report(
+    placements: List[BrickPlacement],
+    occupancy: np.ndarray,
+) -> Dict[str, Any]:
+    """Summarize how much of the voxelized source is covered by placements."""
+    occupied_total = int(occupancy.sum())
+    if occupancy.size == 0:
+        return {
+            "occupied": 0,
+            "covered_occupied": 0,
+            "uncovered": 0,
+            "overcovered": 0,
+            "outside": 0,
+            "coverage_ratio": 1.0,
+            "uncovered_by_y": [],
+        }
+
+    covered = np.zeros_like(occupancy, dtype=bool)
+    outside = 0
+    nx, ny, nz = occupancy.shape
+    for p in placements:
+        x0 = int(p.x)
+        y0 = int(p.y)
+        z0 = int(p.z)
+        x1 = x0 + int(p.w)
+        y1 = y0 + int(p.h)
+        z1 = z0 + int(p.d)
+        cx0 = max(0, x0)
+        cy0 = max(0, y0)
+        cz0 = max(0, z0)
+        cx1 = min(nx, x1)
+        cy1 = min(ny, y1)
+        cz1 = min(nz, z1)
+        requested = max(0, x1 - x0) * max(0, y1 - y0) * max(0, z1 - z0)
+        clipped = max(0, cx1 - cx0) * max(0, cy1 - cy0) * max(0, cz1 - cz0)
+        outside += max(0, requested - clipped)
+        if cx0 < cx1 and cy0 < cy1 and cz0 < cz1:
+            covered[cx0:cx1, cy0:cy1, cz0:cz1] = True
+
+    covered_occupied = covered & occupancy
+    uncovered = occupancy & ~covered
+    overcovered = covered & ~occupancy
+    uncovered_by_y = [
+        int(uncovered[:, y, :].sum())
+        for y in range(ny)
+    ]
+    return {
+        "occupied": occupied_total,
+        "covered_occupied": int(covered_occupied.sum()),
+        "uncovered": int(uncovered.sum()),
+        "overcovered": int(overcovered.sum()),
+        "outside": int(outside),
+        "coverage_ratio": (
+            float(covered_occupied.sum()) / float(occupied_total)
+            if occupied_total > 0
+            else 1.0
+        ),
+        "uncovered_by_y": uncovered_by_y,
+    }
+
+
 def _label_voxel_components(
     occupancy: np.ndarray,
 ) -> Tuple[np.ndarray, int, List[int]]:
@@ -223,6 +285,72 @@ def _component_fragments_for_indices(
     return sorted(fragments, key=lambda f: -len(f))
 
 
+def _placement_owner_grid(
+    placements: List[BrickPlacement],
+    shape: Tuple[int, int, int],
+) -> np.ndarray:
+    """Map covered voxel cells back to placement indices."""
+    owner = -np.ones(shape, dtype=np.int32)
+    nx, ny, nz = shape
+    for i, p in enumerate(placements):
+        x0 = max(0, int(p.x))
+        y0 = max(0, int(p.y))
+        z0 = max(0, int(p.z))
+        x1 = min(nx, int(p.x) + int(p.w))
+        y1 = min(ny, int(p.y) + int(p.h))
+        z1 = min(nz, int(p.z) + int(p.d))
+        if x0 < x1 and y0 < y1 and z0 < z1:
+            owner[x0:x1, y0:y1, z0:z1] = int(i)
+    return owner
+
+
+def _fragment_has_source_face_contact(
+    placements: List[BrickPlacement],
+    fragment: List[int],
+    kept_indices: set,
+    owner: np.ndarray,
+    voxel_labels: np.ndarray,
+    component_id: int,
+) -> bool:
+    """Return true when a fragment is source-contiguous with kept geometry.
+
+    Physical pruning uses clutch connectivity, which intentionally ignores
+    same-layer side contacts. The source voxel island still carries visible
+    silhouette intent, so face-adjacent fragments should not be classified as
+    floating debris merely because they are not buildable clutch components.
+    """
+    if not fragment or not kept_indices or component_id <= 0:
+        return False
+
+    nx, ny, nz = owner.shape
+    kept = set(int(i) for i in kept_indices)
+    offsets = (
+        (-1, 0, 0), (1, 0, 0),
+        (0, -1, 0), (0, 1, 0),
+        (0, 0, -1), (0, 0, 1),
+    )
+    for idx in fragment:
+        p = placements[int(idx)]
+        for x in range(max(0, int(p.x)), min(nx, int(p.x) + int(p.w))):
+            for y in range(max(0, int(p.y)), min(ny, int(p.y) + int(p.h))):
+                for z in range(max(0, int(p.z)), min(nz, int(p.z) + int(p.d))):
+                    if int(voxel_labels[x, y, z]) != int(component_id):
+                        continue
+                    for dx, dy, dz in offsets:
+                        xx = x + dx
+                        yy = y + dy
+                        zz = z + dz
+                        if xx < 0 or yy < 0 or zz < 0:
+                            continue
+                        if xx >= nx or yy >= ny or zz >= nz:
+                            continue
+                        if int(voxel_labels[xx, yy, zz]) != int(component_id):
+                            continue
+                        if int(owner[xx, yy, zz]) in kept:
+                            return True
+    return False
+
+
 def _prune_floating_fragments_by_voxel_island(
     placements: List[BrickPlacement],
     voxel_labels: np.ndarray,
@@ -236,17 +364,26 @@ def _prune_floating_fragments_by_voxel_island(
 
     C4D Volume shell fits can legitimately split a building into many coupling
     fragments even when those fragments are visually meaningful. Keep substantial
-    fragments and prune only small debris.
+    and grounded fragments; prune only small floating debris.
     """
     if not placements:
         return [], [], []
 
     component_ids = _placement_voxel_component_ids(placements, voxel_labels)
+    component_top_y: Dict[int, int] = {}
+    for cid in set(component_ids):
+        if cid <= 0:
+            continue
+        ys = np.where(voxel_labels == int(cid))[1]
+        if ys.size:
+            component_top_y[int(cid)] = int(ys.max())
+
     by_voxel_component: Dict[int, List[int]] = {}
     for i, cid in enumerate(component_ids):
         by_voxel_component.setdefault(int(cid), []).append(i)
 
     graph = connectivity_report.get("graph", {})
+    owner = _placement_owner_grid(placements, voxel_labels.shape)
     keep_ids = set()
     summary: List[Dict[str, Any]] = []
     for cid, ids in sorted(by_voxel_component.items()):
@@ -258,10 +395,37 @@ def _prune_floating_fragments_by_voxel_island(
             int(round(float(len(ids)) * float(min_significant_fragment_ratio))),
         )
         keep_fragments = [fragments[0]]
+        kept_fragment_ids = set(fragments[0])
+        source_attached_count = 0
         drop_fragments: List[List[int]] = []
         for frag in fragments[1:]:
-            if len(frag) >= significant_size:
+            grounded = any(int(placements[i].y) == 0 for i in frag)
+            frag_top = max(
+                int(placements[i].y) + int(placements[i].h) - 1
+                for i in frag
+            )
+            frag_voxels = sum(
+                int(placements[i].w) * int(placements[i].h) * int(placements[i].d)
+                for i in frag
+            )
+            touches_source_top = frag_top >= component_top_y.get(int(cid), frag_top + 1)
+            is_top_architecture = (
+                touches_source_top
+                and int(frag_voxels) >= int(MIN_TOP_FRAGMENT_VOXELS)
+            )
+            source_attached = _fragment_has_source_face_contact(
+                placements,
+                frag,
+                kept_fragment_ids,
+                owner,
+                voxel_labels,
+                int(cid),
+            )
+            if grounded or is_top_architecture or len(frag) >= significant_size or source_attached:
                 keep_fragments.append(frag)
+                kept_fragment_ids.update(frag)
+                if source_attached:
+                    source_attached_count += 1
             else:
                 drop_fragments.append(frag)
         candidate_dropped_count = sum(len(frag) for frag in drop_fragments)
@@ -285,6 +449,7 @@ def _prune_floating_fragments_by_voxel_island(
             "drop_candidate": int(candidate_dropped_count),
             "drop_ratio": float(drop_ratio),
             "prune_skipped": bool(skip_prune),
+            "kept_source_attached_fragments": int(source_attached_count),
         })
 
     kept = [p for i, p in enumerate(placements) if i in keep_ids]
@@ -475,6 +640,9 @@ def brickify_mesh(
     t0 = time.perf_counter()
     pre_prune_report = check_connectivity(placements)
     timings["connectivity_seconds"] = float(time.perf_counter() - t0)
+    t0 = time.perf_counter()
+    pre_prune_coverage_report = _placement_coverage_report(placements, occupancy)
+    timings["pre_prune_coverage_seconds"] = float(time.perf_counter() - t0)
 
     n_dropped = 0
     prune_skipped = False
@@ -527,6 +695,10 @@ def brickify_mesh(
         physical_repair_report = _physical_repair_summary(final_buildability_report)
         timings["final_connectivity_seconds"] = 0.0
 
+    t0 = time.perf_counter()
+    final_coverage_report = _placement_coverage_report(placements, occupancy)
+    timings["final_coverage_seconds"] = float(time.perf_counter() - t0)
+
     t_info0 = time.perf_counter()
     placement_shell_depths = []
     interior_void_cells = []
@@ -564,6 +736,10 @@ def brickify_mesh(
         "grid_dims": tuple(int(d) for d in occupancy.shape),
         "n_placed": len(placements),
         "n_dropped": int(n_dropped),
+        "coverage": final_coverage_report,
+        "pre_prune_coverage": pre_prune_coverage_report,
+        "n_uncovered": int(final_coverage_report.get("uncovered", 0)),
+        "coverage_ratio": float(final_coverage_report.get("coverage_ratio", 1.0)),
         "connectivity": pre_prune_report,
         "detail_mode": detail_key,
         "preserve_silhouette": bool(preserve_silhouette),
@@ -596,6 +772,7 @@ def brickify_mesh(
         "final_buildability": final_buildability_report,
         "physical_repair": physical_repair_report,
         "occupancy_cells": occupancy_cells,
+        "debug_info_included": bool(include_debug_info),
         "timings": timings,
     }
     for key, value in backend_info.items():

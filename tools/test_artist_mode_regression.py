@@ -76,10 +76,10 @@ def test_prune_keeps_significant_visual_fragments():
         BrickPlacement(brick, 2, 0, i, 0)
         for i in range(24)
     ] + [
-        BrickPlacement(brick, 4, 0, i, 0)
+        BrickPlacement(brick, 4, 1, i, 0)
         for i in range(3)
     ]
-    labels = np.ones((5, 1, 30), dtype=np.int32)
+    labels = np.ones((5, 3, 30), dtype=np.int32)
     graph = {}
     for start, count in ((0, 30), (30, 24), (54, 3)):
         for i in range(start, start + count):
@@ -101,9 +101,44 @@ def test_prune_keeps_significant_visual_fragments():
     assert all(p.x != 4 for p in kept)
 
 
+def test_prune_keeps_small_source_top_fragments():
+    brick = BrickType("brick_1x1", 1, 1, 1, "3005")
+    placements = [
+        BrickPlacement(brick, 0, 0, i, 0)
+        for i in range(30)
+    ] + [
+        BrickPlacement(brick, 2, 4, i, 0)
+        for i in range(4)
+    ] + [
+        BrickPlacement(brick, 4, 1, i, 0)
+        for i in range(3)
+    ]
+    labels = np.ones((5, 5, 30), dtype=np.int32)
+    graph = {}
+    for start, count in ((0, 30), (30, 4), (34, 3)):
+        for i in range(start, start + count):
+            graph[i] = set()
+            if i > start:
+                graph[i].add(i - 1)
+            if i < start + count - 1:
+                graph[i].add(i + 1)
+
+    kept, dropped, _summary = _prune_floating_fragments_by_voxel_island(
+        placements,
+        labels,
+        {"graph": graph},
+        max_drop_ratio_per_island=0.35,
+    )
+    assert len(kept) == 34
+    assert len(dropped) == 3
+    assert any(p.x == 2 for p in kept)
+    assert all(p.x != 4 for p in kept)
+
+
 def main():
     test_artist_mode_fills_boundaries_without_large_overhangs()
     test_prune_keeps_significant_visual_fragments()
+    test_prune_keeps_small_source_top_fragments()
     print("artist mode regressions passed")
 
 

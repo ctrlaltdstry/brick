@@ -26,3 +26,12 @@ cmake --build build-win64 --config Release
 ```
 
 Built plugins are emitted under the SDK build output `bin/<config>/plugins`.
+
+For user deployment, `tools/deploy_plugin.ps1` nests the built
+`bricklibrary.inline_gui` plugin inside the main `Brick` plugin folder so the
+Cinema 4D user plugins root contains a single Brick entry. The deploy script
+looks for the built module at:
+
+- `$env:BRICK_NATIVE_GUI_SOURCE`
+- `C:/Dev/c4d_sdk_2026/build-win64/bin/Release/plugins/bricklibrary.inline_gui`
+- the currently installed root-level `plugins/bricklibrary.inline_gui`

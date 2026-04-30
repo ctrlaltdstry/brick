@@ -16,9 +16,10 @@ bodies", or all "logo islands", with C4D's selection-by-name feature.
 from typing import List, Optional, Iterable
 import numpy as np
 from .mesh import Mesh, affine_translate, affine_rotate_y
-from .brick_geom_hires import make_brick_hires, make_low_res_collider
+from .brick_geom_hires import make_brick_hires, make_proxy_collider
 from .palette import LegoPalette
 from .fitter import BrickPlacement
+from .separation import placement_assembly_center, separated_low_corner
 
 
 def build_assembly(
@@ -34,6 +35,7 @@ def build_assembly(
     with_stud_indents: bool = True,
     with_ribs: bool = True,
     low_res: bool = False,
+    brick_separation: float = 0.0,
     logo: Optional[Mesh] = None,
     progress: bool = False,
 ) -> Mesh:
@@ -54,7 +56,7 @@ def build_assembly(
         key = (w_studs, d_studs, h_plates)
         if key not in cache:
             if low_res:
-                brick_mesh = make_low_res_collider(
+                brick_mesh = make_proxy_collider(
                     w_studs,
                     d_studs,
                     h_plates,
@@ -81,6 +83,7 @@ def build_assembly(
 
     out = Mesh()
     n = len(placements)
+    separation_center = placement_assembly_center(placements, stud_size, plate_size)
     for i, p in enumerate(placements):
         if progress and i % max(1, n // 20) == 0:
             print(f"      {i}/{n} ...", flush=True)
@@ -96,11 +99,14 @@ def build_assembly(
         # The brick's local origin is its low corner. Placement (x, y, z)
         # is in grid units; multiply by (stud, plate, stud) to put it in
         # the artist's frame.
-        T_translate = affine_translate(np.array([
-            p.x * stud_size,
-            p.y * plate_size,
-            p.z * stud_size,
-        ]))
+        sx, sy, sz = separated_low_corner(
+            p,
+            stud_size,
+            plate_size,
+            float(brick_separation),
+            assembly_center=separation_center,
+        )
+        T_translate = affine_translate(np.array([sx, sy, sz]))
 
         if p.rotation_y == 90:
             # Rotate the brick 90 degrees around its own center, then translate.

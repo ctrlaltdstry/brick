@@ -26,6 +26,39 @@ def _apply_library_preset(self, op, preset_id):
 def _open_library_picker(self, op):
     _open_library_panel(op)
 
+
+def _dirty(op):
+    op.SetDirty(c4d.DIRTYFLAGS_DATA)
+    c4d.EventAdd()
+
+
+def _reset_build_state(self):
+    self._fit_cache_key = None
+    self._fit_placements = None
+    self._voxel_cache_key = None
+    self._voxel_cache_voxels = None
+    self._preview_voxel_cache_key = None
+    self._preview_voxel_cache_voxels = None
+    self._source_cache_key = None
+    self._source_cache_data = None
+    self._hierarchy_cache_key = None
+    self._force_rebuild = True
+    self._mesh_cache = {}
+    self._template_obj_cache = {}
+    self._logo_cache = {}
+    self._last_resolution_key = None
+    self._interactive_preview_active = False
+    self._interactive_preview_desc_id = -1
+    self._interactive_preview_log_key = None
+    self._interactive_last_edit_at = 0.0
+    self._interactive_last_desc_id = -1
+
+
+def _set_height_preset(op, max_brick_height):
+    op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = int(max_brick_height)
+    _dirty(op)
+
+
 def _is_interactive_preview_param(self, desc_id):
     if desc_id in (
         BRICKIFYASSEMBLY_VOXEL_RESOLUTION,
@@ -40,9 +73,17 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_BUILD_STAGGER,
         BRICKIFYASSEMBLY_BUILD_MOTION_CURVE,
         BRICKIFYASSEMBLY_BUILD_SCALE_IN,
+        BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION,
+        BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT,
         BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE,
-        BRICKIFYASSEMBLY_TOP_SURFACE_PHASE,
         BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE,
+        BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER,
+        BRICKIFYASSEMBLY_TOP_SURFACE_BLEND,
+        BRICKIFYASSEMBLY_BRICK_SEPARATION,
+        BRICKIFYASSEMBLY_HUMANIZE_BRICKS,
+        BRICKIFYASSEMBLY_HUMANIZE_SEED,
+        BRICKIFYASSEMBLY_HUMANIZE_POSITION,
+        BRICKIFYASSEMBLY_HUMANIZE_ROTATION,
     ):
         return False
     return desc_id in (
@@ -72,31 +113,16 @@ def Message(self, op, msg_type, data):
         if desc_id == BRICKIFYASSEMBLY_REBUILD:
             self._cancel_resolution_live_timer()
             _reload_brick_modules()
-            self._fit_cache_key = None
-            self._fit_placements = None
-            self._voxel_cache_key = None
-            self._voxel_cache_voxels = None
-            self._preview_voxel_cache_key = None
-            self._preview_voxel_cache_voxels = None
-            self._source_cache_key = None
-            self._source_cache_data = None
-            self._hierarchy_cache_key = None
-            self._force_rebuild = True
-            self._mesh_cache = {}
-            self._template_obj_cache = {}
-            self._logo_cache = {}
-            self._last_resolution_key = None
-            self._interactive_preview_active = False
-            self._interactive_preview_desc_id = -1
-            self._interactive_preview_log_key = None
-            self._interactive_last_edit_at = 0.0
-            self._interactive_last_desc_id = -1
-            op.SetDirty(c4d.DIRTYFLAGS_DATA)
+            _reset_build_state(self)
             # Force immediate reevaluation after the button press instead
             # of waiting for viewport/object-manager interaction.
-            c4d.EventAdd()
+            _dirty(op)
         elif desc_id == BRICKIFYASSEMBLY_CREATE_MOGRAPH:
             self._create_mograph_handoff(op)
+        elif desc_id == BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH:
+            self._create_proxy_mograph_handoff(op)
+        elif desc_id == BRICKIFYASSEMBLY_SWAP_PROXY_RENDER:
+            self._swap_proxy_to_render_handoff(op)
         elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
             self._open_library_picker(op)
         elif desc_id in (
@@ -120,20 +146,13 @@ def Message(self, op, msg_type, data):
             except Exception:
                 op[tid] = True
             _sync_library_mask_from_toggles(op)
-            op.SetDirty(c4d.DIRTYFLAGS_DATA)
-            c4d.EventAdd()
+            _dirty(op)
         elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE:
-            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 2
-            op.SetDirty(c4d.DIRTYFLAGS_DATA)
-            c4d.EventAdd()
+            _set_height_preset(op, 2)
         elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED:
-            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 3
-            op.SetDirty(c4d.DIRTYFLAGS_DATA)
-            c4d.EventAdd()
+            _set_height_preset(op, 3)
         elif desc_id == BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY:
-            op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 6
-            op.SetDirty(c4d.DIRTYFLAGS_DATA)
-            c4d.EventAdd()
+            _set_height_preset(op, 6)
     elif msg_type == c4d.MSG_DESCRIPTION_POSTSETPARAMETER:
         # Force immediate reevaluation while editing controls when
         # auto-rebuild is enabled (avoids waiting for viewport interaction).
@@ -188,15 +207,12 @@ def Message(self, op, msg_type, data):
             elif desc_id == BRICKIFYASSEMBLY_AUTO_REBUILD:
                 if not bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD]):
                     self._cancel_resolution_live_timer()
-                op.SetDirty(c4d.DIRTYFLAGS_DATA)
-                c4d.EventAdd()
+                _dirty(op)
             else:
-                op.SetDirty(c4d.DIRTYFLAGS_DATA)
-                c4d.EventAdd()
+                _dirty(op)
             if desc_id == BRICKIFYASSEMBLY_LIBRARY_MASK:
                 _apply_library_mask_to_toggles(op, _read_library_mask(op))
-                op.SetDirty(c4d.DIRTYFLAGS_DATA)
-                c4d.EventAdd()
+                _dirty(op)
             elif (
                 BRICKIFYASSEMBLY_BRICK_BASE
                 <= desc_id
@@ -213,8 +229,7 @@ def Message(self, op, msg_type, data):
                 self._fit_cache_key = None
                 self._hierarchy_cache_key = None
                 self._force_rebuild = True
-                op.SetDirty(c4d.DIRTYFLAGS_DATA)
-                c4d.EventAdd()
+                _dirty(op)
             if desc_id in (BRICKIFYASSEMBLY_SOURCE, BRICKIFYASSEMBLY_HIDE_SOURCE_MESH):
                 self._sync_source_visibility(op)
                 c4d.EventAdd()

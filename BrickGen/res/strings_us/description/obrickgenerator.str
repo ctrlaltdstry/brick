@@ -1,6 +1,6 @@
 STRINGTABLE obrickgenerator
 {
-    BRICKGENERATOR "BrickGen";
+    BRICKGENERATOR "Brick";
     BRICKGENERATOR_WIDTH "Width";
     BRICKGENERATOR_DEPTH "Depth";
     BRICKGENERATOR_HEIGHT "Height";

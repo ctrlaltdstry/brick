@@ -57,6 +57,43 @@ def _get_template_mesh(
     self._mesh_cache[key] = mesh
     return mesh
 
+
+def _get_proxy_template_mesh(
+    self,
+    brick_type,
+    stud_size,
+    plate_size,
+    *,
+    inset=0.0,
+    force_smooth_top=False,
+):
+    from brick.brick_geom_hires import make_proxy_collider
+    is_smooth_visual = int(bool(force_smooth_top))
+    key = (
+        "proxy",
+        brick_type.width,
+        brick_type.depth,
+        brick_type.height,
+        round(stud_size, 6),
+        round(plate_size, 6),
+        round(float(inset), 6),
+        is_smooth_visual,
+    )
+    if key in self._mesh_cache:
+        return self._mesh_cache[key]
+    mesh = make_proxy_collider(
+        brick_type.width,
+        brick_type.depth,
+        brick_type.height,
+        stud_size=stud_size,
+        plate_size=plate_size,
+        inset=inset,
+        with_studs=not bool(is_smooth_visual),
+    )
+    self._mesh_cache[key] = mesh
+    return mesh
+
+
 def _normalized_logo_source_object(
     self,
     source_obj,

@@ -5,7 +5,6 @@ from library_panel import (
     BRICK_TOGGLE_NAMES,
     apply_library_mask_to_toggles as _apply_library_mask_to_toggles,
     read_library_mask as _read_library_mask,
-    toggle_id as _toggle_id,
 )
 from logo_helpers import (
     BRICKGEN_LOGO_FILL_UI_DEFAULT,
@@ -43,6 +42,41 @@ def _voxel_resolution_to_studs(value):
     detail_t = 1.0 - t
     ratio = float(VOXEL_RES_MAX_STUDS) / float(VOXEL_RES_MIN_STUDS)
     return int(round(float(VOXEL_RES_MIN_STUDS) * (ratio ** detail_t)))
+
+
+def _library_ui_state(op, *, sync_toggles=False):
+    """Return the shared library predicates used by UI and fitting logic."""
+    lib_mask = _read_library_mask(op)
+    if sync_toggles:
+        _apply_library_mask_to_toggles(op, lib_mask)
+    try:
+        enable_plates = bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
+    except Exception:
+        enable_plates = False
+    selected_toggle_names = [
+        name
+        for i, name in enumerate(BRICK_TOGGLE_NAMES)
+        if bool(int(lib_mask) & (1 << i))
+    ]
+    only_2x_library = (not enable_plates) and bool(selected_toggle_names) and all(
+        ("_2x" in n) for n in selected_toggle_names
+    )
+    only_1x1_library = (not enable_plates) and bool(selected_toggle_names) and all(
+        (n.endswith("_1x1") or n.endswith("1x1")) for n in selected_toggle_names
+    )
+    try:
+        max_bh = max(1, min(6, int(op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT])))
+    except Exception:
+        max_bh = 3
+    return {
+        "lib_mask": lib_mask,
+        "enable_plates": enable_plates,
+        "selected_toggle_names": selected_toggle_names,
+        "only_1x1_library": only_1x1_library,
+        "only_2x_library": only_2x_library,
+        "max_brick_height": max_bh,
+    }
+
 
 def _interactive_preview_params(self, params):
     preview = dict(params)
@@ -129,30 +163,11 @@ def _resolve_params(self, op, source_obj):
     merge_plates = merge_plates_user and max_bh >= 3
     # Track library composition for resolution/detail heuristics below.
     # Do not auto-override the physically accurate checkbox from these modes.
-    lib_mask = _read_library_mask(op)
-    # Keep legacy toggles synced before classifying library mode. The
-    # native GUI writes a bitmask, while older scenes rely on per-toggle
-    # bools; syncing here avoids stale mode detection.
-    _apply_library_mask_to_toggles(op, lib_mask)
-    try:
-        enable_plates = bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
-    except Exception:
-        enable_plates = False
-    selected_toggle_names = []
-    for i, name in enumerate(BRICK_TOGGLE_NAMES):
-        try:
-            if bool(op[_toggle_id(i)]):
-                selected_toggle_names.append(name)
-        except Exception:
-            # If a toggle read fails, treat it as enabled to avoid
-            # accidentally entering restrictive auto-modes.
-            selected_toggle_names.append(name)
-    only_2x_library = (not enable_plates) and bool(selected_toggle_names) and all(
-        ("_2x" in n) for n in selected_toggle_names
-    )
-    only_1x1_library = (not enable_plates) and bool(selected_toggle_names) and all(
-        (n.endswith("_1x1") or n.endswith("1x1")) for n in selected_toggle_names
-    )
+    library_state = _library_ui_state(op, sync_toggles=True)
+    lib_mask = library_state["lib_mask"]
+    enable_plates = library_state["enable_plates"]
+    only_2x_library = library_state["only_2x_library"]
+    only_1x1_library = library_state["only_1x1_library"]
     # With 2x-only libraries, detail-band restrictions can over-constrain
     # the fitter and produce carved-out facades. Force detail strategy off
     # so coverage stays stable for "2x only" workflows.
@@ -197,18 +212,16 @@ def _resolve_params(self, op, source_obj):
     # Apply in both solid and shell voxel modes, but only when plate usage
     # itself is enabled.
     surface_only_plates = bool(surface_only_plates_ui and enable_plates)
-    visualization_mode = int(op[BRICKIFYASSEMBLY_VISUALIZATION_MODE] or 0)
-    # "Brick Size" and "Shell Depth" were removed from the UI cycle.
-    # Coerce legacy scene values to Source so old files remain valid.
-    if visualization_mode in (
-        BRICKIFYASSEMBLY_VISUALIZATION_MODE_BRICK_SIZE,
-        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
-    ):
-        visualization_mode = BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE
-        try:
-            op[BRICKIFYASSEMBLY_VISUALIZATION_MODE] = visualization_mode
-        except Exception:
-            pass
+    raw_visualization_mode = int(op[BRICKIFYASSEMBLY_VISUALIZATION_MODE] or 0)
+    # The UI cycle now exposes only Source/Shell/Voxel. Depending on the C4D
+    # resource load, the cycle can arrive as either the symbol value (0/3/4)
+    # or the compact menu index (0/1/2). Normalize both forms here.
+    if raw_visualization_mode == 1:
+        visualization_mode = BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME
+    elif raw_visualization_mode == 2:
+        visualization_mode = BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG
+    else:
+        visualization_mode = raw_visualization_mode
     logo_enabled = bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
     logo_source = op[BRICKIFYASSEMBLY_LOGO_SOURCE]
     logo_rotation = int(op[BRICKIFYASSEMBLY_LOGO_ROTATION] or 0) % 4
@@ -243,16 +256,38 @@ def _resolve_params(self, op, source_obj):
     ):
         build_motion_curve = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
     build_scale_in = bool(op[BRICKIFYASSEMBLY_BUILD_SCALE_IN])
+    build_subtle_rotation = bool(op[BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION])
+    build_tilt_amount_raw = op[BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT]
+    if build_tilt_amount_raw is None:
+        build_tilt_amount_raw = 5.0
+    build_tilt_amount = max(0.0, min(360.0, float(build_tilt_amount_raw)))
     build_custom_curve = op[BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE]
     build_custom_curve_key = custom_curve_signature(build_custom_curve)
-    top_surface_phase_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_PHASE]
-    if top_surface_phase_raw is None:
-        top_surface_phase_raw = 15.0
-    top_surface_phase = max(0.0, min(1.0, float(top_surface_phase_raw) / 100.0))
+    top_surface_start = 0.35
+    top_surface_phase = 0.15
+    top_surface_blend = bool(op[BRICKIFYASSEMBLY_TOP_SURFACE_BLEND])
     top_surface_coverage_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE]
     if top_surface_coverage_raw is None:
         top_surface_coverage_raw = 100.0
     top_surface_coverage = max(0.0, min(1.0, float(top_surface_coverage_raw) / 100.0))
+    top_surface_random_order = bool(op[BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER])
+    brick_separation_raw = op[BRICKIFYASSEMBLY_BRICK_SEPARATION]
+    if brick_separation_raw is None:
+        brick_separation_raw = 0.0
+    brick_separation = max(0.0, min(1.0, float(brick_separation_raw)))
+    humanize_bricks = bool(op[BRICKIFYASSEMBLY_HUMANIZE_BRICKS])
+    humanize_seed_raw = op[BRICKIFYASSEMBLY_HUMANIZE_SEED]
+    if humanize_seed_raw is None:
+        humanize_seed_raw = 1
+    humanize_seed = max(0, min(1000000, int(humanize_seed_raw)))
+    humanize_position_raw = op[BRICKIFYASSEMBLY_HUMANIZE_POSITION]
+    if humanize_position_raw is None:
+        humanize_position_raw = 0.0
+    humanize_position = max(0.0, min(1.0, float(humanize_position_raw)))
+    humanize_rotation_raw = op[BRICKIFYASSEMBLY_HUMANIZE_ROTATION]
+    if humanize_rotation_raw is None:
+        humanize_rotation_raw = 0.0
+    humanize_rotation = max(0.0, min(2.0, float(humanize_rotation_raw)))
 
     # Library curation key — bitmask over brick toggles. Goes
     # into the fit cache key so toggling a brick reruns the fitter.
@@ -300,10 +335,20 @@ def _resolve_params(self, op, source_obj):
         "build_stagger": build_stagger,
         "build_motion_curve": build_motion_curve,
         "build_scale_in": build_scale_in,
+        "build_subtle_rotation": build_subtle_rotation,
+        "build_tilt_amount": build_tilt_amount,
         "build_custom_curve": build_custom_curve,
         "build_custom_curve_key": build_custom_curve_key,
+        "top_surface_start": top_surface_start,
         "top_surface_phase": top_surface_phase,
+        "top_surface_blend": top_surface_blend,
         "top_surface_coverage": top_surface_coverage,
+        "top_surface_random_order": top_surface_random_order,
+        "brick_separation": brick_separation,
+        "humanize_bricks": humanize_bricks,
+        "humanize_seed": humanize_seed,
+        "humanize_position": humanize_position,
+        "humanize_rotation": humanize_rotation,
         "lib_mask": lib_mask,
         "interactive_preview": False,
         "interactive_preview_actual_studs_across": studs_across,

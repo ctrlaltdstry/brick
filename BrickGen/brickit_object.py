@@ -17,10 +17,15 @@ from library_panel import (
 )
 from brickit_templates import (
     _get_logo_template_obj as _template_get_logo_template_obj,
+    _get_proxy_template_mesh as _template_get_proxy_template_mesh,
     _get_template_mesh as _template_get_template_mesh,
     _normalized_logo_source_object as _template_normalized_logo_source_object,
 )
-from brickit_mograph import _create_mograph_handoff as _build_mograph_handoff
+from brickit_mograph import (
+    _create_mograph_handoff as _build_mograph_handoff,
+    _create_proxy_mograph_handoff as _build_proxy_mograph_handoff,
+    _swap_proxy_to_render_handoff as _swap_proxy_mograph_handoff,
+)
 from brickit_view import _build_hierarchy as _build_view_hierarchy
 from brickit_fit import (
     _get_active_library as _fit_get_active_library,
@@ -33,6 +38,7 @@ from brickit_params import (
     RESOLUTION_LIVE_DEBOUNCE_SEC,
     VOXEL_RES_DEFAULT,
     _interactive_preview_params as _params_interactive_preview_params,
+    _library_ui_state as _params_library_ui_state,
     _resolution_key as _params_resolution_key,
     _resolve_params as _params_resolve_params,
     _snap_voxel_resolution,
@@ -203,8 +209,8 @@ class BrickAssembly(plugins.ObjectData):
     def _add_custom_curve_description(self, description):
         try:
             bc = c4d.GetCustomDataTypeDefault(c4d.CUSTOMDATATYPE_SPLINE)
-            bc[c4d.DESC_NAME] = "Build Custom Curve"
-            bc[c4d.DESC_SHORT_NAME] = "Build Custom Curve"
+            bc[c4d.DESC_NAME] = "Custom Motion Curve"
+            bc[c4d.DESC_SHORT_NAME] = "Custom Motion Curve"
             bc[c4d.DESC_CUSTOMGUI] = c4d.CUSTOMGUI_SPLINE
             bc[c4d.SPLINECONTROL_GRID_H] = True
             bc[c4d.SPLINECONTROL_GRID_V] = True
@@ -216,7 +222,7 @@ class BrickAssembly(plugins.ObjectData):
             bc[c4d.SPLINECONTROL_Y_MIN] = 0.0
             bc[c4d.SPLINECONTROL_Y_MAX] = 1.0
             bc[c4d.SPLINECONTROL_Y_STEPS] = 0.01
-            bc[c4d.SPLINECONTROL_MINSIZE_H] = 320
+            bc[c4d.SPLINECONTROL_MINSIZE_H] = 160
             bc[c4d.SPLINECONTROL_MINSIZE_V] = 120
             desc_id = c4d.DescID(
                 c4d.DescLevel(
@@ -225,7 +231,7 @@ class BrickAssembly(plugins.ObjectData):
                     ID_BRICKIFYASSEMBLY,
                 )
             )
-            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_TAB_MOGRAPH))
+            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_GROUP_RESOLUTION))
             description.SetParameter(desc_id, bc, group_id)
         except Exception:
             pass
@@ -260,7 +266,7 @@ class BrickAssembly(plugins.ObjectData):
         return True, flags | c4d.DESCFLAGS_DESC_LOADED
 
     def GetDEnabling(self, op, desc_id, t_data, flags, itemdesc):
-        """Gray out Rebuild Now while Live Update is on (resolution is live)."""
+        """Keep dependent controls aligned with the effective builder state."""
         try:
             pid = desc_id[0].id
         except Exception:
@@ -268,6 +274,10 @@ class BrickAssembly(plugins.ObjectData):
                 pid = int(desc_id)
             except Exception:
                 return True
+        try:
+            library_state = _params_library_ui_state(op)
+        except Exception:
+            library_state = {}
         if pid == BRICKIFYASSEMBLY_REBUILD:
             try:
                 return not bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD])
@@ -290,6 +300,25 @@ class BrickAssembly(plugins.ObjectData):
                 return int(op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE]) == BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM
             except Exception:
                 return True
+        if pid == BRICKIFYASSEMBLY_MERGE_PLATES:
+            return int(library_state.get("max_brick_height", 3)) >= 3
+        if pid == BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS:
+            return not bool(library_state.get("only_1x1_library", False))
+        if pid == BRICKIFYASSEMBLY_DETAIL_MODE:
+            return not bool(library_state.get("only_2x_library", False))
+        if pid == BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES:
+            return bool(library_state.get("enable_plates", False))
+        if pid in (
+            BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE,
+            BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER,
+            BRICKIFYASSEMBLY_TOP_SURFACE_PHASE,
+        ):
+            try:
+                return bool(library_state.get("enable_plates", False)) and bool(
+                    op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES]
+                )
+            except Exception:
+                return bool(library_state.get("enable_plates", False))
         return True
 
     def Init(self, op, isCloneInit=False):
@@ -329,6 +358,16 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
         op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE] = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
         op[BRICKIFYASSEMBLY_BUILD_SCALE_IN] = False
+        op[BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION] = False
+        op[BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT] = 5.0
+        op[BRICKIFYASSEMBLY_TOP_SURFACE_START] = 85.0
+        op[BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER] = False
+        op[BRICKIFYASSEMBLY_TOP_SURFACE_BLEND] = False
+        op[BRICKIFYASSEMBLY_BRICK_SEPARATION] = 0.0
+        op[BRICKIFYASSEMBLY_HUMANIZE_BRICKS] = False
+        op[BRICKIFYASSEMBLY_HUMANIZE_SEED] = 1
+        op[BRICKIFYASSEMBLY_HUMANIZE_POSITION] = 0.0
+        op[BRICKIFYASSEMBLY_HUMANIZE_ROTATION] = 0.0
         try:
             curve = c4d.SplineData()
             curve.MakeLinearSplineBezier(2)
@@ -451,8 +490,32 @@ class BrickAssembly(plugins.ObjectData):
     def _get_logo_template_obj(self, params, doc, stud_size, plate_size):
         return _template_get_logo_template_obj(self, params, doc, stud_size, plate_size)
 
+    def _get_proxy_template_mesh(
+        self,
+        brick_type,
+        stud_size,
+        plate_size,
+        *,
+        inset=0.0,
+        force_smooth_top=False,
+    ):
+        return _template_get_proxy_template_mesh(
+            self,
+            brick_type,
+            stud_size,
+            plate_size,
+            inset=inset,
+            force_smooth_top=force_smooth_top,
+        )
+
     def _create_mograph_handoff(self, op):
         return _build_mograph_handoff(self, op)
+
+    def _create_proxy_mograph_handoff(self, op):
+        return _build_proxy_mograph_handoff(self, op)
+
+    def _swap_proxy_to_render_handoff(self, op):
+        return _swap_proxy_mograph_handoff(self, op)
 
     def _build_hierarchy(self, op):
         return _build_view_hierarchy(self, op)

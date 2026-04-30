@@ -1,13 +1,17 @@
-# Deploy the BrickGen plugin to Cinema 4D's user plugins folder.
+# Deploy the Brick plugin to Cinema 4D's user plugins folder.
 # Run from anywhere:  powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot   = Split-Path -Parent $PSScriptRoot
-$source     = Join-Path $repoRoot "BrickGen"
-$c4dPlugins = "C:\Users\Mike\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins"
-$backupRoot = "C:\Users\Mike\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugin_backups"
-$target     = Join-Path $c4dPlugins "BrickGen"
+$repoRoot      = Split-Path -Parent $PSScriptRoot
+$source        = Join-Path $repoRoot "BrickGen"
+$c4dRoot       = "C:\Users\Mike\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12"
+$c4dPlugins    = Join-Path $c4dRoot "plugins"
+$backupRoot    = Join-Path $c4dRoot "plugin_backups"
+$target        = Join-Path $c4dPlugins "Brick"
+$nativeGuiName = "bricklibrary.inline_gui"
+$targetNative  = Join-Path $target $nativeGuiName
+$rootNative    = Join-Path $c4dPlugins $nativeGuiName
 
 if (-not (Test-Path $source)) {
     throw "Source plugin folder not found: $source"
@@ -22,16 +26,51 @@ if (-not (Test-Path $backupRoot)) {
 Write-Host "Source: $source"
 Write-Host "Target: $target"
 
-# C4D loads every folder under plugins/* — relocate any old BrickGen/BrickGenerator backups
-# siblings out of the plugins root so they do not double-register the plugin.
-Get-ChildItem -Path $c4dPlugins -Directory -Filter "BrickGen.bak_*" |
-    ForEach-Object {
-        $dest = Join-Path $backupRoot $_.Name
-        Write-Host "Relocating stale backup $($_.FullName) -> $dest"
-        if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-        Move-Item $_.FullName $dest
+function Move-PluginFolderToBackup {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if (-not (Test-Path $Path)) {
+        return
     }
-Get-ChildItem -Path $c4dPlugins -Directory -Filter "BrickGenerator.bak_*" |
+
+    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $dest = Join-Path $backupRoot "$Label.bak_$stamp"
+    Write-Host "Relocating $Path -> $dest"
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    Move-Item $Path $dest
+}
+
+$nativeGuiSource = $null
+$nativeGuiCandidates = @()
+if ($env:BRICK_NATIVE_GUI_SOURCE) {
+    $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
+}
+$nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
+$nativeGuiCandidates += $rootNative
+
+foreach ($candidate in $nativeGuiCandidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+        $nativeGuiSource = $candidate
+        break
+    }
+}
+if ($nativeGuiSource) {
+    Write-Host "Native GUI source: $nativeGuiSource"
+} else {
+    Write-Host "Native GUI source not found; deploying Python plugin only."
+}
+
+# C4D loads every folder under plugins/*, so move stale siblings out of the
+# plugins root before deploying to avoid duplicate plugin registration.
+Get-ChildItem -Path $c4dPlugins -Directory |
+    Where-Object {
+        $_.Name -like "Brick.bak_*" -or
+        $_.Name -like "BrickGen.bak_*" -or
+        $_.Name -like "BrickGenerator.bak_*" -or
+        $_.Name -like "$nativeGuiName.bak_*"
+    } |
     ForEach-Object {
         $dest = Join-Path $backupRoot $_.Name
         Write-Host "Relocating stale backup $($_.FullName) -> $dest"
@@ -39,24 +78,36 @@ Get-ChildItem -Path $c4dPlugins -Directory -Filter "BrickGenerator.bak_*" |
         Move-Item $_.FullName $dest
     }
 
-if (Test-Path (Join-Path $c4dPlugins "BrickGenerator")) {
-    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $legacyBak = Join-Path $backupRoot "BrickGenerator.legacy_$stamp"
-    Write-Host "Relocating legacy target -> $legacyBak"
-    Move-Item (Join-Path $c4dPlugins "BrickGenerator") $legacyBak
-}
-
-if (Test-Path $target) {
-    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $bak = Join-Path $backupRoot "BrickGen.bak_$stamp"
-    Write-Host "Backing up existing target -> $bak"
-    Move-Item $target $bak
-}
+Move-PluginFolderToBackup -Path $target -Label "Brick"
+Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGen") -Label "BrickGen"
+Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGenerator") -Label "BrickGenerator"
 
 Copy-Item -Path $source -Destination $target -Recurse -Force
 
 # Strip pycache to force a fresh import on next C4D launch
 Get-ChildItem -Path $target -Recurse -Directory -Filter "__pycache__" |
     ForEach-Object { Remove-Item $_.FullName -Recurse -Force }
+
+if ($nativeGuiSource) {
+    if (Test-Path $targetNative) {
+        Remove-Item $targetNative -Recurse -Force
+    }
+    Copy-Item -Path $nativeGuiSource -Destination $targetNative -Recurse -Force
+    Write-Host "Nested native GUI: $targetNative"
+}
+
+Move-PluginFolderToBackup -Path $rootNative -Label $nativeGuiName
+
+Write-Host ""
+Write-Host "Plugin root layout:"
+Get-ChildItem -Path $c4dPlugins -Directory |
+    Where-Object {
+        $_.Name -eq "Brick" -or
+        $_.Name -eq "BrickGen" -or
+        $_.Name -eq "BrickGenerator" -or
+        $_.Name -eq $nativeGuiName
+    } |
+    Select-Object -ExpandProperty FullName |
+    ForEach-Object { Write-Host "  $_" }
 
 Write-Host "Deployed. Restart Cinema 4D to pick up changes."
