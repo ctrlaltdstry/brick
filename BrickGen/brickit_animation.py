@@ -817,6 +817,117 @@ def build_tilt_clearance(
     return height * math.sin(max_tilt) * BUILD_ANIMATION_TILT_CLEARANCE_MULTIPLIER
 
 
+def _rotated_body_half_extents(half_x, half_y, half_z, tilt_x, tilt_z):
+    """Return world-axis half extents for the simplified tilted body box."""
+    cx = math.cos(float(tilt_x))
+    sx = math.sin(float(tilt_x))
+    cz = math.cos(float(tilt_z))
+    sz = math.sin(float(tilt_z))
+    return (
+        abs(cz) * half_x + abs(sz) * half_y,
+        abs(cx * sz) * half_x + abs(cx * cz) * half_y + abs(sx) * half_z,
+        abs(sx * sz) * half_x + abs(sx * cz) * half_y + abs(cx) * half_z,
+    )
+
+
+def _state_center(center_lookup, state):
+    placement = state.placement
+    if callable(center_lookup):
+        try:
+            return center_lookup(placement, state)
+        except TypeError:
+            return center_lookup(placement)
+    return center_lookup.get(id(placement))
+
+
+def _bounds_overlap_axis(a0, a1, b0, b1, tolerance):
+    return a0 < (b1 - tolerance) and a1 > (b0 + tolerance)
+
+
+def build_collision_lift_offsets(
+    animation_states,
+    center_lookup,
+    stud_size,
+    plate_size,
+    *,
+    enabled=False,
+    tilt_amount_degrees=BUILD_ANIMATION_DEFAULT_TILT_DEGREES,
+    scale_enabled=False,
+    tolerance=1.0e-5,
+):
+    """Return extra Y offsets that keep tilted body envelopes non-intersecting.
+
+    This is an animation guard only: final brick placements remain unchanged.
+    The simplified envelope ignores studs/underside clutch detail so legal
+    LEGO-style face contact and interlock geometry are not treated as errors.
+    """
+    states = list(animation_states or [])
+    offsets = {id(state.placement): 0.0 for state in states}
+    if not enabled:
+        return offsets
+
+    accepted_bounds = []
+    tol = max(0.0, float(tolerance))
+    for state in sorted(states, key=lambda s: (int(s.order_index), id(s.placement))):
+        if float(getattr(state, "local_progress", 0.0)) <= 0.0:
+            continue
+        center = _state_center(center_lookup, state)
+        if center is None:
+            continue
+        p = state.placement
+        cx, cy, cz = (float(center[0]), float(center[1]), float(center[2]))
+        cy += float(getattr(state, "y_offset", 0.0))
+        local_progress = float(getattr(state, "local_progress", 1.0))
+        tilt_x, tilt_z = build_tilt_for_progress(
+            p,
+            local_progress,
+            enabled=True,
+            amount_degrees=tilt_amount_degrees,
+        )
+        scale = build_scale_for_progress(local_progress, scale_enabled)
+        half_x = max(0.0, float(getattr(p, "w", 1)) * float(stud_size) * scale * 0.5)
+        half_y = max(0.0, float(getattr(p, "h", 1)) * float(plate_size) * scale * 0.5)
+        half_z = max(0.0, float(getattr(p, "d", 1)) * float(stud_size) * scale * 0.5)
+        ex, ey, ez = _rotated_body_half_extents(
+            half_x,
+            half_y,
+            half_z,
+            tilt_x,
+            tilt_z,
+        )
+        base_bounds = (
+            cx - ex,
+            cy - ey,
+            cz - ez,
+            cx + ex,
+            cy + ey,
+            cz + ez,
+        )
+        extra_lift = 0.0
+        for other in accepted_bounds:
+            if not _bounds_overlap_axis(base_bounds[0], base_bounds[3], other[0], other[3], tol):
+                continue
+            if not _bounds_overlap_axis(base_bounds[2], base_bounds[5], other[2], other[5], tol):
+                continue
+            lifted_y0 = base_bounds[1] + extra_lift
+            lifted_y1 = base_bounds[4] + extra_lift
+            if not _bounds_overlap_axis(lifted_y0, lifted_y1, other[1], other[4], tol):
+                continue
+            needed = other[4] - lifted_y0 + tol
+            if needed > 0.0:
+                extra_lift += needed
+        offsets[id(p)] = extra_lift
+        accepted_bounds.append((
+            base_bounds[0],
+            base_bounds[1] + extra_lift,
+            base_bounds[2],
+            base_bounds[3],
+            base_bounds[4] + extra_lift,
+            base_bounds[5],
+        ))
+    return offsets
+
+
 def build_animation_states(
     placements,
     progress,

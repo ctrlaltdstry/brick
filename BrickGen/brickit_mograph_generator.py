@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import c4d
 
 from brickit_animation import (
+    build_collision_lift_offsets,
     build_scale_for_progress,
     build_tilt_clearance,
     build_tilt_for_progress,
@@ -458,11 +459,40 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             wz + (dz / length) * clearance,
         )
 
+    def _collision_scene_center(p, state):
+        wx, wy, wz = _placement_scene_center(p)
+        local_progress = state.local_progress if state is not None else 1.0
+        tilt_x, tilt_z = build_tilt_for_progress(
+            p,
+            local_progress,
+            enabled=subtle_rotation,
+            amount_degrees=tilt_amount,
+        )
+        clearance = build_tilt_clearance(
+            tilt_x,
+            tilt_z,
+            p.h,
+            plate_size,
+            enabled=subtle_rotation,
+        )
+        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
+        return wx, wy, wz
+
+    collision_lift_by_obj = build_collision_lift_offsets(
+        animation_states,
+        _collision_scene_center,
+        stud_size,
+        plate_size,
+        enabled=subtle_rotation,
+        tilt_amount_degrees=tilt_amount,
+        scale_enabled=scale_bricks_in,
+    )
+
     def _make_animated_centered_matrix(p):
         state = animation_state_by_obj.get(id(p))
         wx, wy, wz = _placement_scene_center(p)
         y_offset = float(state.y_offset) if state is not None else 0.0
-        wy += y_offset
+        wy += y_offset + float(collision_lift_by_obj.get(id(p), 0.0))
         local_progress = state.local_progress if state is not None else 1.0
 
         m = c4d.Matrix()

@@ -28,9 +28,11 @@ from brickit_animation import (  # noqa: E402
     BUILD_MOTION_CURVE_SLAM,
     BUILD_MOTION_CURVE_SPRING,
     BUILD_MOTION_CURVE_CUSTOM,
+    BuildAnimationState,
     VisualCapBrickType,
     VisualCapPlacement,
     apply_motion_curve,
+    build_collision_lift_offsets,
     build_scale_for_progress,
     build_tilt_clearance,
     build_tilt_for_progress,
@@ -314,6 +316,122 @@ def test_tilt_clearance_fades_with_tilt():
         quarter_turn,
         3 * 3.2 * BUILD_ANIMATION_TILT_CLEARANCE_MULTIPLIER,
     )
+
+
+def _collision_center_lookup(stud_size=8.0, plate_size=3.2):
+    return lambda placement, _state: separated_center(
+        placement,
+        stud_size,
+        plate_size,
+    )
+
+
+def _tilting_adjacent_pair():
+    local_progress = 0.10
+    tilt_amount = 180.0
+    for x in range(1, 64):
+        moving = _p("moving", x, 0, 0, w=1, h=3, d=1)
+        _tilt_x, tilt_z = build_tilt_for_progress(
+            moving,
+            local_progress,
+            enabled=True,
+            amount_degrees=tilt_amount,
+        )
+        if abs(tilt_z) > math.radians(20.0):
+            return (
+                _p("landed", x - 1, 0, 0, w=1, h=3, d=1),
+                moving,
+                local_progress,
+                tilt_amount,
+            )
+    raise AssertionError("expected to find a placement with useful Z tilt")
+
+
+def test_collision_lift_offsets_clear_adjacent_tilt_overlap():
+    landed, moving, local_progress, tilt_amount = _tilting_adjacent_pair()
+    states = [
+        BuildAnimationState(landed, 0, 1.0, 1.0, 0.0),
+        BuildAnimationState(moving, 1, local_progress, local_progress, 0.0),
+    ]
+
+    offsets = build_collision_lift_offsets(
+        states,
+        _collision_center_lookup(),
+        8.0,
+        3.2,
+        enabled=True,
+        tilt_amount_degrees=tilt_amount,
+    )
+
+    assert math.isclose(offsets[id(landed)], 0.0)
+    assert offsets[id(moving)] > 0.0
+
+
+def test_collision_lift_offsets_allow_landed_stacked_contact():
+    bottom = _p("bottom", 0, 0, 0, w=2, h=3, d=2)
+    top = _p("top", 0, 3, 0, w=2, h=1, d=2)
+    states = [
+        BuildAnimationState(bottom, 0, 1.0, 1.0, 0.0),
+        BuildAnimationState(top, 1, 1.0, 1.0, 0.0),
+    ]
+
+    offsets = build_collision_lift_offsets(
+        states,
+        _collision_center_lookup(),
+        8.0,
+        3.2,
+        enabled=True,
+        tilt_amount_degrees=180.0,
+    )
+
+    assert math.isclose(offsets[id(bottom)], 0.0)
+    assert math.isclose(offsets[id(top)], 0.0)
+
+
+def test_collision_lift_offsets_disabled_with_rotation_off():
+    landed, moving, local_progress, tilt_amount = _tilting_adjacent_pair()
+    states = [
+        BuildAnimationState(landed, 0, 1.0, 1.0, 0.0),
+        BuildAnimationState(moving, 1, local_progress, local_progress, 0.0),
+    ]
+
+    offsets = build_collision_lift_offsets(
+        states,
+        _collision_center_lookup(),
+        8.0,
+        3.2,
+        enabled=False,
+        tilt_amount_degrees=tilt_amount,
+    )
+
+    assert offsets == {id(landed): 0.0, id(moving): 0.0}
+
+
+def test_collision_lift_offsets_are_deterministic():
+    landed, moving, local_progress, tilt_amount = _tilting_adjacent_pair()
+    states = [
+        BuildAnimationState(landed, 0, 1.0, 1.0, 0.0),
+        BuildAnimationState(moving, 1, local_progress, local_progress, 0.0),
+    ]
+
+    first = build_collision_lift_offsets(
+        states,
+        _collision_center_lookup(),
+        8.0,
+        3.2,
+        enabled=True,
+        tilt_amount_degrees=tilt_amount,
+    )
+    second = build_collision_lift_offsets(
+        states,
+        _collision_center_lookup(),
+        8.0,
+        3.2,
+        enabled=True,
+        tilt_amount_degrees=tilt_amount,
+    )
+
+    assert first == second
 
 
 def test_separated_center_matches_low_corner_plus_half_extents():
@@ -786,6 +904,10 @@ def main():
     test_scale_in_uses_small_minimum_scale()
     test_subtle_rotation_is_stable_and_lands_flat()
     test_tilt_clearance_fades_with_tilt()
+    test_collision_lift_offsets_clear_adjacent_tilt_overlap()
+    test_collision_lift_offsets_allow_landed_stacked_contact()
+    test_collision_lift_offsets_disabled_with_rotation_off()
+    test_collision_lift_offsets_are_deterministic()
     test_separated_center_matches_low_corner_plus_half_extents()
     test_separated_center_preserves_separation_expansion()
     test_default_animation_values_are_gentler_than_original()
