@@ -659,19 +659,10 @@ def _sweep_edge_fillet(
     u = np.array(u_axis, dtype=np.float64)
     v = np.array(v_axis, dtype=np.float64)
     angles = np.linspace(0, np.pi / 2, segs + 1)
-    # ring of points at p0
-    ring0 = np.array([p0 + r * (np.cos(a) * u + np.sin(a) * v)
-                      for a in angles])
-    ring1 = np.array([p1 + r * (np.cos(a) * u + np.sin(a) * v)
-                      for a in angles])
-    base0 = mesh.append_verts(ring0)
-    base1 = mesh.append_verts(ring1)
-    for i in range(segs):
-        # quad between ring0[i], ring0[i+1], ring1[i+1], ring1[i]
-        mesh.add_group_face(group, (
-            base0 + i, base0 + i + 1,
-            base1 + i + 1, base1 + i,
-        ))
+    offset = r * (np.cos(angles)[:, None] * u + np.sin(angles)[:, None] * v)
+    verts = np.vstack([p0 + offset, p1 + offset])
+    base = mesh.append_verts(verts)
+    _emit_grid_quads(mesh, group, base, 2, segs + 1, flip=True)
 
 
 def _add_corner_octant(
@@ -686,38 +677,21 @@ def _add_corner_octant(
     # [0, pi/2] (elevation toward +Y or -Y depending on sy).
     # Place verts on a (segs+1) x (segs+1) grid.
     n = segs
-    verts = np.zeros((n + 1, n + 1, 3))
-    for i in range(n + 1):       # theta
-        theta = (np.pi / 2) * i / n
-        for j in range(n + 1):   # phi
-            phi = (np.pi / 2) * j / n
-            x = cx + sx * r * np.cos(phi) * np.cos(theta)
-            y = cy + sy * r * np.sin(phi)
-            z = cz + sz * r * np.cos(phi) * np.sin(theta)
-            verts[i, j] = (x, y, z)
+    theta = np.linspace(0, np.pi / 2, n + 1)
+    phi = np.linspace(0, np.pi / 2, n + 1)
+    theta_grid, phi_grid = np.meshgrid(theta, phi, indexing="ij")
+    verts = np.stack([
+        cx + sx * r * np.cos(phi_grid) * np.cos(theta_grid),
+        cy + sy * r * np.sin(phi_grid),
+        cz + sz * r * np.cos(phi_grid) * np.sin(theta_grid),
+    ], axis=-1)
     base = mesh.append_verts(verts.reshape(-1, 3))
-    def vid(i, j): return base + i * (n + 1) + j
     # Determine winding so the normal points OUT (away from box center).
     # We just emit consistent winding and rely on the importer to
     # flip if needed. Use a winding that's consistent with a positive-
     # octant convention:
     flip = (sx * sy * sz) < 0
-    for i in range(n):
-        for j in range(n):
-            if flip:
-                mesh.add_group_face(group, (
-                    vid(i,     j    ),
-                    vid(i,     j + 1),
-                    vid(i + 1, j + 1),
-                    vid(i + 1, j    ),
-                ))
-            else:
-                mesh.add_group_face(group, (
-                    vid(i,     j    ),
-                    vid(i + 1, j    ),
-                    vid(i + 1, j + 1),
-                    vid(i,     j + 1),
-                ))
+    _emit_grid_quads(mesh, group, base, n + 1, n + 1, flip=flip)
 
 
 def _add_filleted_stud(
@@ -737,34 +711,6 @@ def _add_filleted_stud(
         ... arc inward and up to (0, cy + height) via top_fillet
         (0, cy + height)                         -- top center
     """
-    profile = []  # list of (r, y_offset_from_cy)
-
-    # base fillet arc: from (radius + base_fillet, 0) curving up to
-    # (radius, base_fillet). Center at (radius + base_fillet, base_fillet).
-    cx_arc = radius + base_fillet
-    cy_arc = base_fillet
-    for i in range(fillet_segs + 1):
-        a = (np.pi / 2) * (1 - i / fillet_segs) + np.pi  # from pi+pi/2 to pi
-        # Actually simpler: angle from pi (pointing -X) to 3pi/2 (pointing -Y)
-        # but we want a CONVEX corner, so we want a CONCAVE arc into the brick.
-        # Re-parametrize:
-        # Start: (radius + base_fillet, 0).  rel to center (cx_arc, cy_arc):
-        #         (-base_fillet, -base_fillet)... no that's distance sqrt(2)*r.
-        # Let's do this carefully: the fillet center is OFFSET from where
-        # the cylinder side meets the body top.
-        # The cylinder side is at r = radius (vertical line).
-        # The body top is at y = 0 (horizontal line).
-        # The fillet rounds the corner. Its center is at
-        # (radius - base_fillet, +base_fillet) -- INSIDE the stud, above
-        # the body top by base_fillet, and inset radially by base_fillet.
-        # Wait that's inside the stud, which means the fillet is concave
-        # from the air's perspective -- that's a CONCAVE fillet, like
-        # where the stud meets the body.
-        # The arc goes from angle 3pi/2 (pointing -Y, i.e. down to body top
-        # at r=radius-base_fillet, y=0... no wait at r = radius-base_fillet
-        # +base_fillet*0 = r at the start) ...
-        pass
-    # Let me redo this cleanly with a fresh approach.
     profile = _build_stud_profile(radius, height, base_fillet, top_fillet,
                                   fillet_segs)
     _revolve_profile(mesh, profile, cx, cy, cz, side_segs, group)
@@ -855,23 +801,21 @@ def _revolve_profile(mesh, profile, cx, cy, cz, segs, group):
         verts[i, :, 2] = cz + r * sin_t
     base = mesh.append_verts(verts.reshape(-1, 3))
 
-    def vid(i, k): return base + i * segs + (k % segs)
+    grid = np.arange(base, base + n_prof * segs, dtype=np.int64).reshape(n_prof, segs)
+    k = np.arange(segs)
+    kp = (k + 1) % segs
 
     for i in range(n_prof - 1):
         r0 = profile[i][0]
         r1 = profile[i + 1][0]
-        for k in range(segs):
-            v00 = vid(i,     k    )
-            v01 = vid(i,     k + 1)
-            v11 = vid(i + 1, k + 1)
-            v10 = vid(i + 1, k    )
-            # If a ring has r==0, all its verts coincide; emit a tri
-            if r0 == 0:
-                mesh.add_group_face(group, (v00, v11, v10))
-            elif r1 == 0:
-                mesh.add_group_face(group, (v00, v01, v10))
-            else:
-                mesh.add_group_face(group, (v00, v01, v11, v10))
+        # If a ring has r==0, all its verts coincide; emit tris.
+        if r0 == 0:
+            faces = np.stack([grid[i, k], grid[i + 1, kp], grid[i + 1, k]], axis=1)
+        elif r1 == 0:
+            faces = np.stack([grid[i, k], grid[i, kp], grid[i + 1, k]], axis=1)
+        else:
+            faces = np.stack([grid[i, k], grid[i, kp], grid[i + 1, kp], grid[i + 1, k]], axis=1)
+        mesh.add_group_faces(group, faces)
 
 
 
@@ -1123,38 +1067,18 @@ def _add_inner_cavity(
         ]:
             n_t = corner_segs
             n_p = rb_segs
-            verts = np.zeros((n_t + 1, n_p + 1, 3))
-            for i in range(n_t + 1):
-                t = (np.pi / 2) * i / n_t
-                cos_t = np.cos(t)
-                sin_t = np.sin(t)
-                for j in range(n_p + 1):
-                    phi = (np.pi / 2) * j / n_p
-                    d = r + rb * (1 - np.cos(phi))
-                    yy = wall_foot_y - rb * np.sin(phi)
-                    xx = cx_corner + sx * d * cos_t
-                    zz = cz_corner + sz * d * sin_t
-                    verts[i, j] = (xx, yy, zz)
+            t = np.linspace(0, np.pi / 2, n_t + 1)
+            phi = np.linspace(0, np.pi / 2, n_p + 1)
+            t_grid, phi_grid = np.meshgrid(t, phi, indexing="ij")
+            d = r + rb * (1 - np.cos(phi_grid))
+            verts = np.stack([
+                cx_corner + sx * d * np.cos(t_grid),
+                wall_foot_y - rb * np.sin(phi_grid),
+                cz_corner + sz * d * np.sin(t_grid),
+            ], axis=-1)
             base_v = mesh.append_verts(verts.reshape(-1, 3))
-            def vid(i, j, base=base_v, np_=n_p):
-                return base + i * (np_ + 1) + j
             flip = (sx * sz) > 0
-            for i in range(n_t):
-                for j in range(n_p):
-                    if flip:
-                        mesh.add_group_face(group, (
-                            vid(i,     j    ),
-                            vid(i,     j + 1),
-                            vid(i + 1, j + 1),
-                            vid(i + 1, j    ),
-                        ))
-                    else:
-                        mesh.add_group_face(group, (
-                            vid(i,     j    ),
-                            vid(i + 1, j    ),
-                            vid(i + 1, j + 1),
-                            vid(i,     j + 1),
-                        ))
+            _emit_grid_quads(mesh, group, base_v, n_t + 1, n_p + 1, flip=flip)
 
     # ---- bottom rim frame ------------------------------------------
     # Flat annulus at y=outer_y0=y0. Outer perimeter is a SHARP
@@ -1363,116 +1287,15 @@ def _emit_ceiling_with_holes(
     r2 = (hole_arr[None, :, 2] * 0.999) ** 2
     keep = ~np.any((dx * dx + dz * dz) < r2, axis=1)
 
-    for simplex in simplices[keep]:
-        a, b, c = simplex
-
-        # Delaunay returns CCW in the (x, z) plane, which is CCW from
-        # +Y looking down. Keep that winding for face_up=True (+Y
-        # normal); reverse it for face_up=False (-Y normal, the cavity
-        # ceiling visible looking up).
-        if face_up:
-            mesh.add_group_face(group, (base + a, base + b, base + c))
-        else:
-            mesh.add_group_face(group, (base + a, base + c, base + b))
-
-
-def _emit_cell_with_hole(
-    mesh, *, group: str,
-    x_a, x_b, z_a, z_b, cy,
-    hole_cx, hole_cz, hole_r,
-    segs: int,
-):
-    """Tessellate a rectangular cell with a single circular hole.
-
-    Approach: place `segs` evenly-spaced points on the hole's
-    circumference. For each segment of the circle, find the radial
-    direction, and connect that arc segment to the nearest cell edge
-    via two triangles (forming a quad), creating a "spider web"
-    pattern.
-
-    A simple way: divide the cell into quadrants relative to the hole
-    center. In each quadrant, the cell corner is at one of (x_a, z_a),
-    (x_b, z_a), (x_b, z_b), (x_a, z_b). Compute the angle range that
-    points to that quadrant (e.g., [0, pi/2] for +X+Z corner from
-    hole center). Emit triangle fans from the corner to the arc points
-    in that range.
-
-    Even simpler: emit one triangle per circle segment, fanning to the
-    NEAREST cell corner. This isn't quite right at the boundaries
-    between quadrants, but works as a first pass.
-
-    Cleanest robust approach: place segs+1 ring points on the circle.
-    For each ring point, compute which cell corner it should connect
-    to (based on which quadrant it's in). When two adjacent ring
-    points connect to the SAME corner, emit one triangle (corner, p_i,
-    p_i+1). When they connect to DIFFERENT corners, emit two
-    triangles (corner_a, p_i, mid_corner) + (mid_corner, p_i, p_i+1)
-    where mid_corner is the cell corner between corners a and b in
-    angular order.
-    """
-    # Generate `segs` points around the circle
-    theta = np.linspace(0, 2 * np.pi, segs, endpoint=False)
-    ring_pts = np.column_stack([
-        hole_cx + hole_r * np.cos(theta),
-        np.full(segs, cy),
-        hole_cz + hole_r * np.sin(theta),
-    ])
-    # 4 cell corners in CCW order starting from the +X+Z one
-    # (looking from -Y, which is from below the cavity ceiling).
-    # In the XZ plane: corners are (x_b, z_b), (x_a, z_b), (x_a, z_a), (x_b, z_a).
-    # Angular ranges (from hole center):
-    #   corner 0 (x_b, z_b): [0, pi/2]            -- +X+Z
-    #   corner 1 (x_a, z_b): [pi/2, pi]            -- -X+Z
-    #   corner 2 (x_a, z_a): [pi, 3pi/2] (or [-pi, -pi/2])  -- -X-Z
-    #   corner 3 (x_b, z_a): [3pi/2, 2pi] (or [-pi/2, 0])    -- +X-Z
-    corners_3d = [
-        [x_b, cy, z_b],
-        [x_a, cy, z_b],
-        [x_a, cy, z_a],
-        [x_b, cy, z_a],
-    ]
-    base_ring = mesh.append_verts(ring_pts)
-    base_corners = mesh.append_verts(np.array(corners_3d))
-
-    def ring_v(i): return base_ring + (i % segs)
-    def corner_v(i): return base_corners + (i % 4)
-
-    # Determine which corner each ring point belongs to by angle.
-    # angle in [0, 2pi). Corner index = floor(angle / (pi/2)) % 4.
-    def corner_for_angle(a):
-        # normalize to [0, 2pi)
-        a = a % (2 * np.pi)
-        return int(a / (np.pi / 2)) % 4
-
-    # For each segment of the ring, see which corner(s) it spans.
-    for i in range(segs):
-        a0 = theta[i]
-        a1 = theta[(i + 1) % segs] if i + 1 < segs else (theta[0] + 2 * np.pi)
-        c0 = corner_for_angle(a0)
-        c1 = corner_for_angle(a1 - 1e-9)  # epsilon to avoid boundary issues
-        if c0 == c1:
-            # Same corner. Emit triangle (corner, ring[i], ring[i+1])
-            # Faces -Y so winding is (corner, ring[i+1], ring[i]) for outward normal
-            # Actually for -Y face viewed from below, CCW from below is CW from
-            # above. The XZ ordering: corner at (x_b, z_b), ring[i] at cos>0 sin>0,
-            # ring[i+1] further along. From +Y looking down, ring[i] -> ring[i+1]
-            # rotates CCW (mathematical positive). From -Y looking up, that's CW.
-            # For face normal to point -Y, vertices should be CCW from +Y, i.e.
-            # CW from -Y. So ordering is (corner, ring[i], ring[i+1]).
-            mesh.add_group_face(group,
-                                (corner_v(c0), ring_v(i), ring_v(i + 1)))
-        else:
-            # The segment crosses a corner boundary. Emit two triangles
-            # joined at the corner between c0 and c1 (in angular order).
-            # Since segs is reasonably large, c1 == (c0 + 1) % 4 generally.
-            # Use c1 as the "next" corner.
-            mid_c = c1  # the corner we cross INTO
-            # tri 1: (c0, ring[i], mid_c)
-            # tri 2: (mid_c, ring[i], ring[i+1])
-            mesh.add_group_face(group,
-                                (corner_v(c0), ring_v(i), corner_v(mid_c)))
-            mesh.add_group_face(group,
-                                (corner_v(mid_c), ring_v(i), ring_v(i + 1)))
+    # Delaunay returns CCW in the (x, z) plane, which is CCW from
+    # +Y looking down. Keep that winding for face_up=True (+Y normal);
+    # reverse it for face_up=False (-Y normal, visible from the cavity).
+    kept = simplices[keep]
+    if face_up:
+        faces = base + kept[:, [0, 1, 2]]
+    else:
+        faces = base + kept[:, [0, 2, 1]]
+    mesh.add_group_faces(group, faces)
 
 
 # =====================================================================
@@ -1694,7 +1517,6 @@ def _add_wall_rib(
     half_width: float, protrusion: float,
     fillet_r: float, fillet_segs: int,
     group: str,
-    chamfer: float = 0.0,  # accepted for backward compat; ignored
 ):
     """Fully filleted rectangular boss rib protruding from a wall.
 
@@ -1931,7 +1753,7 @@ def _add_wall_rib(
         yc_in_ = y_corner - y_dir * r
         lc_in_ = l_corner - l_dir * r
         a = u * half_pi
-        return (r,
+        return (np.full_like(a, r, dtype=np.float64),
                 yc_in_ + y_dir * r * np.cos(a),
                 lc_in_ + l_dir * r * np.sin(a))
 
@@ -1941,20 +1763,20 @@ def _add_wall_rib(
         b = v * half_pi
         return (r * (1.0 - np.cos(b)),
                 y_corner + y_dir * r * (1.0 - np.sin(b)),
-                lc_in_)
+                np.full_like(b, lc_in_, dtype=np.float64))
 
     def _saddle_C3(v, y_corner, y_dir, l_corner, l_dir):
         """Back-+l / back--l concave end-ring at this corner (u = 1)."""
         yc_in_ = y_corner - y_dir * r
         b = v * half_pi
         return (r * (1.0 - np.cos(b)),
-                yc_in_,
+                np.full_like(b, yc_in_, dtype=np.float64),
                 l_corner + l_dir * r * (1.0 - np.sin(b)))
 
     def _saddle_C0(u, y_corner, y_dir, l_corner, l_dir):
         """Wall-plane arc (v = 0); quarter-circle radius r*sqrt2."""
         a = u * np.pi - np.pi * 0.25
-        return (0.0,
+        return (np.zeros_like(a, dtype=np.float64),
                 y_corner + y_dir * r * sqrt2 * np.cos(a),
                 l_corner + l_dir * r * sqrt2 * np.sin(a))
 
@@ -1964,47 +1786,42 @@ def _add_wall_rib(
         P01 = np.array(_saddle_C1(0.0, y_corner, y_dir, l_corner, l_dir))
         P11 = np.array(_saddle_C1(1.0, y_corner, y_dir, l_corner, l_dir))
 
-        verts_world = []
-        for i in range(n + 1):
-            u_p = i / n
-            for j in range(n + 1):
-                v_p = j / n
-                c0 = np.array(_saddle_C0(u_p, y_corner, y_dir, l_corner, l_dir))
-                c1 = np.array(_saddle_C1(u_p, y_corner, y_dir, l_corner, l_dir))
-                c2 = np.array(_saddle_C2(v_p, y_corner, y_dir, l_corner, l_dir))
-                c3 = np.array(_saddle_C3(v_p, y_corner, y_dir, l_corner, l_dir))
-                ruled_v = (1.0 - v_p) * c0 + v_p * c1
-                ruled_u = (1.0 - u_p) * c2 + u_p * c3
-                bilin = ((1.0 - u_p) * (1.0 - v_p) * P00
-                         + u_p * (1.0 - v_p) * P10
-                         + (1.0 - u_p) * v_p * P01
-                         + u_p * v_p * P11)
-                S_local = ruled_v + ruled_u - bilin
-                verts_world.append(to3d(float(S_local[0]),
-                                        float(S_local[1]),
-                                        float(S_local[2])))
-
-        base = mesh.append_verts(np.array(verts_world))
-
-        def vid(i, j):
-            return base + i * (n + 1) + j
+        u_vals = np.linspace(0.0, 1.0, n + 1)
+        v_vals = np.linspace(0.0, 1.0, n + 1)
+        u_grid, v_grid = np.meshgrid(u_vals, v_vals, indexing="ij")
+        c0 = np.stack(_saddle_C0(u_grid, y_corner, y_dir, l_corner, l_dir), axis=-1)
+        c1 = np.stack(_saddle_C1(u_grid, y_corner, y_dir, l_corner, l_dir), axis=-1)
+        c2 = np.stack(_saddle_C2(v_grid, y_corner, y_dir, l_corner, l_dir), axis=-1)
+        c3 = np.stack(_saddle_C3(v_grid, y_corner, y_dir, l_corner, l_dir), axis=-1)
+        u3 = u_grid[..., None]
+        v3 = v_grid[..., None]
+        ruled_v = (1.0 - v3) * c0 + v3 * c1
+        ruled_u = (1.0 - u3) * c2 + u3 * c3
+        bilin = ((1.0 - u3) * (1.0 - v3) * P00
+                 + u3 * (1.0 - v3) * P10
+                 + (1.0 - u3) * v3 * P01
+                 + u3 * v3 * P11)
+        local = (ruled_v + ruled_u - bilin).reshape(-1, 3)
+        if axis == "z":
+            verts_world = np.column_stack([
+                wall_pos + local[:, 0] * sign,
+                y_bot + local[:, 1],
+                local[:, 2],
+            ])
+        else:
+            verts_world = np.column_stack([
+                local[:, 2],
+                y_bot + local[:, 1],
+                wall_pos + local[:, 0] * sign,
+            ])
+        base = mesh.append_verts(verts_world)
 
         # The default (v0, v1, v2, v3) winding produces an OUTWARD
         # (cavity-facing) normal at corners where y_dir * l_dir < 0
         # (top--l and bot-+l). Flip for the other two (top-+l and
         # bot--l). XOR with `flip` for LH local->world coord cases.
         saddle_flip = ((y_dir * l_dir) > 0) ^ flip
-
-        for i in range(n):
-            for j in range(n):
-                v0 = vid(i,     j    )
-                v1 = vid(i + 1, j    )
-                v2 = vid(i + 1, j + 1)
-                v3 = vid(i,     j + 1)
-                if saddle_flip:
-                    mesh.add_group_face(group, (v0, v3, v2, v1))
-                else:
-                    mesh.add_group_face(group, (v0, v1, v2, v3))
+        _emit_grid_quads(mesh, group, base, n + 1, n + 1, flip=saddle_flip)
 
     add_saddle_local(yt, +1, l_max, +1)  # top-+l
     add_saddle_local(yt, +1, l_min, -1)  # top--l
@@ -2032,25 +1849,51 @@ def _revolve_profile_partial(mesh, profile, cx, cz, segs, group):
         verts[i, :, 2] = cz + r * sin_t
     base = mesh.append_verts(verts.reshape(-1, 3))
 
-    def vid(i, k): return base + i * segs + (k % segs)
+    grid = np.arange(base, base + n_prof * segs, dtype=np.int64).reshape(n_prof, segs)
+    k = np.arange(segs)
+    kp = (k + 1) % segs
     for i in range(n_prof - 1):
         r0 = profile[i][0]
         r1 = profile[i + 1][0]
-        for k in range(segs):
-            v00 = vid(i,     k    )
-            v01 = vid(i,     k + 1)
-            v11 = vid(i + 1, k + 1)
-            v10 = vid(i + 1, k    )
-            if r0 == 0 and r1 == 0:
-                continue
-            if r0 == 0:
-                mesh.add_group_face(group, (v00, v11, v10))
-            elif r1 == 0:
-                mesh.add_group_face(group, (v00, v01, v10))
-            else:
-                mesh.add_group_face(group, (v00, v01, v11, v10))
+        if r0 == 0 and r1 == 0:
+            continue
+        if r0 == 0:
+            faces = np.stack([grid[i, k], grid[i + 1, kp], grid[i + 1, k]], axis=1)
+        elif r1 == 0:
+            faces = np.stack([grid[i, k], grid[i, kp], grid[i + 1, k]], axis=1)
+        else:
+            faces = np.stack([grid[i, k], grid[i, kp], grid[i + 1, kp], grid[i + 1, k]], axis=1)
+        mesh.add_group_faces(group, faces)
 
 
 def _add_quad(mesh: Mesh, group: str, p0, p1, p2, p3):
     base = mesh.append_verts(np.array([p0, p1, p2, p3]))
     mesh.add_group_face(group, (base, base + 1, base + 2, base + 3))
+
+
+def _emit_grid_quads(
+    mesh: Mesh,
+    group: str,
+    base: int,
+    rows: int,
+    cols: int,
+    *,
+    flip: bool = False,
+):
+    """Emit quads for a row-major vertex grid, preserving local winding."""
+    grid = np.arange(base, base + rows * cols, dtype=np.int64).reshape(rows, cols)
+    if flip:
+        faces = np.stack([
+            grid[:-1, :-1],
+            grid[:-1, 1:],
+            grid[1:, 1:],
+            grid[1:, :-1],
+        ], axis=-1)
+    else:
+        faces = np.stack([
+            grid[:-1, :-1],
+            grid[1:, :-1],
+            grid[1:, 1:],
+            grid[:-1, 1:],
+        ], axis=-1)
+    mesh.add_group_faces(group, faces.reshape(-1, 4))

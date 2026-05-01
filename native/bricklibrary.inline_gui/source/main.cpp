@@ -1,14 +1,40 @@
 #include "c4d.h"
+#include "c4d_baseeffectordata.h"
+#include "c4d_customgui/customgui_field.h"
+#include "c4d_customgui/customgui_inexclude.h"
 #include "c4d_gui.h"
 #include "c4d_plugin.h"
 #include "c4d_resource.h"
+#include "description/obaseeffector.h"
+#include "description/ofalloff_panel.h"
 #include <array>
+#include <vector>
 
 using namespace cinema;
 
 static const Int32 g_bricklibrary_panel_cmd_id = 1069996;
 static const Int32 g_bricklibrary_customgui_id = 1070997;
 static const Int32 g_brickhero_customgui_id = 1070998;
+static const Int32 g_brick_mograph_evaluator_tag_id = 1070999;
+static const Int32 g_brick_mograph_evaluate_msg_id = 1071999;
+static const Int32 g_brick_mograph_eval_count = 1000;
+static const Int32 g_brick_mograph_eval_effectors = 1001;
+static const Int32 g_brick_mograph_eval_ok = 1002;
+static const Int32 g_brick_mograph_eval_generator = 1003;
+static const Int32 g_brick_mograph_eval_color_changed = 1004;
+static const Int32 g_brick_mograph_eval_field_color_applied = 1005;
+static const Int32 g_brick_mograph_eval_field_color_mode_count = 1006;
+static const Int32 g_brick_mograph_eval_skip_field_override = 1007;
+static const Int32 g_brick_mograph_eval_effector_color_changed = 1008;
+static const Int32 g_brick_mograph_eval_post_field_color_changed = 1009;
+static const Int32 g_brick_mograph_eval_manual_field_skipped = 1010;
+static const Int32 g_brick_mograph_eval_sample_count = 1011;
+static const Int32 g_brick_mograph_eval_in_matrix_base = 200000;
+static const Int32 g_brick_mograph_eval_in_color_base = 300000;
+static const Int32 g_brick_mograph_eval_out_matrix_base = 400000;
+static const Int32 g_brick_mograph_eval_out_color_base = 500000;
+static const Int32 g_brick_mograph_eval_effector_color_sample_base = 600000;
+static const Int32 g_brick_mograph_eval_field_color_sample_base = 601000;
 static const Int32 g_brick_count = 15;
 static const Int32 g_cols = 6;
 static const Int32 g_userarea_id = 2000;
@@ -629,11 +655,275 @@ Bool RegisterBrickLibraryPanelCommand()
 		NewObjClear(BrickLibraryPanelCommand));
 }
 
+static Bool BrickColorsDiffer(const Vector& a, const Vector& b)
+{
+	const Float eps = 0.0001;
+	return Abs(a.x - b.x) > eps || Abs(a.y - b.y) > eps || Abs(a.z - b.z) > eps;
+}
+
+static Int32 CountChangedMoDataColors(MoData* md, const BaseContainer& bc, Int32 count)
+{
+	if (md == nullptr || count <= 0)
+		return 0;
+
+	AutoLocker lock(md->GetAutoLock());
+	MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
+	if (!colors)
+		return 0;
+
+	Int32 changed = 0;
+	for (Int32 i = 0; i < count; ++i)
+	{
+		const Vector inColor = bc.GetVector(g_brick_mograph_eval_in_color_base + i, Vector(1.0));
+		if (BrickColorsDiffer(colors[i], inColor))
+			++changed;
+	}
+	return changed;
+}
+
+static void SetMoDataColorSamples(BaseContainer& bc, Int32 baseId, MoData* md, Int32 count)
+{
+	if (md == nullptr || count <= 0)
+		return;
+
+	AutoLocker lock(md->GetAutoLock());
+	MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
+	if (!colors)
+		return;
+
+	const Int32 sampleCount = Min<Int32>(count, 5);
+	bc.SetInt32(g_brick_mograph_eval_sample_count, sampleCount);
+	for (Int32 i = 0; i < sampleCount; ++i)
+		bc.SetVector(baseId + i, colors[i]);
+}
+
+static Int32 ApplyFieldListColors(BaseObject* effector, BaseObject* generator, MoData* md, Int32 count)
+{
+	if (effector == nullptr || md == nullptr || count <= 0)
+		return 0;
+
+	BaseContainer* effectorData = effector->GetDataInstance();
+	if (effectorData == nullptr)
+		return 0;
+	if (effectorData->GetInt32(ID_MG_BASEEFFECTOR_COLOR_MODE, ID_MG_BASEEFFECTOR_COLOR_MODE_OFF) != ID_MG_BASEEFFECTOR_COLOR_MODE_FIELD)
+		return 0;
+
+	const FieldList* fields = effectorData->GetCustomDataType<FieldList>(FIELDS);
+	if (fields == nullptr || !fields->HasContent())
+		return 0;
+
+	std::vector<Vector> positions;
+	positions.resize(count);
+	{
+		AutoLocker lock(md->GetAutoLock());
+		MDArray<Matrix> matrices = md->GetMatrixArray(MODATA_MATRIX);
+		if (!matrices)
+			return 0;
+		for (Int32 i = 0; i < count; ++i)
+			positions[i] = matrices[i].off;
+	}
+
+	const Matrix fieldTransform = generator != nullptr ? generator->GetMg() : Matrix();
+	const FieldInput input(positions.data(), count, fieldTransform);
+	iferr (FieldOutput sampled = fields->SampleListSimple(*effector, input, FIELDSAMPLE_FLAG::COLOR))
+	{
+		return 0;
+	}
+	else
+	{
+		ConstFieldOutputBlock block = sampled.GetBlock();
+		if (block.GetCount() <= 0 || block._color.GetCount() <= 0)
+			return 0;
+
+		AutoLocker lock(md->GetAutoLock());
+		MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
+		if (!colors)
+			return 0;
+
+		Int32 applied = 0;
+		const Int32 sampleCount = Min<Int32>(count, (Int32)block._color.GetCount());
+		for (Int32 i = 0; i < sampleCount; ++i)
+		{
+			const Vector sampledColor = block._color[i];
+			if (BrickColorsDiffer(colors[i], sampledColor))
+			{
+				colors[i] = sampledColor;
+				++applied;
+			}
+		}
+		return applied;
+	}
+}
+
+class BrickMoGraphEvaluatorTag : public TagData
+{
+	INSTANCEOF(BrickMoGraphEvaluatorTag, TagData)
+
+public:
+	static NodeData* Alloc() { return NewObjClear(BrickMoGraphEvaluatorTag); }
+
+	virtual Bool Message(GeListNode* node, Int32 type, void* data) override
+	{
+		if (type != g_brick_mograph_evaluate_msg_id)
+			return SUPER::Message(node, type, data);
+
+		BaseTag* tag = static_cast<BaseTag*>(node);
+		if (tag == nullptr)
+			return false;
+
+		BaseContainer& bc = tag->GetDataInstanceRef();
+		const Int32 count = bc.GetInt32(g_brick_mograph_eval_count, 0);
+		const Bool skipFieldOverride = bc.GetBool(g_brick_mograph_eval_skip_field_override, false);
+		bc.SetBool(g_brick_mograph_eval_ok, false);
+		bc.SetInt32(g_brick_mograph_eval_color_changed, 0);
+		bc.SetInt32(g_brick_mograph_eval_field_color_applied, 0);
+		bc.SetInt32(g_brick_mograph_eval_field_color_mode_count, 0);
+		bc.SetInt32(g_brick_mograph_eval_effector_color_changed, 0);
+		bc.SetInt32(g_brick_mograph_eval_post_field_color_changed, 0);
+		bc.SetBool(g_brick_mograph_eval_manual_field_skipped, skipFieldOverride);
+		bc.SetInt32(g_brick_mograph_eval_sample_count, 0);
+		if (count <= 0)
+			return true;
+
+		MoData* md = MoData::Alloc();
+		if (md == nullptr)
+			return false;
+
+		Bool ok = true;
+		if (md->AddArray(MODATA_MATRIX, DTYPE_MATRIX, "Matrix"_s, MOGENFLAG_MODATASET) == NOTOK)
+			ok = false;
+		if (md->AddArray(MODATA_COLOR, DTYPE_COLOR, "Color"_s, MOGENFLAG_COLORSET) == NOTOK)
+			ok = false;
+		if (md->AddArray(MODATA_FLAGS, DTYPE_LONG, "Flags"_s, 0) == NOTOK)
+			ok = false;
+		if (md->AddArray(MODATA_WEIGHT, DTYPE_REAL, "Weight"_s, 0) == NOTOK)
+			ok = false;
+		if (ok && !md->SetCount(count))
+			ok = false;
+
+		if (ok)
+		{
+			AutoLocker lock(md->GetAutoLock());
+			MDArray<Matrix> matrices = md->GetMatrixArray(MODATA_MATRIX);
+			MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
+			MDArray<Int32> flags = md->GetLongArray(MODATA_FLAGS);
+			MDArray<Float> weights = md->GetRealArray(MODATA_WEIGHT);
+			if (!matrices || !colors || !flags || !weights)
+			{
+				ok = false;
+			}
+			else
+			{
+				for (Int32 i = 0; i < count; ++i)
+				{
+					matrices[i] = bc.GetMatrix(g_brick_mograph_eval_in_matrix_base + i, Matrix());
+					colors[i] = bc.GetVector(g_brick_mograph_eval_in_color_base + i, Vector(1.0));
+					flags[i] = MOGENFLAG_CLONE_ON | MOGENFLAG_MODATASET | MOGENFLAG_COLORSET;
+					weights[i] = 1.0;
+				}
+			}
+		}
+
+		BaseObject* owner = tag->GetObject();
+		BaseObject* generator = owner;
+		BaseDocument* doc = owner != nullptr ? owner->GetDocument() : nullptr;
+		if (doc == nullptr)
+			doc = GetActiveDocument();
+		const BaseList2D* linkedGenerator = bc.GetObjectLink(g_brick_mograph_eval_generator, doc);
+		if (linkedGenerator != nullptr && linkedGenerator->IsInstanceOf(Obase))
+		{
+			generator = const_cast<BaseObject*>(static_cast<const BaseObject*>(linkedGenerator));
+			if (doc == nullptr)
+				doc = generator->GetDocument();
+		}
+
+		const InExcludeData* effectors = bc.GetCustomDataType<InExcludeData>(g_brick_mograph_eval_effectors);
+		if (ok && effectors != nullptr)
+		{
+			Int32 fieldColorApplied = 0;
+			Int32 fieldColorModeCount = 0;
+			std::vector<BaseObject*> fieldColorEffectors;
+			const Int32 effectorCount = effectors->GetObjectCount();
+			for (Int32 i = 0; i < effectorCount; ++i)
+			{
+				BaseList2D* linked = effectors->ObjectFromIndex(doc, i);
+				if (linked == nullptr || !linked->IsInstanceOf(Obase))
+					continue;
+				BaseObject* effector = static_cast<BaseObject*>(linked);
+				Effector_PassData pass;
+				pass.op = generator;
+				pass.md = md;
+				pass.weight = 1.0;
+				pass.thread = nullptr;
+				effector->Message(MSG_EXECUTE_EFFECTOR, &pass);
+				BaseContainer* effectorData = effector->GetDataInstance();
+				if (effectorData != nullptr && effectorData->GetInt32(ID_MG_BASEEFFECTOR_COLOR_MODE, ID_MG_BASEEFFECTOR_COLOR_MODE_OFF) == ID_MG_BASEEFFECTOR_COLOR_MODE_FIELD)
+				{
+					++fieldColorModeCount;
+					fieldColorEffectors.push_back(effector);
+				}
+			}
+			const Int32 effectorColorChanged = CountChangedMoDataColors(md, bc, count);
+			bc.SetInt32(g_brick_mograph_eval_effector_color_changed, effectorColorChanged);
+			SetMoDataColorSamples(bc, g_brick_mograph_eval_effector_color_sample_base, md, count);
+			if (!skipFieldOverride)
+			{
+				for (BaseObject* fieldEffector : fieldColorEffectors)
+					fieldColorApplied += ApplyFieldListColors(fieldEffector, generator, md, count);
+			}
+			bc.SetInt32(g_brick_mograph_eval_field_color_applied, fieldColorApplied);
+			bc.SetInt32(g_brick_mograph_eval_field_color_mode_count, fieldColorModeCount);
+			const Int32 postFieldColorChanged = CountChangedMoDataColors(md, bc, count);
+			bc.SetInt32(g_brick_mograph_eval_post_field_color_changed, postFieldColorChanged);
+			SetMoDataColorSamples(bc, g_brick_mograph_eval_field_color_sample_base, md, count);
+		}
+
+		if (ok)
+		{
+			AutoLocker lock(md->GetAutoLock());
+			MDArray<Matrix> matrices = md->GetMatrixArray(MODATA_MATRIX);
+			MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
+			if (!matrices || !colors)
+			{
+				ok = false;
+			}
+			else
+			{
+				for (Int32 i = 0; i < count; ++i)
+				{
+					bc.SetMatrix(g_brick_mograph_eval_out_matrix_base + i, matrices[i]);
+					bc.SetVector(g_brick_mograph_eval_out_color_base + i, colors[i]);
+				}
+			}
+		}
+
+		bc.SetInt32(g_brick_mograph_eval_color_changed, bc.GetInt32(g_brick_mograph_eval_post_field_color_changed, 0));
+		bc.SetBool(g_brick_mograph_eval_ok, ok);
+		MoData::Free(md);
+		return true;
+	}
+};
+
+Bool RegisterBrickMoGraphEvaluatorTag()
+{
+	return RegisterTagPlugin(
+		g_brick_mograph_evaluator_tag_id,
+		"Brick MoGraph Evaluator"_s,
+		TAG_MULTIPLE,
+		BrickMoGraphEvaluatorTag::Alloc,
+		""_s,
+		nullptr,
+		0);
+}
+
+
 cinema::Bool cinema::PluginStart()
 {
 	if (!RegisterBrickLibraryCustomGUI())
 		return false;
 	if (!RegisterBrickHeroCustomGUI())
+		return false;
+	if (!RegisterBrickMoGraphEvaluatorTag())
 		return false;
 
 	if (!RegisterBrickLibraryPanelCommand())

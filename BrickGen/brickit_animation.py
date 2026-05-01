@@ -1,6 +1,35 @@
 """BrickIt build-progress ordering and animation helpers."""
 from dataclasses import dataclass
 import math
+import random
+
+
+CAP_STYLE_MATCH_BELOW = 0
+CAP_STYLE_RANDOM_MIX = 1
+CAP_STYLE_MERGED_COVER = 2
+
+
+# Default plate footprints (width, depth) used when no library is supplied.
+# Mirrors brick.library._PLATES_H1 footprints. Both orientations are emitted
+# as separate entries so the random mix can place rectangles in either axis
+# without relying on the renderer's rotation swap.
+_DEFAULT_PLATE_FOOTPRINTS = (
+    (1, 1),
+    (1, 2), (2, 1),
+    (1, 3), (3, 1),
+    (1, 4), (4, 1),
+    (1, 6), (6, 1),
+    (1, 8), (8, 1),
+    (2, 2),
+    (2, 3), (3, 2),
+    (2, 4), (4, 2),
+    (2, 6), (6, 2),
+    (2, 8), (8, 2),
+    (3, 3),
+    (3, 4), (4, 3),
+    (3, 6), (6, 3),
+    (3, 8), (8, 3),
+)
 
 
 BUILD_ANIMATION_DEFAULT_Y_OFFSET = 25.0
@@ -49,18 +78,9 @@ class VisualCapPlacement:
     rotation_y: int = 0
     color_idx: int = -1
     rgb: tuple = (180, 180, 180)
-
-    @property
-    def w(self):
-        return 1
-
-    @property
-    def d(self):
-        return 1
-
-    @property
-    def h(self):
-        return 1
+    w: int = 1
+    d: int = 1
+    h: int = 1
 
 
 def _occupied_cells(placements):
@@ -129,42 +149,450 @@ def exposed_top_cap_ids(placements):
     return out
 
 
-def missing_smooth_top_cap_placements(placements):
-    """Create visual 1x1 smooth caps for exposed studs on taller bricks."""
+def _largest_exposed_rect(remaining, x0, z0, w, d):
+    """Find the largest axis-aligned (rx, rz, rw, rd) rectangle of cells in
+    `remaining` that lies within the (x0, z0, w, d) brick footprint.
+
+    Standard maximal-rectangle-in-binary-matrix scan: per-row histogram of
+    consecutive exposed cells per column, then scan widths.
+    """
+    heights = [0] * w
+    best = None
+    best_area = 0
+    for iz in range(d):
+        z = z0 + iz
+        for ix in range(w):
+            x = x0 + ix
+            heights[ix] = heights[ix] + 1 if (x, z) in remaining else 0
+        for ix in range(w):
+            if heights[ix] == 0:
+                continue
+            min_h = heights[ix]
+            for jx in range(ix, w):
+                hh = heights[jx]
+                if hh == 0:
+                    break
+                if hh < min_h:
+                    min_h = hh
+                area = min_h * (jx - ix + 1)
+                if area > best_area:
+                    best_area = area
+                    best = (x0 + ix, z - min_h + 1, jx - ix + 1, min_h)
+    return best
+
+
+def _plate_footprints_from_library(library):
+    """Return ((w, d), ...) plate footprints from a brick library, both
+    orientations included. Falls back to the default plate set if `library`
+    is None / has no plates."""
+    if library is None:
+        return _DEFAULT_PLATE_FOOTPRINTS
+    bricks = getattr(library, "bricks", None)
+    if bricks is None:
+        bricks = list(library) if hasattr(library, "__iter__") else None
+    if not bricks:
+        return _DEFAULT_PLATE_FOOTPRINTS
+    fps = set()
+    for b in bricks:
+        if int(getattr(b, "height", 1)) != 1:
+            continue
+        w = int(getattr(b, "width", 1))
+        d = int(getattr(b, "depth", 1))
+        fps.add((w, d))
+        fps.add((d, w))
+    if not fps:
+        return _DEFAULT_PLATE_FOOTPRINTS
+    return tuple(sorted(fps, key=lambda wd: (-wd[0] * wd[1], -max(wd), wd)))
+
+
+def _build_top_layer_state(placements):
+    """Group h>1 brick exposed top cells per y-layer with anchor color map.
+
+    Returns (layers, color_at):
+        layers[top_y] -> set of (x, z) cells exposed (no occupied cell above)
+        color_at[top_y][(x, z)] -> (rgb, color_idx) of the source brick whose
+            top contains the cell (first writer wins, mirroring placement
+            iteration order — caps colored by the first brick claiming a cell).
+    """
     placements = list(placements or [])
     occupied = _occupied_cells(placements)
-    cap_brick = VisualCapBrickType()
-    caps = []
-    seen = set()
+    layers = {}
+    color_at = {}
     for p in placements:
         if int(getattr(p, "h", 1)) <= 1:
             continue
+        x0 = int(getattr(p, "x", 0))
+        z0 = int(getattr(p, "z", 0))
+        w = int(getattr(p, "w", 1))
+        d = int(getattr(p, "d", 1))
         top_y = int(getattr(p, "y", 0) + getattr(p, "h", 1))
         rgb = tuple(getattr(p, "rgb", (180, 180, 180)))
         color_idx = int(getattr(p, "color_idx", -1))
-        for x in range(int(getattr(p, "x", 0)), int(getattr(p, "x", 0) + getattr(p, "w", 1))):
-            for z in range(int(getattr(p, "z", 0)), int(getattr(p, "z", 0) + getattr(p, "d", 1))):
-                key = (x, top_y, z)
-                if key in occupied or key in seen:
+        layer_cells = layers.setdefault(top_y, set())
+        layer_colors = color_at.setdefault(top_y, {})
+        for x in range(x0, x0 + w):
+            for z in range(z0, z0 + d):
+                if (x, top_y, z) in occupied:
                     continue
-                seen.add(key)
+                cell = (x, z)
+                if cell in layer_cells:
+                    continue
+                layer_cells.add(cell)
+                layer_colors[cell] = (rgb, color_idx)
+    return layers, color_at
+
+
+def _emit_cap(caps_out, ax, az, top_y, w, d, rgb, color_idx):
+    cap_brick = VisualCapBrickType(width=w, depth=d, height=1)
+    caps_out.append(
+        VisualCapPlacement(
+            brick=cap_brick,
+            x=ax,
+            y=top_y,
+            z=az,
+            rotation_y=0,
+            color_idx=color_idx,
+            rgb=rgb,
+            w=w,
+            d=d,
+            h=1,
+        )
+    )
+
+
+def _merged_cover_caps(placements, library):
+    """Tile every exposed top of h>1 bricks with the largest library plates
+    that fit. Cells are unioned per y-layer (so a cap may span across two
+    adjacent same-height bricks). Deterministic — no seed required.
+
+    Color of each cap is taken from the source brick under its anchor cell.
+    """
+    layers, color_at = _build_top_layer_state(placements)
+    plate_pool = list(_plate_footprints_from_library(library))
+    if not plate_pool:
+        plate_pool = [(1, 1)]
+    sorted_pool = sorted(plate_pool, key=lambda wd: (-(wd[0] * wd[1]), -max(wd), wd))
+
+    caps = []
+    for top_y in sorted(layers):
+        available = layers[top_y]
+        cell_color = color_at[top_y]
+        while available:
+            placed = False
+            for w, d in sorted_pool:
+                anchors = _valid_anchors(available, w, d)
+                if not anchors:
+                    continue
+                # Deterministic anchor pick: smallest (x, z) for stable output.
+                anchors.sort()
+                ax, az = anchors[0]
+                rgb, color_idx = cell_color[(ax, az)]
+                for ix in range(w):
+                    for iz in range(d):
+                        available.discard((ax + ix, az + iz))
+                _emit_cap(caps, ax, az, top_y, w, d, rgb, color_idx)
+                placed = True
+                break
+            if not placed:
+                ax, az = sorted(available)[0]
+                rgb, color_idx = cell_color[(ax, az)]
+                available.discard((ax, az))
+                _emit_cap(caps, ax, az, top_y, 1, 1, rgb, color_idx)
+    return caps
+
+
+def _random_mix_caps(placements, library, seed):
+    """Tile every exposed top of h>1 bricks with random library plates.
+
+    Cells are grouped by their y-layer (no plate spans heights). Within each
+    layer the available cell set is the union of every h>1 brick's exposed
+    top cells; a plate is only placed when its entire footprint lies within
+    that available set, so caps cannot overhang the model silhouette.
+
+    Color of each emitted cap is taken from the source brick whose top
+    contains the cap's anchor (origin) cell.
+    """
+    placements = list(placements or [])
+    occupied = _occupied_cells(placements)
+    plate_pool = list(_plate_footprints_from_library(library))
+    if not plate_pool:
+        plate_pool = [(1, 1)]
+
+    # layer_y -> set of available cells; layer_y -> {(x, z): (rgb, color_idx)}
+    layers = {}
+    color_at = {}
+    for p in placements:
+        if int(getattr(p, "h", 1)) <= 1:
+            continue
+        x0 = int(getattr(p, "x", 0))
+        z0 = int(getattr(p, "z", 0))
+        w = int(getattr(p, "w", 1))
+        d = int(getattr(p, "d", 1))
+        top_y = int(getattr(p, "y", 0) + getattr(p, "h", 1))
+        rgb = tuple(getattr(p, "rgb", (180, 180, 180)))
+        color_idx = int(getattr(p, "color_idx", -1))
+        layer_cells = layers.setdefault(top_y, set())
+        layer_colors = color_at.setdefault(top_y, {})
+        for x in range(x0, x0 + w):
+            for z in range(z0, z0 + d):
+                if (x, top_y, z) in occupied:
+                    continue
+                cell = (x, z)
+                if cell in layer_cells:
+                    # Already claimed by an earlier brick at the same y.
+                    continue
+                layer_cells.add(cell)
+                layer_colors[cell] = (rgb, color_idx)
+
+    caps = []
+    base_seed = int(seed) & 0xFFFFFFFF
+    for top_y in sorted(layers):
+        available = layers[top_y]
+        if not available:
+            continue
+        cell_color = color_at[top_y]
+        rng = random.Random(base_seed ^ (top_y * 2654435761) & 0xFFFFFFFF)
+
+        # Plate pool sorted large->small for the deterministic fallback.
+        sorted_pool = sorted(plate_pool, key=lambda wd: -(wd[0] * wd[1]))
+
+        max_random_attempts = 8
+        while available:
+            placed = False
+            # Random sampling for variety, weighted implicitly by pool layout.
+            for _ in range(max_random_attempts):
+                w, d = rng.choice(plate_pool)
+                anchors = _valid_anchors(available, w, d)
+                if anchors:
+                    # Sort to remove insertion-order nondeterminism, then
+                    # let rng choose among them.
+                    anchors.sort()
+                    ax, az = rng.choice(anchors)
+                    rgb, color_idx = cell_color[(ax, az)]
+                    for ix in range(w):
+                        for iz in range(d):
+                            available.discard((ax + ix, az + iz))
+                    cap_brick = VisualCapBrickType(width=w, depth=d, height=1)
+                    caps.append(
+                        VisualCapPlacement(
+                            brick=cap_brick,
+                            x=ax,
+                            y=top_y,
+                            z=az,
+                            rotation_y=0,
+                            color_idx=color_idx,
+                            rgb=rgb,
+                            w=w,
+                            d=d,
+                            h=1,
+                        )
+                    )
+                    placed = True
+                    break
+
+            if placed:
+                continue
+
+            # Deterministic fallback: largest plate that fits anywhere.
+            for w, d in sorted_pool:
+                anchors = _valid_anchors(available, w, d)
+                if not anchors:
+                    continue
+                anchors.sort()
+                ax, az = rng.choice(anchors)
+                rgb, color_idx = cell_color[(ax, az)]
+                for ix in range(w):
+                    for iz in range(d):
+                        available.discard((ax + ix, az + iz))
+                cap_brick = VisualCapBrickType(width=w, depth=d, height=1)
                 caps.append(
                     VisualCapPlacement(
                         brick=cap_brick,
-                        x=x,
+                        x=ax,
                         y=top_y,
-                        z=z,
+                        z=az,
                         rotation_y=0,
                         color_idx=color_idx,
                         rgb=rgb,
+                        w=w,
+                        d=d,
+                        h=1,
+                    )
+                )
+                placed = True
+                break
+
+            if not placed:
+                # Final safety net: force a 1x1 on any remaining cell.
+                ax, az = sorted(available)[0]
+                rgb, color_idx = cell_color[(ax, az)]
+                available.discard((ax, az))
+                cap_brick = VisualCapBrickType(width=1, depth=1, height=1)
+                caps.append(
+                    VisualCapPlacement(
+                        brick=cap_brick,
+                        x=ax,
+                        y=top_y,
+                        z=az,
+                        rotation_y=0,
+                        color_idx=color_idx,
+                        rgb=rgb,
+                        w=1,
+                        d=1,
+                        h=1,
                     )
                 )
     return caps
 
 
-def smooth_top_cap_placements_for_coverage(placements, coverage):
+def _valid_anchors(available, w, d):
+    """List of (x, z) anchors where a (w, d) plate fits inside `available`."""
+    if w == 1 and d == 1:
+        return list(available)
+    anchors = []
+    for (x, z) in available:
+        ok = True
+        for ix in range(w):
+            for iz in range(d):
+                if (x + ix, z + iz) not in available:
+                    ok = False
+                    break
+            if not ok:
+                break
+        if ok:
+            anchors.append((x, z))
+    return anchors
+
+
+def missing_smooth_top_cap_placements(
+    placements,
+    *,
+    cap_style=CAP_STYLE_MATCH_BELOW,
+    library=None,
+    seed=0,
+):
+    """Create visual smooth caps for exposed tops on taller bricks.
+
+    Two `cap_style` modes:
+
+    - `CAP_STYLE_MATCH_BELOW` (default): per-brick. Emit a single cap with
+      the brick's full footprint when the entire top is exposed; on partial
+      occlusion, decompose the exposed region into the largest axis-aligned
+      rectangles. Full-footprint caps reuse the source brick's library
+      `width`/`depth` and `rotation_y` so stud orientation aligns with the
+      brick below.
+    - `CAP_STYLE_MERGED_COVER`: union all h>1 brick exposed top cells per
+      y-layer and deterministically tile them with the largest plate from
+      `library` that fits at each step. Caps may span across two adjacent
+      same-height bricks. No seed needed.
+    - `CAP_STYLE_RANDOM_MIX`: union all h>1 brick exposed top cells per
+      y-layer and tile them with random plates from `library` (or the
+      default plate set if `library` is None). `seed` makes the result
+      reproducible. Plates never overhang the model silhouette because
+      placements are restricted to cells that exist in the available set.
+    """
+    style = int(cap_style)
+    if style == CAP_STYLE_RANDOM_MIX:
+        return _random_mix_caps(placements, library, seed)
+    if style == CAP_STYLE_MERGED_COVER:
+        return _merged_cover_caps(placements, library)
+
+    placements = list(placements or [])
+    occupied = _occupied_cells(placements)
+    caps = []
+    seen = set()
+    for p in placements:
+        if int(getattr(p, "h", 1)) <= 1:
+            continue
+        x0 = int(getattr(p, "x", 0))
+        z0 = int(getattr(p, "z", 0))
+        w = int(getattr(p, "w", 1))
+        d = int(getattr(p, "d", 1))
+        top_y = int(getattr(p, "y", 0) + getattr(p, "h", 1))
+        rotation_y = int(getattr(p, "rotation_y", 0))
+        rgb = tuple(getattr(p, "rgb", (180, 180, 180)))
+        color_idx = int(getattr(p, "color_idx", -1))
+        src_brick = getattr(p, "brick", None)
+
+        exposed = set()
+        for x in range(x0, x0 + w):
+            for z in range(z0, z0 + d):
+                key = (x, top_y, z)
+                if key in occupied or key in seen:
+                    continue
+                exposed.add((x, z))
+
+        if not exposed:
+            continue
+
+        if len(exposed) == w * d:
+            # Full top exposed: emit single cap matching brick footprint AND
+            # the source brick's library template orientation.
+            for cx, cz in exposed:
+                seen.add((cx, top_y, cz))
+            cap_brick = VisualCapBrickType(
+                width=int(getattr(src_brick, "width", w)),
+                depth=int(getattr(src_brick, "depth", d)),
+                height=1,
+            )
+            caps.append(
+                VisualCapPlacement(
+                    brick=cap_brick,
+                    x=x0,
+                    y=top_y,
+                    z=z0,
+                    rotation_y=rotation_y,
+                    color_idx=color_idx,
+                    rgb=rgb,
+                    w=w,
+                    d=d,
+                    h=1,
+                )
+            )
+        else:
+            # Partial occlusion: greedily carve the exposed region into the
+            # largest axis-aligned rectangles. Each rectangle becomes a single
+            # smooth cap plate, axis-aligned (rotation_y=0) in grid space.
+            remaining = set(exposed)
+            while remaining:
+                rect = _largest_exposed_rect(remaining, x0, z0, w, d)
+                if rect is None:
+                    break
+                rx, rz, rw, rd = rect
+                for ix in range(rx, rx + rw):
+                    for iz in range(rz, rz + rd):
+                        remaining.discard((ix, iz))
+                        seen.add((ix, top_y, iz))
+                cap_brick = VisualCapBrickType(width=rw, depth=rd, height=1)
+                caps.append(
+                    VisualCapPlacement(
+                        brick=cap_brick,
+                        x=rx,
+                        y=top_y,
+                        z=rz,
+                        rotation_y=0,
+                        color_idx=color_idx,
+                        rgb=rgb,
+                        w=rw,
+                        d=rd,
+                        h=1,
+                    )
+                )
+    return caps
+
+
+def smooth_top_cap_placements_for_coverage(
+    placements,
+    coverage,
+    *,
+    cap_style=CAP_STYLE_MATCH_BELOW,
+    library=None,
+    seed=0,
+):
     """Return generated smooth caps for the requested coverage amount."""
-    caps = missing_smooth_top_cap_placements(placements)
+    caps = missing_smooth_top_cap_placements(
+        placements, cap_style=cap_style, library=library, seed=seed
+    )
     if not caps:
         return []
     amount = _clamp01(coverage)
@@ -189,11 +617,21 @@ def _placement_random_key(placement, coverage_seed):
     )
 
 
-def smooth_top_cap_selection_for_coverage(placements, coverage, random_order=False):
+def smooth_top_cap_selection_for_coverage(
+    placements,
+    coverage,
+    random_order=False,
+    *,
+    cap_style=CAP_STYLE_MATCH_BELOW,
+    library=None,
+    seed=0,
+):
     """Return existing smooth ids and generated caps for total coverage."""
     placements = list(placements or [])
     existing_ids = exposed_top_cap_ids(placements)
-    generated_caps = missing_smooth_top_cap_placements(placements)
+    generated_caps = missing_smooth_top_cap_placements(
+        placements, cap_style=cap_style, library=library, seed=seed
+    )
     candidates = [
         ("existing", p)
         for p in ordered_placements(placements)

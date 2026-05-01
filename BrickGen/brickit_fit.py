@@ -1,4 +1,5 @@
 """BrickIt library selection and pipeline refit helpers."""
+import time
 
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from library_panel import (
@@ -133,7 +134,6 @@ def _make_fit_key(self, source_obj, params):
         params["cleanup_protrusions"],
         params["preserve_silhouette"],
         params["preserve_tiny_gaps"],
-        params["surface_only_plates"],
         params["enable_plates"],
         params["lib_mask"],
     )
@@ -159,7 +159,16 @@ def _get_cached_source_arrays(self, source_obj, doc):
     if self._source_cache_key == source_key and self._source_cache_data is not None:
         return self._source_cache_data
 
+    log_first_eval = not getattr(self, "_first_eval_logged", False)
+    t_bake0 = time.perf_counter() if log_first_eval else 0.0
     baked = _baked_polygon_object(source_obj, doc)
+    if log_first_eval:
+        breakdown = getattr(self, "_first_eval_stage_breakdown", None) or {}
+        breakdown["source_bake"] = (
+            float(breakdown.get("source_bake", 0.0))
+            + (time.perf_counter() - t_bake0)
+        )
+        self._first_eval_stage_breakdown = breakdown
     if baked is None or baked.GetPointCount() == 0:
         self._source_cache_key = None
         self._source_cache_data = None
@@ -267,6 +276,8 @@ def _refit_if_needed(self, op, doc, params=None):
                 ).strip()
                 precomputed_voxels = (occupancy, colors, origin, backend_info)
             else:
+                _log_first_eval = not getattr(self, "_first_eval_logged", False)
+                _t_vox0 = time.perf_counter() if _log_first_eval else 0.0
                 precomputed_voxels = _c4d_volume_voxels_from_polygon_object(
                     baked,
                     verts,
@@ -275,6 +286,13 @@ def _refit_if_needed(self, op, doc, params=None):
                     resolved_plate_size,
                     BRICKIT_DEFAULT_RGB,
                 )
+                if _log_first_eval:
+                    _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}
+                    _bd["voxelize"] = (
+                        float(_bd.get("voxelize", 0.0))
+                        + (time.perf_counter() - _t_vox0)
+                    )
+                    self._first_eval_stage_breakdown = _bd
                 precomputed_voxels[3]["voxel_backend_cache_hit"] = False
                 if bool(params.get("interactive_preview", False)):
                     self._preview_voxel_cache_key = voxel_key
@@ -302,6 +320,8 @@ def _refit_if_needed(self, op, doc, params=None):
         BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
     )
 
+    _log_first_eval_bm = not getattr(self, "_first_eval_logged", False)
+    _t_bm0 = time.perf_counter() if _log_first_eval_bm else 0.0
     placements, info = brick_mesh(
         verts, faces,
         default_color=BRICKIT_DEFAULT_RGB,
@@ -320,13 +340,22 @@ def _refit_if_needed(self, op, doc, params=None):
         cleanup_protrusions=params["cleanup_protrusions"],
         preserve_silhouette=params["preserve_silhouette"],
         preserve_tiny_gaps=params["preserve_tiny_gaps"],
-        surface_only_plates=params["surface_only_plates"],
+        surface_only_plates=False,
         relaxed_boundary_fit=params["relaxed_boundary_fit"],
         library=active_library,
         min_column_voxels=0,
         precomputed_voxels=precomputed_voxels,
         include_debug_info=include_debug_info,
     )
+    if _log_first_eval_bm:
+        _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}
+        _bd["brick_mesh"] = (
+            float(_bd.get("brick_mesh", 0.0))
+            + (time.perf_counter() - _t_bm0)
+        )
+        _bd["mesh_verts"] = int(len(verts))
+        _bd["mesh_faces"] = int(len(faces))
+        self._first_eval_stage_breakdown = _bd
     info["prune_auto_disabled"] = bool(params.get("prune_auto_disabled"))
     info["prune_auto_reason"] = str(params.get("prune_auto_reason") or "")
     info["prune_user"] = bool(params.get("prune_user"))

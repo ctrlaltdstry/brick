@@ -1,0 +1,193 @@
+{
+  "generated_at_epoch_s": 1777649644.8651197,
+  "geometry": [
+    {
+      "quality": "draft",
+      "width": 1,
+      "depth": 1,
+      "height_plates": 1,
+      "seconds": 1.020956300009857,
+      "peak_memory_bytes": 6105947,
+      "mesh": {
+        "verts": 810,
+        "faces": 864,
+        "groups": {
+          "body": 204,
+          "studs": 96,
+          "underside": 564
+        },
+        "boundary_edges": 72
+      }
+    },
+    {
+      "quality": "standard",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 3,
+      "seconds": 0.2724439000012353,
+      "peak_memory_bytes": 5616452,
+      "mesh": {
+        "verts": 8200,
+        "faces": 8696,
+        "groups": {
+          "body": 828,
+          "studs": 1920,
+          "tubes": 1280,
+          "underside": 4668
+        },
+        "boundary_edges": 242
+      }
+    },
+    {
+      "quality": "hero",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 3,
+      "seconds": 1.1049234000092838,
+      "peak_memory_bytes": 26572540,
+      "mesh": {
+        "verts": 39432,
+        "faces": 40944,
+        "groups": {
+          "body": 2868,
+          "studs": 10800,
+          "tubes": 7200,
+          "underside": 20076
+        },
+        "boundary_edges": 402
+      }
+    },
+    {
+      "quality": "standard",
+      "width": 2,
+      "depth": 8,
+      "height_plates": 3,
+      "seconds": 0.601636099992902,
+      "peak_memory_bytes": 13396660,
+      "mesh": {
+        "verts": 19695,
+        "faces": 20986,
+        "groups": {
+          "body": 1178,
+          "studs": 5120,
+          "tubes": 4480,
+          "underside": 10208
+        },
+        "boundary_edges": 472
+      }
+    }
+  ],
+  "plugin_brickgen": [
+    {
+      "quality": "draft",
+      "piece_type": "brick",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 3,
+      "seconds": 0.11146630000439472,
+      "peak_memory_bytes": 1871048,
+      "mesh": {
+        "verts": 2568,
+        "faces": 2808,
+        "groups": {
+          "body": 300,
+          "studs": 576,
+          "tubes": 384,
+          "underside": 1548
+        },
+        "boundary_edges": 162
+      }
+    },
+    {
+      "quality": "standard",
+      "piece_type": "brick",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 3,
+      "seconds": 0.276830599992536,
+      "peak_memory_bytes": 5597708,
+      "mesh": {
+        "verts": 8200,
+        "faces": 8696,
+        "groups": {
+          "body": 828,
+          "studs": 1920,
+          "tubes": 1280,
+          "underside": 4668
+        },
+        "boundary_edges": 242
+      }
+    },
+    {
+      "quality": "hero",
+      "piece_type": "brick",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 3,
+      "seconds": 1.1739650999952573,
+      "peak_memory_bytes": 26502236,
+      "mesh": {
+        "verts": 39432,
+        "faces": 40944,
+        "groups": {
+          "body": 2868,
+          "studs": 10800,
+          "tubes": 7200,
+          "underside": 20076
+        },
+        "boundary_edges": 402
+      }
+    },
+    {
+      "quality": "standard",
+      "piece_type": "plate",
+      "width": 2,
+      "depth": 3,
+      "height_plates": 1,
+      "seconds": 0.24469300000055227,
+      "peak_memory_bytes": 4302352,
+      "mesh": {
+        "verts": 6264,
+        "faces": 6561,
+        "groups": {
+          "body": 613,
+          "tubes": 1280,
+          "underside": 4668
+        },
+        "boundary_edges": 224
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "input": "sphere",
+      "verts": 162,
+      "faces": 320,
+      "seconds": 3.736634700006107,
+      "peak_memory_bytes": 3103099,
+      "n_placed": 703,
+      "n_dropped": 52,
+      "grid_dims": [
+        22,
+        54,
+        22
+      ],
+      "final_components": 148
+    },
+    {
+      "input": "torus",
+      "verts": 448,
+      "faces": 896,
+      "seconds": 2.653593799986993,
+      "peak_memory_bytes": 1264818,
+      "n_placed": 304,
+      "n_dropped": 20,
+      "grid_dims": [
+        22,
+        14,
+        22
+      ],
+      "final_components": 75
+    }
+  ]
+}

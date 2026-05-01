@@ -621,11 +621,11 @@ def brickify_mesh(
     )
     timings["fit_seconds"] = float(time.perf_counter() - t0)
 
-    # Surface-only plate policy relies on plate-height "cap" pieces. Do not
-    # promote 3-stacks into full bricks in this mode, or studded tops reappear
-    # in selected regions after fitting.
+    # Vertical plate merging is purely structural and intentionally
+    # independent of surface_only_plates (which is a cosmetic top-cap render
+    # toggle handled downstream in the C4D view/MoGraph builder).
     t0 = time.perf_counter()
-    if merge_plates and (not surface_only_plates):
+    if merge_plates:
         placements = merge_plates_to_bricks(placements, library)
     timings["merge_vertical_seconds"] = float(time.perf_counter() - t0)
 

@@ -17,58 +17,105 @@ n-gon rather than a triangle fan, because n-gons subdivide cleanly under
 Catmull-Clark while triangle fans introduce poles.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 import numpy as np
 
 
-@dataclass
+@dataclass(init=False)
 class Mesh:
-    vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
+    _vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     faces: List[Tuple[int, ...]] = field(default_factory=list)
     groups: Dict[str, List[int]] = field(default_factory=dict)
+    _pending_verts: List[np.ndarray] = field(default_factory=list)
+    _pending_count: int = 0
+
+    def __init__(self, vertices=None, faces=None, groups=None):
+        self._vertices = (
+            np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
+            if vertices is not None
+            else np.zeros((0, 3), dtype=np.float64)
+        )
+        self.faces = list(faces) if faces is not None else []
+        self.groups = (
+            {g: list(indices) for g, indices in groups.items()}
+            if groups is not None
+            else {}
+        )
+        self._pending_verts = []
+        self._pending_count = 0
+
+    @property
+    def vertices(self) -> np.ndarray:
+        self.flush()
+        return self._vertices
+
+    @vertices.setter
+    def vertices(self, verts) -> None:
+        self._vertices = np.asarray(verts, dtype=np.float64).reshape(-1, 3)
+        self._pending_verts = []
+        self._pending_count = 0
 
     @property
     def num_verts(self) -> int:
-        return len(self.vertices)
+        return len(self._vertices) + self._pending_count
 
     @property
     def num_faces(self) -> int:
         return len(self.faces)
 
     def add_group_face(self, group: str, face_verts: Tuple[int, ...]):
-        if group not in self.groups:
-            self.groups[group] = []
-        self.groups[group].append(len(self.faces))
-        self.faces.append(tuple(int(v) for v in face_verts))
+        self.add_group_faces(group, (face_verts,))
+
+    def add_group_faces(self, group: str, faces: Iterable[Tuple[int, ...]]):
+        """Append many faces to a group with one group-index extension."""
+        if isinstance(faces, np.ndarray):
+            if faces.size == 0:
+                return
+            face_list = [tuple(row) for row in faces.astype(np.int64, copy=False).tolist()]
+        else:
+            face_list = [tuple(int(v) for v in face) for face in faces]
+            if not face_list:
+                return
+
+        start = len(self.faces)
+        self.faces.extend(face_list)
+        self.groups.setdefault(group, []).extend(range(start, start + len(face_list)))
 
     def append_verts(self, verts: np.ndarray) -> int:
         """Append vertices and return the index of the FIRST new vertex."""
-        if len(self.vertices) == 0:
-            base = 0
-            self.vertices = np.asarray(verts, dtype=np.float64).reshape(-1, 3)
-        else:
-            base = len(self.vertices)
-            self.vertices = np.vstack(
-                [self.vertices, np.asarray(verts, dtype=np.float64).reshape(-1, 3)]
-            )
+        arr = np.asarray(verts, dtype=np.float64).reshape(-1, 3)
+        base = self.num_verts
+        if len(arr):
+            self._pending_verts.append(arr)
+            self._pending_count += len(arr)
         return base
+
+    def flush(self) -> "Mesh":
+        """Materialize pending vertex appends into the public ndarray."""
+        if self._pending_verts:
+            if len(self._vertices):
+                self._vertices = np.concatenate([self._vertices, *self._pending_verts], axis=0)
+            else:
+                self._vertices = np.concatenate(self._pending_verts, axis=0)
+            self._pending_verts = []
+            self._pending_count = 0
+        return self
 
     def merge(self, other: "Mesh", transform: np.ndarray = None,
               group_prefix: str = "") -> None:
         """Merge another mesh into this one, optionally applying a 4x4 affine
         transform and prefixing all group names. The other mesh's faces are
         offset by our current vertex count."""
+        other.flush()
         offset = self.num_verts
-        v = other.vertices
+        v = other._vertices
         if transform is not None:
             v_h = np.hstack([v, np.ones((len(v), 1))])
             v = (v_h @ transform.T)[:, :3]
-        self.vertices = (np.vstack([self.vertices, v])
-                         if len(self.vertices) else v.copy())
+        self.append_verts(v)
         # remap faces
         face_remap_base = self.num_faces
-        for f in other.faces:
-            self.faces.append(tuple(int(i) + offset for i in f))
+        self.faces.extend(tuple(int(i) + offset for i in f) for f in other.faces)
         for g, indices in other.groups.items():
             new_g = (group_prefix + g) if group_prefix else g
             self.groups.setdefault(new_g, []).extend(
@@ -90,11 +137,12 @@ class Mesh:
 
         Returns self for chaining.
         """
-        if len(self.vertices) == 0:
+        self.flush()
+        if len(self._vertices) == 0:
             return self
         # Quantize vertex positions to `tol` precision.
         scale = 1.0 / tol
-        keys = np.round(self.vertices * scale).astype(np.int64)
+        keys = np.round(self._vertices * scale).astype(np.int64)
         _, first_indices, inverse = np.unique(
             keys,
             axis=0,
@@ -105,10 +153,10 @@ class Mesh:
         unique_to_new = np.empty(len(first_indices), dtype=np.int64)
         unique_to_new[first_order] = np.arange(len(first_indices), dtype=np.int64)
         old_to_new = unique_to_new[inverse]
-        self.vertices = self.vertices[first_indices[first_order]].copy()
-        # Remap faces, dropping degenerates.
+        self._vertices = self._vertices[first_indices[first_order]].copy()
+        # Remap faces, dropping degenerates. Keeping this pass streaming
+        # avoids allocating large per-arity face arrays for hero bricks.
         new_faces = []
-        new_groups: Dict[str, List[int]] = {g: [] for g in self.groups}
         old_face_to_new = {}
         for old_fi, face in enumerate(self.faces):
             new_face = tuple(int(old_to_new[v]) for v in face)
@@ -126,6 +174,7 @@ class Mesh:
             new_faces.append(tuple(dedup))
         self.faces = new_faces
         # Remap groups
+        new_groups: Dict[str, List[int]] = {g: [] for g in self.groups}
         for g, indices in self.groups.items():
             new_groups[g] = [old_face_to_new[i] for i in indices
                              if i in old_face_to_new]

@@ -95,6 +95,20 @@ def register():
     except Exception as exc:
         print("[brick] icon registration error:", exc)
 
+    # Pre-import the brick package + numpy/scipy chain at plugin register
+    # time. Without this, the very first GetVirtualObjects evaluation after
+    # opening a project pays ~1s of network-share import latency on the
+    # main thread, blocking the Object Manager. Doing it here folds the
+    # cost into C4D's startup splash screen instead.
+    try:
+        from plugin_bootstrap import ensure_brick_on_path
+        ensure_brick_on_path()
+        import brick.pipeline  # noqa: F401 - warm import
+        import brick.fitter    # noqa: F401 - warm import
+        import brick.voxelize  # noqa: F401 - warm import
+    except Exception as exc:
+        print("[brick] preimport failed (deferring to first eval):", exc)
+
     icon = _load_plugin_icon()
     ok1 = plugins.RegisterObjectPlugin(
         id=ID_BRICKGENERATOR,
@@ -115,6 +129,11 @@ def register():
     # BrickLibraryPanelCommand is intentionally not registered as a standalone
     # command plugin. The library UI is kept embedded in BrickIt's Attribute
     # Manager instead of showing a separate "Brick Panel" plugin entry.
+    try:
+        from brickit_effectors_autohook import register as _register_brickit_autohook
+        _register_brickit_autohook()
+    except Exception as exc:
+        print("[brick] BrickIt effectors auto-hook register failed:", exc)
     return ok1 and ok2
 
 

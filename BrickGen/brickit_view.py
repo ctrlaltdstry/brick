@@ -531,6 +531,9 @@ def _build_hierarchy(self, op):
             animation_placements,
             params.get("top_surface_coverage", 1.0),
             random_order=params.get("top_surface_random_order", False),
+            cap_style=int(params.get("cap_style", 0)),
+            library=None,
+            seed=int(params.get("cap_random_seed", 0)),
         )
         animation_placements.extend(generated_caps)
         smooth_cap_ids.update(id(p) for p in generated_caps)

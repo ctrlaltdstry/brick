@@ -1,4 +1,4 @@
-# CLAUDE.md — Brick
+# brick.md — Brick
 
 Read this file before doing anything. The user has worked with multiple AI
 sessions on this and is tired of re-explaining decisions. Default to the
@@ -33,7 +33,7 @@ Z:\02_MKE\2026\BRICK\brick\           ← repo root
     deploy_plugin.ps1                  ← copy plugin → C4D plugins folder
     sanity_check_brick.py, ...
   backup\                              ← old plugin/package snapshots
-  CLAUDE.md
+  brick.md
 ```
 
 **Package nesting trap, do not repeat**: the implementation package is
@@ -128,6 +128,150 @@ python tools/test_artist_mode_regression.py
 
 Run it before changing `brick/fitter.py`, `brick/pipeline.py`, or the
 `Make Physically Accurate` wiring in `BrickGen/c4d_brick_generator.pyp`.
+
+### Integrated MoGraph color path — DO NOT REGRESS
+
+The integrated MoGraph output is now the **default and only** SOURCE-mode
+behavior. There is no `MoGraph Output` checkbox and no `Create Fracture`
+button — both were removed once the integrated path proved stable. The
+runtime gates the integrated hierarchy purely on
+`visualization_mode == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE`. The
+debug viz modes (Shell Wireframe / Voxel Debug / Brick Size / Shell
+Depth) still go through the legacy `_build_hierarchy` in
+`BrickGen/brickit_view.py`. `Create Proxies`, `Proxy / High Res`, and
+`Create RS Color Material` remain in the Library group. Old saved scenes
+that referenced parameter IDs `2092` (`MOGRAPH_OUTPUT`) or `2048`
+(`CREATE_MOGRAPH`) will produce a one-time "unknown parameter" log on
+load and silently drop them — this is expected.
+
+The integrated MoGraph output (effectors/fields driving per-brick color
+without an external Fracture object) cost several rounds to get right.
+The locked-in answer:
+
+- BrickIt outputs **one `InstanceObject` per brick**, in
+  `INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE` with a single entry
+  (`SetInstanceMatrices([m])`, `SetInstanceColors([c])`), and also sets
+  `ID_BASEOBJECT_USECOLOR=ALWAYS` + `ID_BASEOBJECT_COLOR=c` on each
+  carrier. This is the "expanded one-instance-per-carrier" mode in
+  `BrickGen/brickit_mograph_generator.py`. Do not switch the default
+  back to grouped multi-instance carriers — that shuffles `RSObjectColor`
+  vs the no-material gradient (per-clone index disagrees with the carrier
+  multi-instance index).
+- Effector evaluation runs through the native `BrickMoGraphEvaluatorTag`
+  in `MSG_EXECUTE_EFFECTOR` mode only (`skip_field_override=True`).
+  Manually re-applying `FieldList.SampleListSimple` after effectors
+  ran was producing colors that disagreed with Redshift's no-material
+  gradient. The effector message alone now produces the same colors RS
+  reads in the no-material fallback.
+- The Redshift material the user must wire on the BrickIt object is a
+  **`Color User Data` node with Attribute Name = `RSObjectColor`**.
+  That is the exact, case-sensitive attribute string Redshift maps the
+  per-instance display color to. Menu labels like "Object Color" /
+  "Display Color" are UI presets — they store `RSObjectColor` /
+  `RSDisplayColor` as the actual lookup string. Do not test with the
+  literal label string; it returns black.
+- The BrickIt AM has a one-click **Create RS Color Material** button
+  that builds exactly this material (`BrickIt_PerBrick_Color`) and
+  attaches it to the BrickIt object. Implementation in
+  `BrickGen/brickit_rs_material.py`. Two non-obvious things in there
+  to keep working: (1) `CreateEmptyGraph` must be called BEFORE
+  `doc.InsertMaterial`, then re-fetch with `GetGraph`, then
+  `BeginTransaction`. (2) Redshift's Color User Data output port is
+  named `…rsuserdatacolor.out`, NOT `outcolor` like every other RS
+  node. Don't "fix" the port name; it's correct.
+- `RSMGColor` does not work for our output and we do not target it.
+  We are not a real MoGraph cloner and there is no persistent MoData
+  tag on a parent generator that RS can index. The Maxon SDK shipped
+  with this project does not expose `Tmgdata` / `MGDATATAG` / the
+  MoData custom datatype IDs needed to forge one. If a future session
+  is asked to "make `RSMGColor` work too", do not synthesize MoData
+  tags from guessed numeric IDs — that's the path that previously
+  correlated with Redshift load failures.
+
+Diagnostic probe lives at `tools/c4d_redshift_color_material_probe.py`.
+It generates `BrickIt_RSProbe_UserData_RSObjectColor` (and a few other
+attribute candidates) for fast bisection if this regresses.
+
+#### Failed experiment: wrapping carriers in `Omgfracture` — DO NOT REPEAT
+
+We tried adding an opt-in toggle that parented the per-brick
+`Oinstance` carriers to a real `Omgfracture` (Mode =
+`MGFRACTUREOBJECT_MODE_NONE`, empty effector list) instead of the
+plain `bricks` Null, with BrickIt's `BrickMoGraphEvaluatorTag`
+remaining authoritative for matrices/colors and the Fracture acting
+purely as a passive MoData wrapper.
+
+Tested in the standing test scene with a Plain effector + Random Field
+gradient setup. Result:
+
+- No-material gradient: still worked.
+- `RSObjectColor` material: still worked.
+- `RSMGColor` material: **all bricks rendered flat black**.
+
+`Omgfracture`'s MoData generation does NOT surface a child
+`Oinstance` carrier's display color (`ID_BASEOBJECT_COLOR` /
+`SetInstanceColors([c])`) into the MoData color array, so
+`RSMGColor` has nothing to read. The toggle was removed (it was
+misleading user-facing UI that didn't deliver `RSMGColor`); the
+revert was simple because the only behavior change was a one-line
+swap of the `bricks` Null for an `Omgfracture` parent. Don't add
+this back — `Omgfracture`-as-MoData-shim is a dead end for our
+output topology.
+
+The only remaining theoretically-viable path for `RSMGColor` is a
+real `Omgcloner` per template with object-link arrays driving the
+clones (one Cloner per `(width, depth, height)` template, fed by an
+array of per-brick matrices and colors). That is a structural
+refactor of `BrickGen/brickit_mograph_generator.py` and shall not
+be started without explicit user go-ahead. Continue to recommend
+`RSObjectColor` via the **Create RS Color Material** button —
+that's the supported path for per-brick color in Redshift.
+
+### Integrated MoGraph template shape — DO NOT REGRESS
+
+Each per-type template proto in
+`BrickGen/brickit_mograph_generator.py::_get_template_obj` must be a
+`Null` containing **exactly one** polygon child (the brick mesh,
+with stud logos baked into it via `_bake_template_logos_into_mesh`).
+Do not regress to attaching logo polygon children alongside the
+brick mesh under the same Null.
+
+Why: Redshift's `SceneMesh.cpp(1256)` assertion fires once per render
+when an `Oinstance` reference resolves to a Null with multiple
+polygon children. The integrated path puts every carrier on a
+per-template proto, so a Null with mesh + N logo children triggers
+the assertion at every render. Baking logos into the brick mesh
+keeps the proto shape `Null { merged_polygon }`, which Redshift
+accepts cleanly. Logo positions use the same centered-coordinate
+offsets the previous Null-children layout used, so the rendered
+result is identical.
+
+### Integrated MoGraph animation path — DO NOT REGRESS
+
+The integrated MoGraph generator (`BrickGen/brickit_mograph_generator.py`)
+must run the same per-placement animation pipeline as the standard view
+path, or sliders on the Animate tab silently no-op:
+
+- Compute `phased_build_animation_states(...)` with the same arguments
+  the view uses (`build_progress`, `top_cap_ids`, `top_surface_start`,
+  `top_surface_phase`, `top_surface_blend`, `build_y_offset`,
+  `build_stagger`, `build_motion_curve`, `build_custom_curve`).
+- Filter placements to `state.local_progress > 0.0` so bricks correctly
+  appear/disappear with Build Progress.
+- Per placement, build the matrix at the brick's CENTER pivot
+  (`separated_center`, not `separated_low_corner`), then apply
+  `build_tilt_for_progress`, `build_tilt_clearance`,
+  `build_scale_for_progress`, and `apply_humanize_to_center_matrix`.
+- Templates emitted under `templates_root` must be **centered** —
+  shift the mesh points by `-(w/2, h/2, d/2)` (and shift logo offsets
+  by the same amount inside the template). Do not regress to
+  low-corner templates / `apply_humanize_to_low_corner_matrix`; the
+  matrix math above assumes a centered pivot.
+
+If the Animate tab sliders ever stop affecting the integrated MoGraph
+output, the first thing to check is whether `phased_build_animation_states`
+is still being called and whether `_make_animated_centered_matrix` is
+still wired up.
 
 ## The brick generator (current focus)
 

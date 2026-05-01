@@ -22,9 +22,15 @@ from brickit_templates import (
     _normalized_logo_source_object as _template_normalized_logo_source_object,
 )
 from brickit_mograph import (
-    _create_mograph_handoff as _build_mograph_handoff,
     _create_proxy_mograph_handoff as _build_proxy_mograph_handoff,
     _swap_proxy_to_render_handoff as _swap_proxy_mograph_handoff,
+)
+from brickit_rs_material import (
+    _create_rs_color_material as _build_rs_color_material,
+)
+from brickit_mograph_generator import (
+    _build_integrated_mograph_hierarchy as _build_integrated_mograph_hierarchy_impl,
+    _apply_cap_subset_fast_path as _apply_cap_subset_fast_path_impl,
 )
 from brickit_view import _build_hierarchy as _build_view_hierarchy
 from brickit_fit import (
@@ -72,9 +78,15 @@ class BrickAssembly(plugins.ObjectData):
         self._template_obj_cache = {}
         self._logo_cache = {}
         self._last_hierarchy_obj = None
+        self._fast_cap_state = None
         self._last_resolution_key = None
         self._built_voxel_resolution = None
         self._startup_draft_pending = True
+        # Defer the very first heavy GVO eval after this Python instance
+        # is constructed. For loaded objects this avoids blocking the
+        # Object Manager during scene-open. Init() clears it for newly
+        # created objects so the user sees bricks immediately.
+        self._deferred_first_build_pending = True
         self._interactive_preview_active = False
         self._interactive_preview_desc_id = -1
         self._interactive_preview_log_key = None
@@ -231,7 +243,31 @@ class BrickAssembly(plugins.ObjectData):
                     ID_BRICKIFYASSEMBLY,
                 )
             )
-            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_GROUP_RESOLUTION))
+            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_GROUP_BUILD_ANIM))
+            description.SetParameter(desc_id, bc, group_id)
+        except Exception:
+            pass
+
+    def _add_mograph_effectors_description(self, description):
+        try:
+            bc = c4d.GetCustomDataTypeDefault(c4d.CUSTOMDATATYPE_INEXCLUDE_LIST)
+            bc[c4d.DESC_NAME] = "Effectors"
+            bc[c4d.DESC_SHORT_NAME] = "Effectors"
+            bc[c4d.DESC_CUSTOMGUI] = c4d.CUSTOMGUI_INEXCLUDE_LIST
+            try:
+                accepted = c4d.BaseContainer()
+                accepted.InsData(c4d.Obase, "")
+                bc[c4d.DESC_ACCEPT] = accepted
+            except Exception:
+                pass
+            desc_id = c4d.DescID(
+                c4d.DescLevel(
+                    BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS,
+                    c4d.CUSTOMDATATYPE_INEXCLUDE_LIST,
+                    ID_BRICKIFYASSEMBLY,
+                )
+            )
+            group_id = c4d.DescID(c4d.DescLevel(BRICKIFYASSEMBLY_TAB_EFFECTORS))
             description.SetParameter(desc_id, bc, group_id)
         except Exception:
             pass
@@ -263,6 +299,7 @@ class BrickAssembly(plugins.ObjectData):
         except Exception:
             pass
         self._add_custom_curve_description(description)
+        self._add_mograph_effectors_description(description)
         return True, flags | c4d.DESCFLAGS_DESC_LOADED
 
     def GetDEnabling(self, op, desc_id, t_data, flags, itemdesc):
@@ -312,6 +349,7 @@ class BrickAssembly(plugins.ObjectData):
             BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE,
             BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER,
             BRICKIFYASSEMBLY_TOP_SURFACE_PHASE,
+            BRICKIFYASSEMBLY_CAP_STYLE,
         ):
             try:
                 return bool(library_state.get("enable_plates", False)) and bool(
@@ -319,6 +357,15 @@ class BrickAssembly(plugins.ObjectData):
                 )
             except Exception:
                 return bool(library_state.get("enable_plates", False))
+        if pid == BRICKIFYASSEMBLY_CAP_RANDOM_SEED:
+            try:
+                return (
+                    bool(library_state.get("enable_plates", False))
+                    and bool(op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES])
+                    and int(op[BRICKIFYASSEMBLY_CAP_STYLE]) == BRICKIFYASSEMBLY_CAP_STYLE_RANDOM_MIX
+                )
+            except Exception:
+                return False
         return True
 
     def Init(self, op, isCloneInit=False):
@@ -339,6 +386,8 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT] = 0.6
         op[BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS] = False
         op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES] = True
+        op[BRICKIFYASSEMBLY_CAP_STYLE] = BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+        op[BRICKIFYASSEMBLY_CAP_RANDOM_SEED] = 0
         op[BRICKIFYASSEMBLY_ENABLE_PLATES] = False
         op[BRICKIFYASSEMBLY_HIDE_SOURCE_MESH] = True
         op[BRICKIFYASSEMBLY_MERGE_PLATES] = True
@@ -369,6 +418,10 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_HUMANIZE_POSITION] = 0.0
         op[BRICKIFYASSEMBLY_HUMANIZE_ROTATION] = 0.0
         try:
+            op[BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS] = c4d.InExcludeData()
+        except Exception:
+            pass
+        try:
             curve = c4d.SplineData()
             curve.MakeLinearSplineBezier(2)
             curve.SetRange(0.0, 1.0, 0.01, 0.0, 1.0, 0.01)
@@ -397,9 +450,13 @@ class BrickAssembly(plugins.ObjectData):
         self._template_obj_cache = {}
         self._logo_cache = {}
         self._last_hierarchy_obj = None
+        self._fast_cap_state = None
         self._last_resolution_key = None
         self._built_voxel_resolution = None
         self._startup_draft_pending = True
+        # Newly created objects (via Init) should evaluate inline — only
+        # objects deserialized from disk benefit from deferring.
+        self._deferred_first_build_pending = False
         self._interactive_preview_active = False
         self._interactive_preview_desc_id = -1
         self._interactive_preview_log_key = None
@@ -508,17 +565,23 @@ class BrickAssembly(plugins.ObjectData):
             force_smooth_top=force_smooth_top,
         )
 
-    def _create_mograph_handoff(self, op):
-        return _build_mograph_handoff(self, op)
-
     def _create_proxy_mograph_handoff(self, op):
         return _build_proxy_mograph_handoff(self, op)
 
     def _swap_proxy_to_render_handoff(self, op):
         return _swap_proxy_mograph_handoff(self, op)
 
+    def _create_rs_color_material(self, op):
+        return _build_rs_color_material(self, op)
+
     def _build_hierarchy(self, op):
         return _build_view_hierarchy(self, op)
+
+    def _build_integrated_mograph_hierarchy(self, op, params=None):
+        return _build_integrated_mograph_hierarchy_impl(self, op, params=params)
+
+    def _apply_cap_subset_fast_path(self, op, params=None):
+        return _apply_cap_subset_fast_path_impl(self, op, params=params)
 
     def GetVirtualObjects(self, op, hh):
         return _runtime_get_virtual_objects(self, op, hh)

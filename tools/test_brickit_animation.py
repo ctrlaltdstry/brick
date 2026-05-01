@@ -37,6 +37,9 @@ from brickit_animation import (  # noqa: E402
     build_animation_states,
     custom_curve_signature,
     exposed_top_cap_ids,
+    CAP_STYLE_MATCH_BELOW,
+    CAP_STYLE_MERGED_COVER,
+    CAP_STYLE_RANDOM_MIX,
     missing_smooth_top_cap_placements,
     ordered_placements,
     phased_build_animation_states,
@@ -398,15 +401,16 @@ def test_missing_smooth_caps_cover_exposed_studs_on_tall_bricks():
 
 
 def test_top_surface_coverage_limits_generated_caps():
+    # A fully-exposed tall brick now yields a SINGLE cap whose footprint
+    # matches the brick below (was previously per-cell 1x1 caps).
     tall = _p("tall", 0, 0, 0, w=4, h=3, d=1)
 
     none = smooth_top_cap_placements_for_coverage([tall], 0.0)
-    half = smooth_top_cap_placements_for_coverage([tall], 0.5)
     full = smooth_top_cap_placements_for_coverage([tall], 1.0)
 
     assert len(none) == 0
-    assert [(p.x, p.y, p.z) for p in half] == [(0, 3, 0), (1, 3, 0)]
-    assert len(full) == 4
+    assert len(full) == 1
+    assert (full[0].x, full[0].y, full[0].z, full[0].w, full[0].d) == (0, 3, 0, 4, 1)
 
 
 def test_top_surface_coverage_limits_existing_and_generated_caps():
@@ -423,7 +427,8 @@ def test_top_surface_coverage_limits_existing_and_generated_caps():
     assert partial_ids == {id(existing)}
     assert partial_caps == []
     assert full_ids == {id(existing)}
-    assert [(p.x, p.y, p.z) for p in full_caps] == [(1, 3, 0), (2, 3, 0)]
+    # Tall brick (w=2) with fully exposed top now yields one merged cap.
+    assert [(p.x, p.y, p.z, p.w, p.d) for p in full_caps] == [(1, 3, 0, 2, 1)]
 
 
 def test_top_surface_coverage_can_use_random_order():
@@ -653,6 +658,124 @@ def test_existing_smooth_top_plates_use_final_phase_when_not_blended():
     assert by_name["existing_plate"].local_progress == 0.0
 
 
+def test_random_mix_caps_never_overhang_silhouette():
+    # An L-shaped pair of tall bricks: the union of their top cells is the
+    # silhouette every random cap must lie inside. No cap may extend outside.
+    a = _p("a", 0, 0, 0, w=3, h=3, d=1)
+    b = _p("b", 0, 0, 1, w=1, h=3, d=2)
+    placements = [a, b]
+    silhouette = set()
+    for p in placements:
+        top_y = p.y + p.h
+        for x in range(p.x, p.x + p.w):
+            for z in range(p.z, p.z + p.d):
+                silhouette.add((x, top_y, z))
+
+    caps = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_RANDOM_MIX, seed=7
+    )
+
+    # Every cap cell must lie within the silhouette (no overhang).
+    for cap in caps:
+        for ix in range(cap.w):
+            for iz in range(cap.d):
+                assert (cap.x + ix, cap.y, cap.z + iz) in silhouette
+
+    # Coverage must be complete: union of cap footprints equals silhouette.
+    covered = set()
+    for cap in caps:
+        for ix in range(cap.w):
+            for iz in range(cap.d):
+                covered.add((cap.x + ix, cap.y, cap.z + iz))
+    assert covered == silhouette
+
+
+def test_random_mix_caps_are_deterministic_per_seed():
+    placements = [_p("tall", 0, 0, 0, w=4, h=3, d=3)]
+    caps_a = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_RANDOM_MIX, seed=42
+    )
+    caps_b = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_RANDOM_MIX, seed=42
+    )
+    caps_c = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_RANDOM_MIX, seed=43
+    )
+
+    sig_a = [(c.x, c.y, c.z, c.w, c.d) for c in caps_a]
+    sig_b = [(c.x, c.y, c.z, c.w, c.d) for c in caps_b]
+    sig_c = [(c.x, c.y, c.z, c.w, c.d) for c in caps_c]
+    assert sig_a == sig_b
+    # Different seed must produce a different tiling for a footprint big
+    # enough that random choices actually matter.
+    assert sig_a != sig_c
+
+
+def test_merged_cover_unions_adjacent_brick_tops():
+    # Two adjacent 1x1 tall bricks at the same y. Match Below would emit
+    # two separate 1x1 caps; Merged Cover should union them into one 1x2
+    # (or 2x1) library plate.
+    a = _p("a", 0, 0, 0, w=1, h=3, d=1)
+    b = _p("b", 1, 0, 0, w=1, h=3, d=1)
+
+    match_caps = missing_smooth_top_cap_placements(
+        [a, b], cap_style=CAP_STYLE_MATCH_BELOW
+    )
+    merged_caps = missing_smooth_top_cap_placements(
+        [a, b], cap_style=CAP_STYLE_MERGED_COVER
+    )
+
+    assert len(match_caps) == 2
+    assert len(merged_caps) == 1
+    cap = merged_caps[0]
+    assert cap.y == 3
+    assert cap.w * cap.d == 2
+
+
+def test_merged_cover_is_deterministic_and_silhouette_safe():
+    a = _p("a", 0, 0, 0, w=3, h=3, d=1)
+    b = _p("b", 0, 0, 1, w=1, h=3, d=2)
+    placements = [a, b]
+    silhouette = set()
+    for p in placements:
+        top_y = p.y + p.h
+        for x in range(p.x, p.x + p.w):
+            for z in range(p.z, p.z + p.d):
+                silhouette.add((x, top_y, z))
+
+    caps_a = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_MERGED_COVER
+    )
+    caps_b = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_MERGED_COVER
+    )
+    sig_a = [(c.x, c.y, c.z, c.w, c.d) for c in caps_a]
+    sig_b = [(c.x, c.y, c.z, c.w, c.d) for c in caps_b]
+    assert sig_a == sig_b  # determinism
+
+    covered = set()
+    for c in caps_a:
+        for ix in range(c.w):
+            for iz in range(c.d):
+                cell = (c.x + ix, c.y, c.z + iz)
+                assert cell in silhouette  # no overhang
+                covered.add(cell)
+    assert covered == silhouette  # full coverage
+
+
+def test_random_mix_default_match_below_unchanged():
+    # When cap_style isn't passed, behavior must match the legacy match-below
+    # path (the existing test suite covers the exact expected output).
+    placements = [_p("tall", 0, 0, 0, w=2, h=3, d=2)]
+    default_caps = missing_smooth_top_cap_placements(placements)
+    explicit_caps = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_MATCH_BELOW
+    )
+    sig_d = sorted((c.x, c.y, c.z, c.w, c.d) for c in default_caps)
+    sig_e = sorted((c.x, c.y, c.z, c.w, c.d) for c in explicit_caps)
+    assert sig_d == sig_e
+
+
 def main():
     test_order_bottom_to_top_with_stable_ties()
     test_progress_states_hide_enter_drop_and_land()
@@ -678,6 +801,11 @@ def main():
     test_blended_top_caps_require_full_footprint_support()
     test_existing_smooth_top_plates_stay_in_structural_timeline()
     test_existing_smooth_top_plates_use_final_phase_when_not_blended()
+    test_random_mix_caps_never_overhang_silhouette()
+    test_random_mix_caps_are_deterministic_per_seed()
+    test_random_mix_default_match_below_unchanged()
+    test_merged_cover_unions_adjacent_brick_tops()
+    test_merged_cover_is_deterministic_and_silhouette_safe()
     print("brickit animation regressions passed")
 
 

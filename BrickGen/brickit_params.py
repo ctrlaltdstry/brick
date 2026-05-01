@@ -1,5 +1,7 @@
 """BrickIt parameter resolution helpers."""
 
+import c4d
+
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from library_panel import (
     BRICK_TOGGLE_NAMES,
@@ -92,6 +94,38 @@ def _interactive_preview_params(self, params):
     # settled rebuild restores the exact requested detail mode.
     preview["detail_mode"] = "off"
     return preview
+
+
+def _inexclude_signature(data, doc):
+    if data is None:
+        return ()
+    try:
+        count = int(data.GetObjectCount())
+    except Exception:
+        return ()
+    out = []
+    for i in range(count):
+        try:
+            obj = data.ObjectFromIndex(doc, i)
+        except Exception:
+            obj = None
+        try:
+            flags = int(data.GetFlags(i))
+        except Exception:
+            flags = 0
+        if obj is None:
+            out.append((None, flags))
+            continue
+        try:
+            dirty = int(obj.GetDirty(c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_MATRIX))
+        except Exception:
+            dirty = 0
+        try:
+            name = obj.GetName()
+        except Exception:
+            name = ""
+        out.append((name, dirty, flags))
+    return tuple(out)
 
 
 def _resolve_params(self, op, source_obj):
@@ -271,6 +305,16 @@ def _resolve_params(self, op, source_obj):
         top_surface_coverage_raw = 100.0
     top_surface_coverage = max(0.0, min(1.0, float(top_surface_coverage_raw) / 100.0))
     top_surface_random_order = bool(op[BRICKIFYASSEMBLY_TOP_SURFACE_RANDOM_ORDER])
+    cap_style_raw = op[BRICKIFYASSEMBLY_CAP_STYLE]
+    cap_style = int(cap_style_raw) if cap_style_raw is not None else BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+    if cap_style not in (
+        BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW,
+        BRICKIFYASSEMBLY_CAP_STYLE_MERGED_COVER,
+        BRICKIFYASSEMBLY_CAP_STYLE_RANDOM_MIX,
+    ):
+        cap_style = BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+    cap_random_seed_raw = op[BRICKIFYASSEMBLY_CAP_RANDOM_SEED]
+    cap_random_seed = max(0, int(cap_random_seed_raw)) if cap_random_seed_raw is not None else 0
     brick_separation_raw = op[BRICKIFYASSEMBLY_BRICK_SEPARATION]
     if brick_separation_raw is None:
         brick_separation_raw = 0.0
@@ -288,6 +332,15 @@ def _resolve_params(self, op, source_obj):
     if humanize_rotation_raw is None:
         humanize_rotation_raw = 0.0
     humanize_rotation = max(0.0, min(2.0, float(humanize_rotation_raw)))
+    try:
+        mograph_effectors = op[BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS]
+    except Exception:
+        mograph_effectors = None
+    try:
+        doc = op.GetDocument()
+    except Exception:
+        doc = None
+    mograph_effectors_key = _inexclude_signature(mograph_effectors, doc)
 
     # Library curation key — bitmask over brick toggles. Goes
     # into the fit cache key so toggling a brick reruns the fitter.
@@ -318,6 +371,8 @@ def _resolve_params(self, op, source_obj):
         "preserve_silhouette": preserve_silhouette,
         "preserve_tiny_gaps": preserve_tiny_gaps,
         "surface_only_plates": surface_only_plates,
+        "cap_style": cap_style,
+        "cap_random_seed": cap_random_seed,
         "enable_plates": enable_plates,
         "visualization_mode": visualization_mode,
         "resolution_live": resolution_live,
@@ -349,6 +404,8 @@ def _resolve_params(self, op, source_obj):
         "humanize_seed": humanize_seed,
         "humanize_position": humanize_position,
         "humanize_rotation": humanize_rotation,
+        "mograph_effectors": mograph_effectors,
+        "mograph_effectors_key": mograph_effectors_key,
         "lib_mask": lib_mask,
         "interactive_preview": False,
         "interactive_preview_actual_studs_across": studs_across,

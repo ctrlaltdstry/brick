@@ -84,6 +84,7 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_HUMANIZE_SEED,
         BRICKIFYASSEMBLY_HUMANIZE_POSITION,
         BRICKIFYASSEMBLY_HUMANIZE_ROTATION,
+        BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS,
     ):
         return False
     return desc_id in (
@@ -117,12 +118,12 @@ def Message(self, op, msg_type, data):
             # Force immediate reevaluation after the button press instead
             # of waiting for viewport/object-manager interaction.
             _dirty(op)
-        elif desc_id == BRICKIFYASSEMBLY_CREATE_MOGRAPH:
-            self._create_mograph_handoff(op)
         elif desc_id == BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH:
             self._create_proxy_mograph_handoff(op)
         elif desc_id == BRICKIFYASSEMBLY_SWAP_PROXY_RENDER:
             self._swap_proxy_to_render_handoff(op)
+        elif desc_id == BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL:
+            self._create_rs_color_material(op)
         elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
             self._open_library_picker(op)
         elif desc_id in (
