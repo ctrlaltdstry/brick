@@ -319,6 +319,11 @@ def _refit_if_needed(self, op, doc, params=None):
         BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME,
         BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
     )
+    if (
+        str(params.get("voxel_mode", "")).lower() == "shell"
+        and bool(params.get("surface_only_plates", False))
+    ):
+        include_debug_info = True
 
     _log_first_eval_bm = not getattr(self, "_first_eval_logged", False)
     _t_bm0 = time.perf_counter() if _log_first_eval_bm else 0.0

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import c4d
 
 from brickit_animation import (
-    build_collision_lift_offsets,
     build_scale_for_progress,
     build_tilt_clearance,
     build_tilt_for_progress,
     phased_build_animation_states,
+    shell_smooth_top_target_cells,
     smooth_top_cap_selection_for_coverage,
 )
 from brickit_humanize import apply_humanize_to_center_matrix
@@ -527,6 +527,18 @@ def _build_hierarchy(self, op):
     }
     animation_placements = list(self._fit_placements or [])
     smooth_cap_ids = set()
+    smooth_target_cells = None
+    if (
+        str(params.get("voxel_mode", "")).lower() == "shell"
+        and info.get("occupancy_cells")
+        and info.get("grid_dims")
+    ):
+        smooth_target_cells = shell_smooth_top_target_cells(
+            animation_placements,
+            info.get("occupancy_cells"),
+            info.get("grid_dims"),
+            interior_void_cells=info.get("interior_void_cells"),
+        )
     if bool(params.get("surface_only_plates")):
         smooth_cap_ids, generated_caps = smooth_top_cap_selection_for_coverage(
             animation_placements,
@@ -535,6 +547,7 @@ def _build_hierarchy(self, op):
             cap_style=int(params.get("cap_style", 0)),
             library=None,
             seed=int(params.get("cap_random_seed", 0)),
+            target_top_cells=smooth_target_cells,
         )
         animation_placements.extend(generated_caps)
         smooth_cap_ids.update(id(p) for p in generated_caps)
@@ -544,12 +557,16 @@ def _build_hierarchy(self, op):
     animation_states = phased_build_animation_states(
         animation_placements,
         params.get("build_progress", 1.0),
+        time_progress=params.get("build_progress_time", params.get("build_progress", 1.0)),
+        top_progress=params.get("smooth_top_progress", 1.0),
+        top_time_progress=params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0)),
         top_cap_ids=smooth_cap_ids,
         top_surface_start=params.get("top_surface_start", 0.85),
         top_surface_phase=params.get("top_surface_phase", 0.15),
         blend_top_surface=params.get("top_surface_blend", False),
         y_offset=params.get("build_y_offset", 25.0),
         stagger=params.get("build_stagger", 0.10),
+        hang_time=params.get("build_hang_time", 0.0),
         motion_curve=params.get("build_motion_curve", 4),
         custom_curve=params.get("build_custom_curve"),
     )
@@ -588,6 +605,29 @@ def _build_hierarchy(self, op):
         )
 
     def _placement_scene_center(p):
+        support = getattr(p, "support", None)
+        if support is not None:
+            ssx, ssy, ssz = separated_center(
+                support,
+                stud_size,
+                plate_size,
+                brick_separation,
+                assembly_center=separation_center,
+            )
+            cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+            cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+            sx_local = (float(support.x) + float(support.w) * 0.5) * float(stud_size)
+            sz_local = (float(support.z) + float(support.d) * 0.5) * float(stud_size)
+            wy = (
+                ssy
+                + float(support.h) * 0.5 * float(plate_size)
+                + float(p.h) * 0.5 * float(plate_size)
+            )
+            return (
+                float(origin[0] + ssx + (cx_local - sx_local)),
+                float(origin[1] + wy),
+                float(origin[2] + ssz + (cz_local - sz_local)),
+            )
         sx, sy, sz = separated_center(
             p,
             stud_size,
@@ -637,35 +677,6 @@ def _build_hierarchy(self, op):
             wz + (dz / length) * clearance,
         )
 
-    def _collision_scene_center(p, state):
-        wx, wy, wz = _placement_scene_center(p)
-        local_progress = state.local_progress if state is not None else 1.0
-        tilt_x, tilt_z = build_tilt_for_progress(
-            p,
-            local_progress,
-            enabled=subtle_rotation,
-            amount_degrees=tilt_amount,
-        )
-        clearance = build_tilt_clearance(
-            tilt_x,
-            tilt_z,
-            p.h,
-            plate_size,
-            enabled=subtle_rotation,
-        )
-        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
-        return wx, wy, wz
-
-    collision_lift_by_obj = build_collision_lift_offsets(
-        animation_states,
-        _collision_scene_center,
-        stud_size,
-        plate_size,
-        enabled=subtle_rotation,
-        tilt_amount_degrees=tilt_amount,
-        scale_enabled=scale_bricks_in,
-    )
-
     def _local_offset(matrix, x, y, z):
         return (
             (matrix.v1 * float(x))
@@ -696,7 +707,7 @@ def _build_hierarchy(self, op):
     def _make_centered_brick_matrix(p, state):
         wx, wy, wz = _placement_scene_center(p)
         y_offset = float(state.y_offset) if state is not None else 0.0
-        wy += y_offset + float(collision_lift_by_obj.get(id(p), 0.0))
+        wy += y_offset
         local_progress = state.local_progress if state is not None else 1.0
 
         m = c4d.Matrix()
@@ -1042,7 +1053,14 @@ def _build_hierarchy(self, op):
                 template_variant = color_key
 
             p0 = batch[0]
-            if p0.rotation_y == 90:
+            if smooth_top_visual:
+                from types import SimpleNamespace
+                template_brick = SimpleNamespace(
+                    width=int(getattr(p0, "w", getattr(p0.brick, "width", 1))),
+                    depth=int(getattr(p0, "d", getattr(p0.brick, "depth", 1))),
+                    height=int(getattr(p0, "h", getattr(p0.brick, "height", 1))),
+                )
+            elif p0.rotation_y == 90:
                 from types import SimpleNamespace
                 template_brick = SimpleNamespace(
                     width=p0.brick.depth,

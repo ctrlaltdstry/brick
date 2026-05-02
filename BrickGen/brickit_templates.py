@@ -5,7 +5,7 @@ from logo_helpers import (
     BRICKGEN_LOGO_FILL_MIN_RATIO,
     normalized_logo_mesh_object as _normalized_logo_mesh_object,
 )
-from quality_presets import ASSEMBLY_QUALITY_PRESETS
+from quality_presets import ASSEMBLY_QUALITY_PRESETS, QUALITY_PROXY
 
 
 def _get_template_mesh(
@@ -18,7 +18,7 @@ def _get_template_mesh(
     smooth_plate_visual=True,
     force_smooth_top=False,
 ):
-    from brick.brick_geom_hires import make_brick_hires
+    from brick.brick_geom_hires import make_brick_hires, make_proxy_collider
     is_smooth_visual = int(
         bool(
             force_smooth_top
@@ -28,6 +28,30 @@ def _get_template_mesh(
             )
         )
     )
+    if quality == QUALITY_PROXY:
+        key = (
+            "proxy",
+            brick_type.width,
+            brick_type.depth,
+            brick_type.height,
+            round(stud_size, 6),
+            round(plate_size, 6),
+            is_smooth_visual,
+        )
+        if key in self._mesh_cache:
+            return self._mesh_cache[key]
+        mesh = make_proxy_collider(
+            brick_type.width,
+            brick_type.depth,
+            brick_type.height,
+            stud_size=stud_size,
+            plate_size=plate_size,
+            inset=0.0,
+            with_studs=not bool(is_smooth_visual),
+        )
+        self._mesh_cache[key] = mesh
+        return mesh
+
     key = (brick_type.width, brick_type.depth, brick_type.height,
            quality, round(stud_size, 6), round(plate_size, 6),
            is_smooth_visual)

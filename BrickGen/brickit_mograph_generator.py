@@ -1,16 +1,17 @@
 """Integrated BrickIt MoGraph output for the live generator."""
+import math
 import os
 from types import SimpleNamespace
 
 import c4d
 
 from brickit_animation import (
-    build_collision_lift_offsets,
     build_scale_for_progress,
     build_tilt_clearance,
     build_tilt_for_progress,
     ordered_placements,
     phased_build_animation_states,
+    shell_smooth_top_target_cells,
     smooth_top_cap_selection_for_coverage,
 )
 from brickit_humanize import apply_humanize_to_center_matrix
@@ -21,6 +22,7 @@ from logo_helpers import (
 )
 from mesh_bridge import mesh_to_polygon_object
 from plugin_bootstrap import brick_log as _brick_log
+from quality_presets import QUALITY_PROXY
 
 
 def _hide_object_in_editor_and_render(obj):
@@ -54,6 +56,85 @@ def _apply_object_color(obj, color):
         obj[c4d.ID_BASEOBJECT_COLOR] = color
     except Exception:
         pass
+
+
+def _set_object_visible(obj, visible):
+    if obj is None:
+        return
+    flag = c4d.OBJECT_UNDEF if bool(visible) else c4d.OBJECT_OFF
+    try:
+        obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = flag
+        obj[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = flag
+    except Exception:
+        pass
+
+
+def _update_object(obj):
+    if obj is None:
+        return
+    try:
+        obj.Message(c4d.MSG_UPDATE)
+    except Exception:
+        pass
+
+
+def _matrix_for_visibility(matrix, visible):
+    if bool(visible):
+        return matrix
+    parked = c4d.Matrix()
+    parked.off = c4d.Vector(0.0, 1.0e9, 0.0)
+    return parked
+
+
+def _is_finite_vector(v):
+    try:
+        return (
+            math.isfinite(float(v.x))
+            and math.isfinite(float(v.y))
+            and math.isfinite(float(v.z))
+        )
+    except Exception:
+        return False
+
+
+def _is_sane_effector_matrix(matrix):
+    try:
+        return (
+            _is_finite_vector(matrix.off)
+            and _is_finite_vector(matrix.v1)
+            and _is_finite_vector(matrix.v2)
+            and _is_finite_vector(matrix.v3)
+            and abs(float(matrix.off.x)) < 1.0e8
+            and abs(float(matrix.off.y)) < 1.0e8
+            and abs(float(matrix.off.z)) < 1.0e8
+        )
+    except Exception:
+        return False
+
+
+def _has_mograph_effectors(effectors):
+    if effectors is None:
+        return False
+    try:
+        return int(effectors.GetObjectCount()) > 0
+    except Exception:
+        pass
+    return bool(effectors)
+
+
+def _smooth_top_target_cells(params, info, placements):
+    if str(params.get("voxel_mode", "")).lower() != "shell":
+        return None
+    cells = info.get("occupancy_cells") if info else None
+    dims = info.get("grid_dims") if info else None
+    if not cells or not dims:
+        return None
+    return shell_smooth_top_target_cells(
+        placements,
+        cells,
+        dims,
+        interior_void_cells=info.get("interior_void_cells"),
+    )
 
 
 def _collect_polygon_objects_with_matrices(obj, parent_m=None):
@@ -210,9 +291,21 @@ def _evaluate_native_mograph(
             pass
         out_matrices = []
         out_colors = []
+        invalid_matrices = 0
         for i in range(count):
-            out_matrices.append(tag[BRICK_MOGRAPH_EVAL_OUT_MATRIX_BASE + i])
+            matrix = tag[BRICK_MOGRAPH_EVAL_OUT_MATRIX_BASE + i]
+            if not _is_sane_effector_matrix(matrix):
+                matrix = matrices[i]
+                invalid_matrices += 1
+            out_matrices.append(matrix)
             out_colors.append(tag[BRICK_MOGRAPH_EVAL_OUT_COLOR_BASE + i])
+        if invalid_matrices:
+            _brick_log(
+                "[brick] Integrated MoGraph: ignored {0}/{1} invalid effector matrices after field evaluation".format(
+                    int(invalid_matrices),
+                    int(count),
+                )
+            )
         return out_matrices, out_colors
     except Exception as exc:
         _brick_log("[brick] Integrated MoGraph: native evaluator failed: {0}".format(exc))
@@ -236,6 +329,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     if origin is None:
         return None
     quality = params["quality"]
+    is_proxy_quality = int(quality) == int(QUALITY_PROXY)
 
     source_obj = op[BRICKIFYASSEMBLY_SOURCE]
     src_name = source_obj.GetName() if source_obj is not None else "mesh"
@@ -258,6 +352,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     placements = ordered_placements(self._fit_placements or [])
     smooth_plate_visual = False
     smooth_cap_ids = set()
+    smooth_target_cells = _smooth_top_target_cells(params, info, placements)
     if bool(params.get("surface_only_plates")):
         smooth_cap_ids, generated_caps = smooth_top_cap_selection_for_coverage(
             placements,
@@ -266,30 +361,58 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             cap_style=int(params.get("cap_style", 0)),
             library=None,
             seed=int(params.get("cap_random_seed", 0)),
+            target_top_cells=smooth_target_cells,
         )
         placements = ordered_placements(list(placements) + generated_caps)
         smooth_cap_ids.update(id(p) for p in generated_caps)
+        try:
+            target_size = (
+                "n/a" if smooth_target_cells is None else len(smooth_target_cells)
+            )
+            top_y_hist = {}
+            for c in generated_caps:
+                top_y_hist[int(c.y)] = top_y_hist.get(int(c.y), 0) + 1
+            top_y_hist_str = ", ".join(
+                "y{0}:{1}".format(k, v) for k, v in sorted(top_y_hist.items())
+            )
+            _brick_log(
+                "[brick] SmoothTop: voxel_mode={0}, coverage={1}, target_top_cells={2}, "
+                "structural_placements={3}, existing_selected={4}, generated_caps={5}, "
+                "caps_by_y=[{6}]".format(
+                    str(params.get("voxel_mode", "")),
+                    float(params.get("top_surface_coverage", 1.0) or 0.0),
+                    target_size,
+                    len(self._fit_placements or []),
+                    len(smooth_cap_ids) - len(generated_caps),
+                    len(generated_caps),
+                    top_y_hist_str,
+                )
+            )
+        except Exception:
+            pass
     smooth_top_by_obj = {cap_id: True for cap_id in smooth_cap_ids}
 
+    animation_placements = list(placements)
     animation_states = phased_build_animation_states(
         placements,
         params.get("build_progress", 1.0),
+        time_progress=params.get("build_progress_time", params.get("build_progress", 1.0)),
+        top_progress=params.get("smooth_top_progress", 1.0),
+        top_time_progress=params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0)),
         top_cap_ids=smooth_cap_ids,
         top_surface_start=params.get("top_surface_start", 0.85),
         top_surface_phase=params.get("top_surface_phase", 0.15),
         blend_top_surface=params.get("top_surface_blend", False),
         y_offset=params.get("build_y_offset", 25.0),
         stagger=params.get("build_stagger", 0.10),
+        hang_time=params.get("build_hang_time", 0.0),
         motion_curve=params.get("build_motion_curve", 4),
         custom_curve=params.get("build_custom_curve"),
     )
     animation_state_by_obj = {
         id(state.placement): state for state in animation_states
     }
-    visible_placements = [
-        state.placement for state in animation_states if state.local_progress > 0.0
-    ]
-    placements = visible_placements
+    placements = animation_placements
     scale_bricks_in = bool(params.get("build_scale_in", False))
     subtle_rotation = bool(params.get("build_subtle_rotation", False))
     tilt_amount = float(params.get("build_tilt_amount", 5.0))
@@ -300,9 +423,13 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     )
 
     brick_separation = float(params.get("brick_separation", 0.0) or 0.0)
-    separation_center = placement_assembly_center(placements, stud_size, plate_size)
+    separation_center = placement_assembly_center(animation_placements, stud_size, plate_size)
 
-    logo_template = self._get_logo_template_obj(params, op.GetDocument(), stud_size, plate_size)
+    logo_template = None
+    if not is_proxy_quality:
+        logo_template = self._get_logo_template_obj(
+            params, op.GetDocument(), stud_size, plate_size
+        )
     logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
     logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
     logo_surface_bias = -float(plate_size) * logo_sink
@@ -414,9 +541,10 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             name="mesh_{0}".format(name),
         )
         _center_template_mesh(mesh_obj, brick_type)
-        mesh_obj = _bake_template_logos_into_mesh(
-            mesh_obj, brick_type, smooth_top=smooth_top,
-        )
+        if not is_proxy_quality:
+            mesh_obj = _bake_template_logos_into_mesh(
+                mesh_obj, brick_type, smooth_top=smooth_top,
+            )
         mesh_obj.InsertUnder(proto)
         proto.InsertUnder(templates_root)
         type_to_template[tkey] = proto
@@ -425,6 +553,32 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_RENDERINSTANCE", 1)
 
     def _placement_scene_center(p):
+        # Smooth caps with a recorded support placement are anchored to the
+        # support's separated top so Brick Separation > 0 doesn't drift them
+        # vertically off their underlying brick.
+        support = getattr(p, "support", None)
+        if support is not None:
+            ssx, ssy, ssz = separated_center(
+                support,
+                stud_size,
+                plate_size,
+                brick_separation,
+                assembly_center=separation_center,
+            )
+            cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+            cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+            sx_local = (float(support.x) + float(support.w) * 0.5) * float(stud_size)
+            sz_local = (float(support.z) + float(support.d) * 0.5) * float(stud_size)
+            wy = (
+                ssy
+                + float(support.h) * 0.5 * float(plate_size)
+                + float(p.h) * 0.5 * float(plate_size)
+            )
+            return (
+                float(origin[0] + ssx + (cx_local - sx_local)),
+                float(origin[1] + wy),
+                float(origin[2] + ssz + (cz_local - sz_local)),
+            )
         sx, sy, sz = separated_center(
             p,
             stud_size,
@@ -459,46 +613,22 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             wz + (dz / length) * clearance,
         )
 
-    def _collision_scene_center(p, state):
-        wx, wy, wz = _placement_scene_center(p)
-        local_progress = state.local_progress if state is not None else 1.0
-        tilt_x, tilt_z = build_tilt_for_progress(
-            p,
-            local_progress,
-            enabled=subtle_rotation,
-            amount_degrees=tilt_amount,
-        )
-        clearance = build_tilt_clearance(
-            tilt_x,
-            tilt_z,
-            p.h,
-            plate_size,
-            enabled=subtle_rotation,
-        )
-        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
-        return wx, wy, wz
-
-    collision_lift_by_obj = build_collision_lift_offsets(
-        animation_states,
-        _collision_scene_center,
-        stud_size,
-        plate_size,
-        enabled=subtle_rotation,
-        tilt_amount_degrees=tilt_amount,
-        scale_enabled=scale_bricks_in,
-    )
-
     def _make_animated_centered_matrix(p):
         state = animation_state_by_obj.get(id(p))
         wx, wy, wz = _placement_scene_center(p)
         y_offset = float(state.y_offset) if state is not None else 0.0
-        wy += y_offset + float(collision_lift_by_obj.get(id(p), 0.0))
+        wy += y_offset
         local_progress = state.local_progress if state is not None else 1.0
+        contact_progress = (
+            local_progress
+            if state is None or getattr(state, "contact_progress", None) is None
+            else state.contact_progress
+        )
 
         m = c4d.Matrix()
         tilt_x, tilt_z = build_tilt_for_progress(
             p,
-            local_progress,
+            contact_progress,
             enabled=subtle_rotation,
             amount_degrees=tilt_amount,
         )
@@ -520,7 +650,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         )
         wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
 
-        scale = build_scale_for_progress(local_progress, scale_bricks_in)
+        scale = build_scale_for_progress(contact_progress, scale_bricks_in)
         m.v1 *= scale
         m.v2 *= scale
         m.v3 *= scale
@@ -535,7 +665,14 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     # fast path. (template_brick, current_smooth_top_flag, original_placement)
     fast_path_descriptors = []
     for p in placements:
-        if getattr(p, "rotation_y", 0) == 90:
+        smooth_top = bool(smooth_top_by_obj.get(id(p), False))
+        if smooth_top:
+            template_brick = SimpleNamespace(
+                width=int(getattr(p, "w", getattr(p.brick, "width", 1))),
+                depth=int(getattr(p, "d", getattr(p.brick, "depth", 1))),
+                height=int(getattr(p, "h", getattr(p.brick, "height", 1))),
+            )
+        elif getattr(p, "rotation_y", 0) == 90:
             template_brick = SimpleNamespace(
                 width=p.brick.depth,
                 depth=p.brick.width,
@@ -543,7 +680,6 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             )
         else:
             template_brick = p.brick
-        smooth_top = bool(smooth_top_by_obj.get(id(p), False))
         template = _get_template_obj(template_brick, smooth_top=smooth_top)
 
         m = _make_animated_centered_matrix(p)
@@ -552,14 +688,17 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         instance_specs.append((template_brick, template))
         fast_path_descriptors.append((template_brick, smooth_top, p))
 
-    matrices, colors = _evaluate_native_mograph(
-        op,
-        pre_matrices,
-        pre_colors,
-        params.get("mograph_effectors"),
-        skip_field_override=True,
-        label="effector",
-    )
+    if _has_mograph_effectors(params.get("mograph_effectors")):
+        matrices, colors = _evaluate_native_mograph(
+            op,
+            pre_matrices,
+            pre_colors,
+            params.get("mograph_effectors"),
+            skip_field_override=True,
+            label="effector",
+        )
+    else:
+        matrices, colors = pre_matrices, pre_colors
 
     output_mode = os.environ.get("BRICKIT_MOGRAPH_INSTANCE_OUTPUT_MODE", "expanded").strip().lower()
     # Collected per-instance for the cap-subset fast path.
@@ -575,6 +714,9 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             except Exception:
                 matrix = pre_matrices[i]
             color = colors[i] if i < len(colors) else pre_colors[i]
+            state = animation_state_by_obj.get(id(fast_path_descriptors[i][2]))
+            visible = state is not None and state.local_progress > 0.0
+            matrix = _matrix_for_visibility(matrix, visible)
             try:
                 child = c4d.InstanceObject()
             except Exception:
@@ -600,7 +742,9 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
                 child.SetInstanceColors([color])
             except Exception:
                 child.SetMl(matrix)
+            _set_object_visible(child, visible)
             _apply_object_color(child, color)
+            _update_object(child)
             child.InsertUnder(instances_root)
             fast_path_instances.append(child)
             created_instances += 1
@@ -626,6 +770,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             "type_to_template": type_to_template,
             "get_template_obj": _get_template_obj,
             "fit_placements": list(self._fit_placements or []),
+            "all_placements": list(placements),
             "params_snapshot": dict(params),
         }
         return root
@@ -747,6 +892,11 @@ def _apply_cap_subset_fast_path(self, op, params=None):
         if getattr(getattr(d[2], "brick", None), "name", "") == "visual_smooth_cap_1x1"
     ]
     smooth_cap_ids = set()
+    smooth_target_cells = _smooth_top_target_cells(
+        params,
+        self._fit_info or {},
+        structural_placements,
+    )
     if bool(params.get("surface_only_plates")):
         new_existing_ids, new_generated = smooth_top_cap_selection_for_coverage(
             structural_placements,
@@ -755,6 +905,7 @@ def _apply_cap_subset_fast_path(self, op, params=None):
             cap_style=int(params.get("cap_style", 0)),
             library=None,
             seed=int(params.get("cap_random_seed", 0)),
+            target_top_cells=smooth_target_cells,
         )
         # If generated cap COUNT or POSITIONS differ from the prior
         # build, the instance hierarchy can't be reused 1:1 — bail.
@@ -807,4 +958,213 @@ def _apply_cap_subset_fast_path(self, op, params=None):
         except Exception:
             pass
 
+    return root
+
+
+def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
+    """Update an existing Source-mode instance hierarchy for animation-only changes."""
+    state = getattr(self, "_fast_cap_state", None)
+    if state is None:
+        return None
+    root = state.get("root")
+    instances = state.get("instances") or []
+    descriptors = state.get("descriptors") or []
+    if root is None or not instances or len(instances) != len(descriptors):
+        return None
+
+    info = self._fit_info or {}
+    origin = info.get("origin")
+    if origin is None:
+        return None
+    if params is None:
+        params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+
+    stud_size = info.get("stud_size", 8.0)
+    plate_size = info.get("plate_size", 3.2)
+    animation_placements = [descriptor[2] for descriptor in descriptors]
+    smooth_cap_ids = {
+        id(descriptor[2])
+        for descriptor in descriptors
+        if bool(descriptor[1])
+    }
+
+    animation_states = phased_build_animation_states(
+        animation_placements,
+        params.get("build_progress", 1.0),
+        time_progress=params.get("build_progress_time", params.get("build_progress", 1.0)),
+        top_progress=params.get("smooth_top_progress", 1.0),
+        top_time_progress=params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0)),
+        top_cap_ids=smooth_cap_ids,
+        top_surface_start=params.get("top_surface_start", 0.85),
+        top_surface_phase=params.get("top_surface_phase", 0.15),
+        blend_top_surface=params.get("top_surface_blend", False),
+        y_offset=params.get("build_y_offset", 25.0),
+        stagger=params.get("build_stagger", 0.10),
+        hang_time=params.get("build_hang_time", 0.0),
+        motion_curve=params.get("build_motion_curve", 4),
+        custom_curve=params.get("build_custom_curve"),
+    )
+    animation_state_by_obj = {
+        id(anim_state.placement): anim_state
+        for anim_state in animation_states
+    }
+
+    from brick.separation import (
+        placement_assembly_center,
+        separated_center,
+    )
+
+    brick_separation = float(params.get("brick_separation", 0.0) or 0.0)
+    separation_center = placement_assembly_center(animation_placements, stud_size, plate_size)
+    scale_bricks_in = bool(params.get("build_scale_in", False))
+    subtle_rotation = bool(params.get("build_subtle_rotation", False))
+    tilt_amount = float(params.get("build_tilt_amount", 5.0))
+
+    def _placement_scene_center(p):
+        # Smooth caps with a recorded support placement are anchored to the
+        # support's separated top so Brick Separation > 0 doesn't drift them
+        # vertically off their underlying brick.
+        support = getattr(p, "support", None)
+        if support is not None:
+            ssx, ssy, ssz = separated_center(
+                support,
+                stud_size,
+                plate_size,
+                brick_separation,
+                assembly_center=separation_center,
+            )
+            cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+            cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+            sx_local = (float(support.x) + float(support.w) * 0.5) * float(stud_size)
+            sz_local = (float(support.z) + float(support.d) * 0.5) * float(stud_size)
+            wy = (
+                ssy
+                + float(support.h) * 0.5 * float(plate_size)
+                + float(p.h) * 0.5 * float(plate_size)
+            )
+            return (
+                float(origin[0] + ssx + (cx_local - sx_local)),
+                float(origin[1] + wy),
+                float(origin[2] + ssz + (cz_local - sz_local)),
+            )
+        sx, sy, sz = separated_center(
+            p,
+            stud_size,
+            plate_size,
+            brick_separation,
+            assembly_center=separation_center,
+        )
+        return (
+            float(origin[0] + sx),
+            float(origin[1] + sy),
+            float(origin[2] + sz),
+        )
+
+    def _apply_tilt_clearance(p, wx, wz, clearance):
+        if clearance <= 0.0:
+            return wx, wz
+        scene_center_x = float(origin[0] + separation_center[0])
+        scene_center_z = float(origin[2] + separation_center[2])
+        dx = wx - scene_center_x
+        dz = wz - scene_center_z
+        length = (dx * dx + dz * dz) ** 0.5
+        if length <= 1.0e-6:
+            dx = (float(p.x) + float(p.w) * 0.5) - float(separation_center[0] / stud_size)
+            dz = (float(p.z) + float(p.d) * 0.5) - float(separation_center[2] / stud_size)
+            length = (dx * dx + dz * dz) ** 0.5
+        if length <= 1.0e-6:
+            dx = 1.0
+            dz = 0.0
+            length = 1.0
+        return (
+            wx + (dx / length) * clearance,
+            wz + (dz / length) * clearance,
+        )
+
+    def _make_animated_centered_matrix(p):
+        anim_state = animation_state_by_obj.get(id(p))
+        wx, wy, wz = _placement_scene_center(p)
+        y_offset = float(anim_state.y_offset) if anim_state is not None else 0.0
+        wy += y_offset
+        local_progress = anim_state.local_progress if anim_state is not None else 1.0
+        contact_progress = (
+            local_progress
+            if anim_state is None or getattr(anim_state, "contact_progress", None) is None
+            else anim_state.contact_progress
+        )
+
+        matrix = c4d.Matrix()
+        tilt_x, tilt_z = build_tilt_for_progress(
+            p,
+            contact_progress,
+            enabled=subtle_rotation,
+            amount_degrees=tilt_amount,
+        )
+        if tilt_x or tilt_z:
+            try:
+                matrix = (
+                    c4d.utils.MatrixRotX(tilt_x)
+                    * c4d.utils.MatrixRotZ(tilt_z)
+                )
+            except Exception:
+                matrix = c4d.Matrix()
+
+        clearance = build_tilt_clearance(
+            tilt_x,
+            tilt_z,
+            p.h,
+            plate_size,
+            enabled=subtle_rotation,
+        )
+        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
+
+        scale = build_scale_for_progress(contact_progress, scale_bricks_in)
+        matrix.v1 *= scale
+        matrix.v2 *= scale
+        matrix.v3 *= scale
+        matrix.off = c4d.Vector(wx, wy, wz)
+        return apply_humanize_to_center_matrix(matrix, p, params)
+
+    pre_matrices = []
+    pre_colors = []
+    visible_flags = []
+    for _template_brick, _smooth_top, placement in descriptors:
+        anim_state = animation_state_by_obj.get(id(placement))
+        visible_flags.append(anim_state is not None and anim_state.local_progress > 0.0)
+        pre_matrices.append(_make_animated_centered_matrix(placement))
+        pre_colors.append(_color_vector_from_rgb(getattr(placement, "rgb", (255, 255, 255))))
+
+    if _has_mograph_effectors(params.get("mograph_effectors")):
+        matrices, colors = _evaluate_native_mograph(
+            op,
+            pre_matrices,
+            pre_colors,
+            params.get("mograph_effectors"),
+            skip_field_override=True,
+            label="effector",
+        )
+    else:
+        matrices, colors = pre_matrices, pre_colors
+
+    for i, instance in enumerate(instances):
+        matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
+        color = colors[i] if i < len(colors) else pre_colors[i]
+        matrix = _matrix_for_visibility(matrix, visible_flags[i])
+        try:
+            instance.SetInstanceMatrices([matrix])
+            instance.SetInstanceColors([color])
+        except Exception:
+            try:
+                instance.SetMl(matrix)
+            except Exception:
+                pass
+        _set_object_visible(instance, visible_flags[i])
+        _apply_object_color(instance, color)
+        _update_object(instance)
+
+    try:
+        root.Message(c4d.MSG_UPDATE)
+    except Exception:
+        pass
+    state["params_snapshot"] = dict(params)
     return root

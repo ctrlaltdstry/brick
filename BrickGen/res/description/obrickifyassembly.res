@@ -379,9 +379,10 @@ CONTAINER obrickifyassembly
             LONG BRICKIFYASSEMBLY_QUALITY
             {
                 NAME BRICKIFYASSEMBLY_QUALITY;
-                DEFAULT 1;
+                DEFAULT 3;
                 CYCLE
                 {
+                    BRICKIFYASSEMBLY_QUALITY_PROXY;
                     BRICKIFYASSEMBLY_QUALITY_DRAFT;
                     BRICKIFYASSEMBLY_QUALITY_STANDARD;
                     BRICKIFYASSEMBLY_QUALITY_HERO;
@@ -552,6 +553,17 @@ CONTAINER obrickifyassembly
                 DEFAULT 100.0;
             }
 
+            REAL BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS
+            {
+                NAME BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.01;
+                DEFAULT 100.0;
+            }
+
             REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET
             {
                 NAME BRICKIFYASSEMBLY_BUILD_Y_OFFSET;
@@ -574,6 +586,17 @@ CONTAINER obrickifyassembly
                 DEFAULT 10.0;
             }
 
+            REAL BRICKIFYASSEMBLY_BUILD_HANG_TIME
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_HANG_TIME;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.1;
+                DEFAULT 0.0;
+            }
+
             LONG BRICKIFYASSEMBLY_BUILD_MOTION_CURVE
             {
                 NAME BRICKIFYASSEMBLY_BUILD_MOTION_CURVE;
@@ -588,6 +611,7 @@ CONTAINER obrickifyassembly
                     BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM;
                     BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC;
                     BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM;
+                    BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_BOUNCE;
                 }
             }
 
@@ -613,6 +637,7 @@ CONTAINER obrickifyassembly
             {
                 NAME BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT;
                 CUSTOMGUI REALSLIDER;
+                ANIM ON;
                 SCALE_H;
                 MIN 0.0;
                 MAX 360.0;

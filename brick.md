@@ -296,12 +296,17 @@ it.**
 
 ### Quality presets
 
-Defined identically in `tools/export_hires_brick.py` and
-`BrickGen/c4d_brick_generator.pyp`. If you change one, change the
-other.
+The hires presets are defined identically in `tools/export_hires_brick.py`
+and `BrickGen/c4d_brick_generator.pyp`. If you change one, change the
+other. BrickIt also exposes a separate proxy assembly preview option.
 
+- **proxy** — BrickIt-only SOURCE preview mode using
+  `make_proxy_collider`: hollow underside shell plus coarse studs,
+  no tubes/ribs/indents and no baked stud logos. This is the default
+  lightweight interaction/playback mode for BrickIt assemblies.
 - **draft** — `body_corner_segments=4, stud_segments=16, tube_segments=16,
-  rib_segments=2`. ~1k tris.
+  rib_segments=2`. ~1k tris. In BrickIt this is the previous low hires
+  mesh detail option, distinct from proxy.
 - **standard** — `body_corner_segments=8, stud_segments=32,
   tube_segments=32, rib_segments=4`. ~5k tris. Default for the C4D
   plugin.

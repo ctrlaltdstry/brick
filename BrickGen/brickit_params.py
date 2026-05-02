@@ -46,6 +46,70 @@ def _voxel_resolution_to_studs(value):
     return int(round(float(VOXEL_RES_MIN_STUDS) * (ratio ** detail_t)))
 
 
+def _param_linear_timeline(op, param_id, fallback_progress):
+    try:
+        doc = op.GetDocument()
+    except Exception:
+        doc = None
+    if doc is None:
+        return fallback_progress
+    try:
+        fps = max(1, int(doc.GetFps()))
+        current_frame = float(doc.GetTime().GetFrame(fps))
+    except Exception:
+        return fallback_progress
+
+    desc_ids = []
+    try:
+        desc_ids.append(c4d.DescID(c4d.DescLevel(param_id)))
+    except Exception:
+        pass
+    try:
+        desc_ids.append(
+            c4d.DescID(
+                c4d.DescLevel(
+                    param_id,
+                    c4d.DTYPE_REAL,
+                    ID_BRICKIFYASSEMBLY,
+                )
+            )
+        )
+    except Exception:
+        pass
+
+    tracks = []
+    for desc_id in desc_ids:
+        try:
+            track = op.FindCTrack(desc_id)
+        except Exception:
+            track = None
+        if track is not None:
+            tracks.append(track)
+    if not tracks:
+        return fallback_progress
+
+    frames = []
+    for track in tracks:
+        try:
+            curve = track.GetCurve()
+            key_count = int(curve.GetKeyCount())
+        except Exception:
+            continue
+        for i in range(key_count):
+            try:
+                frames.append(float(curve.GetKey(i).GetTime().GetFrame(fps)))
+            except Exception:
+                pass
+    if len(frames) < 2:
+        return fallback_progress
+
+    start = min(frames)
+    end = max(frames)
+    if end <= start:
+        return fallback_progress
+    return max(0.0, min(1.0, (current_frame - start) / (end - start)))
+
+
 def _library_ui_state(op, *, sync_toggles=False):
     """Return the shared library predicates used by UI and fitting logic."""
     lib_mask = _read_library_mask(op)
@@ -89,7 +153,7 @@ def _interactive_preview_params(self, params):
             int(params["studs_across"]),
             INTERACTIVE_PREVIEW_MAX_STUDS,
         )
-    preview["quality"] = BRICKIFYASSEMBLY_QUALITY_DRAFT
+    preview["quality"] = BRICKIFYASSEMBLY_QUALITY_PROXY
     # Detail bands are expensive and noisy while dragging controls; the
     # settled rebuild restores the exact requested detail mode.
     preview["detail_mode"] = "off"
@@ -267,6 +331,20 @@ def _resolve_params(self, op, source_obj):
     if build_progress_raw is None:
         build_progress_raw = 100.0
     build_progress = max(0.0, min(1.0, float(build_progress_raw) / 100.0))
+    build_progress_time = _param_linear_timeline(
+        op,
+        BRICKIFYASSEMBLY_BUILD_PROGRESS,
+        build_progress,
+    )
+    smooth_top_progress_raw = op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS]
+    if smooth_top_progress_raw is None:
+        smooth_top_progress_raw = 100.0
+    smooth_top_progress = max(0.0, min(1.0, float(smooth_top_progress_raw) / 100.0))
+    smooth_top_progress_time = _param_linear_timeline(
+        op,
+        BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS,
+        smooth_top_progress,
+    )
     build_y_offset_raw = op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET]
     if build_y_offset_raw is None:
         build_y_offset_raw = 25.0
@@ -275,6 +353,10 @@ def _resolve_params(self, op, source_obj):
     if build_stagger_raw is None:
         build_stagger_raw = 10.0
     build_stagger = max(0.0, min(1.0, float(build_stagger_raw) / 100.0))
+    build_hang_time_raw = op[BRICKIFYASSEMBLY_BUILD_HANG_TIME]
+    if build_hang_time_raw is None:
+        build_hang_time_raw = 0.0
+    build_hang_time = max(0.0, min(1.0, float(build_hang_time_raw) / 100.0))
     build_motion_curve = int(
         op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE]
         or BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
@@ -287,6 +369,7 @@ def _resolve_params(self, op, source_obj):
         BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM,
         BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_QUADRATIC,
         BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_CUSTOM,
+        BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_BOUNCE,
     ):
         build_motion_curve = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
     build_scale_in = bool(op[BRICKIFYASSEMBLY_BUILD_SCALE_IN])
@@ -386,8 +469,12 @@ def _resolve_params(self, op, source_obj):
         "logo_blend": logo_blend,
         "logo_sink": logo_sink,
         "build_progress": build_progress,
+        "build_progress_time": build_progress_time,
+        "smooth_top_progress": smooth_top_progress,
+        "smooth_top_progress_time": smooth_top_progress_time,
         "build_y_offset": build_y_offset,
         "build_stagger": build_stagger,
+        "build_hang_time": build_hang_time,
         "build_motion_curve": build_motion_curve,
         "build_scale_in": build_scale_in,
         "build_subtle_rotation": build_subtle_rotation,

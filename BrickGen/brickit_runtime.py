@@ -1,4 +1,5 @@
 """BrickIt ObjectData runtime evaluation."""
+import os
 import time
 
 import c4d
@@ -60,10 +61,10 @@ def GetVirtualObjects(self, op, hh):
     self._sync_source_visibility(op)
     params = self._resolve_params(op, source_obj)
     actual_res_key = self._resolution_key(params)
-    # Startup responsiveness: first scene-open evaluation runs in draft.
+    # Startup responsiveness: first scene-open evaluation runs in proxy.
     if self._startup_draft_pending and not self._force_rebuild:
         params = dict(params)
-        params["quality"] = BRICKIFYASSEMBLY_QUALITY_DRAFT
+        params["quality"] = BRICKIFYASSEMBLY_QUALITY_PROXY
     use_interactive_preview = (not self._force_rebuild) and bool(
         self._interactive_preview_active
     )
@@ -90,10 +91,15 @@ def GetVirtualObjects(self, op, hh):
                 pass
             self._interactive_preview_log_key = preview_log_key
 
-    # Structural part of the hierarchy key: anything that, when changed,
-    # forces a full hierarchy rebuild (re-create instance children, recompute
-    # matrices/colors, etc.). Excludes the four cap-subset params below.
-    structural_hierarchy_key = (
+    # Topology/template part of the hierarchy key: anything that changes the
+    # fitted placement set, instance count, or template library.
+    cap_subset_key = (
+        round(float(params.get("top_surface_coverage", 1.0)), 5),
+        bool(params.get("top_surface_random_order", False)),
+        int(params.get("cap_style", 0)),
+        int(params.get("cap_random_seed", 0)),
+    )
+    topology_hierarchy_key = (
         self._source_state_key(source_obj),
         params["studs_across"],
         params["use_manual_stud_size"],
@@ -122,9 +128,19 @@ def GetVirtualObjects(self, op, hh):
         round(float(params["logo_height"]), 4),
         round(float(params["logo_blend"]), 4),
         round(float(params["logo_sink"]), 4),
+        params["lib_mask"],
+        cap_subset_key,
+    )
+    # Animation-only values can be applied by mutating the existing Source
+    # hierarchy's matrices/colors/visibility instead of rebuilding objects.
+    animation_hierarchy_key = (
         round(float(params.get("build_progress", 1.0)), 6),
+        round(float(params.get("build_progress_time", params.get("build_progress", 1.0))), 6),
+        round(float(params.get("smooth_top_progress", 1.0)), 6),
+        round(float(params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0))), 6),
         round(float(params.get("build_y_offset", 25.0)), 3),
         round(float(params.get("build_stagger", 0.10)), 5),
+        round(float(params.get("build_hang_time", 0.0)), 5),
         int(params.get("build_motion_curve", BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM)),
         bool(params.get("build_scale_in", False)),
         bool(params.get("build_subtle_rotation", False)),
@@ -139,17 +155,8 @@ def GetVirtualObjects(self, op, hh):
         round(float(params.get("humanize_position", 0.0)), 5),
         round(float(params.get("humanize_rotation", 0.0)), 5),
         params.get("mograph_effectors_key"),
-        params["lib_mask"],
     )
-    # Cap-subset part: cheap to apply by mutating template references on
-    # an existing instance hierarchy without rebuilding it.
-    cap_subset_key = (
-        round(float(params.get("top_surface_coverage", 1.0)), 5),
-        bool(params.get("top_surface_random_order", False)),
-        int(params.get("cap_style", 0)),
-        int(params.get("cap_random_seed", 0)),
-    )
-    hierarchy_key = (structural_hierarchy_key, cap_subset_key)
+    hierarchy_key = (topology_hierarchy_key, animation_hierarchy_key)
 
     cached = op.GetCache(hh)
     if (
@@ -159,40 +166,33 @@ def GetVirtualObjects(self, op, hh):
     ):
         return cached
 
-    # Fast path: structural side of the hierarchy is unchanged and only the
-    # cap subset (coverage / cap style / cap seed / random order) differs,
-    # AND we're at the final build progress (so per-placement matrices and
-    # colors are cap-independent — only template references need updating).
-    fast_path_eligible = (
+    animation_fast_path_eligible = (
         not self._force_rebuild
         and cached is not None
         and isinstance(self._hierarchy_cache_key, tuple)
         and len(self._hierarchy_cache_key) == 2
-        and self._hierarchy_cache_key[0] == structural_hierarchy_key
-        and self._hierarchy_cache_key[1] != cap_subset_key
-        and float(params.get("build_progress", 1.0)) >= 0.9999
+        and self._hierarchy_cache_key[0] == topology_hierarchy_key
+        and self._hierarchy_cache_key[1] != animation_hierarchy_key
         and params.get("visualization_mode") == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE
         and getattr(self, "_fast_cap_state", None) is not None
     )
-    if fast_path_eligible:
+    if animation_fast_path_eligible:
         try:
             t0 = time.perf_counter()
-            updated = self._apply_cap_subset_fast_path(op, params)
+            updated = self._apply_integrated_mograph_animation_fast_path(op, params)
             fast_seconds = time.perf_counter() - t0
             if updated is not None:
                 self._hierarchy_cache_key = hierarchy_key
-                try:
+                if os.environ.get("BRICKIT_LOG_ANIMATION_FAST_PATH", "").strip().lower() not in ("", "0", "false", "no"):
                     _brick_log(
-                        "[brick] Cap subset fast path: {0:.3f}s, placements={1}".format(
+                        "[brick] Animation fast path: {0:.3f}s, placements={1}".format(
                             float(fast_seconds), len(self._fit_placements or [])
                         )
                     )
-                except Exception:
-                    pass
                 return updated
         except Exception as exc:
             try:
-                _brick_log("[brick] Cap subset fast path failed, falling back: {0}".format(exc))
+                _brick_log("[brick] Animation fast path failed, falling back: {0}".format(exc))
             except Exception:
                 pass
 

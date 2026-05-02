@@ -31,6 +31,7 @@ from brickit_rs_material import (
 from brickit_mograph_generator import (
     _build_integrated_mograph_hierarchy as _build_integrated_mograph_hierarchy_impl,
     _apply_cap_subset_fast_path as _apply_cap_subset_fast_path_impl,
+    _apply_integrated_mograph_animation_fast_path as _apply_integrated_mograph_animation_fast_path_impl,
 )
 from brickit_view import _build_hierarchy as _build_view_hierarchy
 from brickit_fit import (
@@ -379,7 +380,7 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_VOXEL_MODE] = BRICKIFYASSEMBLY_VOXEL_MODE_SOLID
         op[BRICKIFYASSEMBLY_SHELL_THICKNESS] = 3
         op[BRICKIFYASSEMBLY_DETAIL_MODE] = BRICKIFYASSEMBLY_DETAIL_MODE_BALANCED
-        op[BRICKIFYASSEMBLY_QUALITY] = BRICKIFYASSEMBLY_QUALITY_DRAFT
+        op[BRICKIFYASSEMBLY_QUALITY] = BRICKIFYASSEMBLY_QUALITY_PROXY
         op[BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT] = 3
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION] = False
         op[BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED] = 1
@@ -403,8 +404,10 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_LOGO_BLEND] = 1.0
         op[BRICKIFYASSEMBLY_LOGO_SINK] = BRICKGEN_LOGO_DEFAULT_SINK
         op[BRICKIFYASSEMBLY_BUILD_PROGRESS] = 100.0
+        op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS] = 100.0
         op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0
         op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
+        op[BRICKIFYASSEMBLY_BUILD_HANG_TIME] = 0.0
         op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE] = BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
         op[BRICKIFYASSEMBLY_BUILD_SCALE_IN] = False
         op[BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION] = False
@@ -582,6 +585,9 @@ class BrickAssembly(plugins.ObjectData):
 
     def _apply_cap_subset_fast_path(self, op, params=None):
         return _apply_cap_subset_fast_path_impl(self, op, params=params)
+
+    def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
+        return _apply_integrated_mograph_animation_fast_path_impl(self, op, params=params)
 
     def GetVirtualObjects(self, op, hh):
         return _runtime_get_virtual_objects(self, op, hh)
