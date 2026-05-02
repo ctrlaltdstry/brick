@@ -6,14 +6,24 @@ conventions below; only revisit them when the user explicitly says to.
 
 ## What this project is
 
-A Cinema 4D plugin that generates structurally-buildable LEGO bricks (and,
-eventually, full LEGO assemblies converted from arbitrary 3D models). The
-generator runs as a C4D `ObjectData` plugin; the same Python package can
-also be driven from the command line.
+A Cinema 4D plugin suite for generating structurally-buildable LEGO bricks
+and brick assemblies from source meshes. The C4D side runs as ObjectData
+plugins; the same Python package can also be driven from the command line.
 
-The C4D port is **live** — `Brick` is a working ObjectData
-plugin that loads `brick.brick_geom_hires.make_brick_hires`. Width,
-Depth, Height (plates), and Quality are exposed as object parameters.
+The C4D port is **live**:
+
+- **BrickGen / Brick** is the single-brick generator. It loads
+  `brick.brick_geom_hires.make_brick_hires`; Width, Depth, Height
+  (plates), and Quality are exposed as object parameters.
+- **BrickIt** is the assembly generator. It fits source meshes into brick
+  placements, exposes Proxy/Draft/Standard/Hero preview/render qualities,
+  supports build animation, and emits the integrated SOURCE-mode MoGraph
+  hierarchy used for effectors, fields, and Redshift per-brick color.
+
+Current pushed checkpoint before this guide refresh:
+`e65e10c` (`Update BrickIt animation and proxy workflow`). It includes the
+Smooth Top animation controls, proxy quality defaults, integrated MoGraph
+animation updates, and `tools/diagnose_brickit_animation_jump.py`.
 
 ## Project layout
 
@@ -24,7 +34,7 @@ Z:\02_MKE\2026\BRICK\brick\           ← repo root
     brick_geom_hires.py                ← LIVE generator
     brick_geom.py                      ← deprecated SubD-cage version
     mesh.py, fitter.py, voxelize.py, ...
-  BrickGen\                      ← C4D plugin source, deployed as Brick
+  BrickGen\                            ← C4D plugin source, deployed as Brick
     c4d_brick_generator.pyp
     c4d_symbols.py
     res\
@@ -43,6 +53,14 @@ the package instead of inside it. Imports silently resolved to a stale
 older copy. If "old-looking" output appears unexpectedly, sanity-check
 that the live `brick_geom_hires.py` lives at `brick/brick_geom_hires.py`.
 
+**Naming / ID trap, do not churn**: project branding is Brick, the source
+plugin folder is `BrickGen`, the deployed plugin folder is currently
+`Brick`, the assembly object shown in C4D is `BrickIt`, and the canonical
+Python package is `brick`. Many internal symbol IDs and resource filenames
+still intentionally use legacy `BRICKIFYASSEMBLY` / `obrickifyassembly`
+tokens for scene/resource stability. Do not rename those just to make the
+strings prettier.
+
 ## C4D plugin workflow
 
 C4D loads the plugin from
@@ -59,6 +77,14 @@ redeployment — the plugin imports the package live from
 `Z:\02_MKE\2026\BRICK\brick` (hardcoded fallback in
 `ensure_brick_on_path`). Just restart C4D (or recreate the
 Brick object so its mesh cache invalidates).
+
+`tools/deploy_plugin.ps1` copies repo `BrickGen` to C4D plugin folder
+`plugins\Brick`, moves stale sibling plugin folders (`BrickGen`,
+`BrickGenerator`, old `.bak_*` folders) into `plugin_backups`, strips
+`__pycache__`, and nests `bricklibrary.inline_gui` under the deployed
+plugin when the native GUI build is available. If C4D reports duplicate
+plugin registration, check for stale plugin folders under the C4D
+`plugins` root first.
 
 The plugin's `Brick` ObjectData caches results on
 `(width, depth, height, quality)`. Changing any of those re-runs
@@ -79,26 +105,30 @@ powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1; $p = Get-Proce
 Use this as the default post-deploy operator loop unless the user asks
 to open a different `.c4d` file or skip restart for a specific reason.
 
-## Pipeline (mesh → bricks) — ASSEMBLY pipeline, not yet wired to plugin
+## Pipeline (mesh → bricks) / BrickIt assembly
 
-The full mesh-to-brick-assembly pipeline is implemented in the package
-but not yet exposed in C4D:
+The mesh-to-brick-assembly pipeline is implemented in the package and is
+now wired into the C4D plugin through the **BrickIt** ObjectData workflow.
+The same core pipeline remains usable from tools/scripts:
 
 1. Load OBJ with named groups (`voxelize.load_obj_grouped`)
 2. Voxelize at a resolution chosen by stud_size & plate_size
    (`voxelize.voxelize_mesh`)
 3. Greedy fit of brick library to voxel grid (`fitter.BrickFitter`)
-4. Build coupling graph and prune to largest connected component
-   (`connectivity` module, MANDATORY — structural connectivity is a hard
-   requirement)
+4. Build coupling graph and prune according to the active mode
+   (`connectivity` module; structural connectivity remains a hard
+   requirement for physical output)
 5. Export as OBJ + JSON manifest grouped by brick_type for MoGraph
    (`exporters.export_json`, `exporters.export_ldraw`)
 
 The fitter stores raw RGB on each `BrickPlacement`. Palette quantization
 is optional and decoupled from the pipeline — by design.
 
-`assembly.py` still calls the old `make_brick_mesh`, not
-`make_brick_hires`. Swap before next full pipeline run.
+`assembly.py` is legacy/offline plumbing and may still refer to older
+single-brick APIs. The live C4D BrickIt path is split across
+`BrickGen/brickit_fit.py`, `BrickGen/brickit_view.py`,
+`BrickGen/brickit_runtime.py`, and the core `brick.pipeline` /
+`brick.fitter` modules.
 
 ### BrickIt Make Physically Accurate mode contract — DO NOT REGRESS
 
@@ -163,6 +193,13 @@ The locked-in answer:
   ran was producing colors that disagreed with Redshift's no-material
   gradient. The effector message alone now produces the same colors RS
   reads in the no-material fallback.
+- If native effector evaluation returns non-finite or absurd matrices,
+  the integrated path falls back to that brick's pre-effector matrix and
+  logs one warning instead of letting a bad field/effector state explode
+  the scene. Separate caveat: if every Field layer is removed from a Plain
+  Effector, C4D can apply the effector at full strength (for example,
+  scale-to-zero). Disappearing bricks in that case may be legitimate
+  C4D effector behavior, not a BrickIt transform bug.
 - The Redshift material the user must wire on the BrickIt object is a
   **`Color User Data` node with Attribute Name = `RSObjectColor`**.
   That is the exact, case-sensitive attribute string Redshift maps the
@@ -231,8 +268,10 @@ that's the supported path for per-brick color in Redshift.
 
 Each per-type template proto in
 `BrickGen/brickit_mograph_generator.py::_get_template_obj` must be a
-`Null` containing **exactly one** polygon child (the brick mesh,
-with stud logos baked into it via `_bake_template_logos_into_mesh`).
+`Null` containing **exactly one** polygon child. In high-res template
+paths, stud logos are baked into that one polygon child via
+`_bake_template_logos_into_mesh`. Proxy templates intentionally do not
+bake stud logos, but the one-polygon-child invariant still applies.
 Do not regress to attaching logo polygon children alongside the
 brick mesh under the same Null.
 
@@ -253,25 +292,53 @@ must run the same per-placement animation pipeline as the standard view
 path, or sliders on the Animate tab silently no-op:
 
 - Compute `phased_build_animation_states(...)` with the same arguments
-  the view uses (`build_progress`, `top_cap_ids`, `top_surface_start`,
-  `top_surface_phase`, `top_surface_blend`, `build_y_offset`,
-  `build_stagger`, `build_motion_curve`, `build_custom_curve`).
+  the view uses: `build_progress`, linear `build_progress_time`,
+  independent `smooth_top_progress` / `smooth_top_progress_time`,
+  `top_cap_ids`, `top_surface_start`, `top_surface_phase`,
+  `top_surface_blend`, `build_y_offset`, `build_stagger`,
+  `build_hang_time`, `build_motion_curve`, and `build_custom_curve`.
 - Filter placements to `state.local_progress > 0.0` so bricks correctly
   appear/disappear with Build Progress.
 - Per placement, build the matrix at the brick's CENTER pivot
   (`separated_center`, not `separated_low_corner`), then apply
   `build_tilt_for_progress`, `build_tilt_clearance`,
   `build_scale_for_progress`, and `apply_humanize_to_center_matrix`.
+- Tilt and scale-in use `BuildAnimationState.contact_progress`, not raw
+  rebound progress, so rotation/scale finish by first landing/contact and
+  a bounce rebound does not reintroduce tilt or tiny scale.
+- Stagger is timed from an upward Y-layer frontier. Lower layers that have
+  already landed must not un-settle when the Stagger slider changes.
+- `BRICKIFYASSEMBLY_BUILD_TILT_AMOUNT` must stay keyframeable (`ANIM ON`
+  in `obrickifyassembly.res`).
 - Templates emitted under `templates_root` must be **centered** —
   shift the mesh points by `-(w/2, h/2, d/2)` (and shift logo offsets
   by the same amount inside the template). Do not regress to
   low-corner templates / `apply_humanize_to_low_corner_matrix`; the
   matrix math above assumes a centered pivot.
 
+`BrickGen/brickit_runtime.py` has an animation fast path for SOURCE mode:
+when topology is unchanged and only animation/effectors move, it mutates
+the existing hierarchy's matrices/colors/visibility instead of rebuilding
+all objects. Set `BRICKIT_LOG_ANIMATION_FAST_PATH=1` to log timing while
+debugging scrubbing or playback performance.
+
 If the Animate tab sliders ever stop affecting the integrated MoGraph
 output, the first thing to check is whether `phased_build_animation_states`
 is still being called and whether `_make_animated_centered_matrix` is
 still wired up.
+
+Guardrail / diagnostic:
+
+```
+python tools/test_brickit_animation.py
+```
+
+Run this before changing BrickIt animation, Smooth Top, stagger, bounce,
+hang time, scale-in, tilt, or integrated animation matrix code. For C4D
+timeline jumps that only show up in-scene, run
+`tools/diagnose_brickit_animation_jump.py` from Cinema 4D's Script Manager
+with the BrickIt object selected; it writes
+`brickit_animation_jump_report.txt` to the Desktop.
 
 ## The brick generator (current focus)
 
@@ -296,20 +363,24 @@ it.**
 
 ### Quality presets
 
-The hires presets are defined identically in `tools/export_hires_brick.py`
-and `BrickGen/c4d_brick_generator.pyp`. If you change one, change the
-other. BrickIt also exposes a separate proxy assembly preview option.
+`BrickGen/quality_presets.py` is the single source of truth for quality
+IDs and hires geometry presets. `tools/export_hires_brick.py`,
+`BrickGen/brickgen_object.py`, `BrickGen/mesh_bridge.py`, and BrickIt
+modules import from there. Do not reintroduce duplicated segment dictionaries
+in `tools/export_hires_brick.py` or `BrickGen/c4d_brick_generator.pyp`.
 
 - **proxy** — BrickIt-only SOURCE preview mode using
   `make_proxy_collider`: hollow underside shell plus coarse studs,
   no tubes/ribs/indents and no baked stud logos. This is the default
-  lightweight interaction/playback mode for BrickIt assemblies.
+  lightweight interaction/playback mode for BrickIt assemblies. Numeric ID
+  is `3`; keep it out of `QUALITY_PRESET_NAME_TO_ID` because the CLI hires
+  exporter only accepts Draft/Standard/Hero.
 - **draft** — `body_corner_segments=4, stud_segments=16, tube_segments=16,
   rib_segments=2`. ~1k tris. In BrickIt this is the previous low hires
   mesh detail option, distinct from proxy.
 - **standard** — `body_corner_segments=8, stud_segments=32,
-  tube_segments=32, rib_segments=4`. ~5k tris. Default for the C4D
-  plugin.
+  tube_segments=32, rib_segments=4`. ~5k tris. Default for the single-brick
+  Brick/BrickGen object.
 - **hero** — `body_corner_segments=16, stud_segments=100,
   tube_segments=100, rib_segments=8`. Plus
   `body_fillet_radius=0.4, stud_fillet_radius=0.18,
@@ -477,13 +548,17 @@ visualization but not for hero shots.
 
 ## What's NOT done yet
 
-- Logo support (SVG-extruded polygons on each stud) is in `brick_geom.py`
-  but not in `brick_geom_hires.py`. Re-wire when needed.
-- `assembly.py` still calls the old `make_brick_mesh`, not
-  `make_brick_hires`. Swap before next full pipeline run.
-- Full mesh→assembly pipeline (voxelize → fit → connectivity → export)
-  is not yet exposed as a C4D command. The plugin currently generates
-  single bricks only.
+- `brick_geom_hires.py` does not natively emit SVG-extruded logos as part
+  of the core single-brick mesh. BrickIt handles logos at the template
+  level and the integrated MoGraph path bakes them into a single polygon
+  child when needed. Keep that distinction clear.
+- `assembly.py` is legacy/offline plumbing and may still refer to older
+  single-brick APIs. Do not treat it as the live BrickIt C4D path without
+  checking the current `BrickGen/brickit_*` modules first.
+- The old "plugin only generates single bricks" statement is obsolete.
+  BrickIt is the live C4D assembly object. What is still future work is
+  broader assembly intelligence beyond the current fitter/preview/render
+  workflow.
 - v2 features: SNOT, articulation repair, region color clustering,
   anti-stud plates, OBJ instance dedup, bracket library. Don't start any
   of these without explicit user request.
