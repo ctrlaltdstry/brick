@@ -5,16 +5,23 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot      = Split-Path -Parent $PSScriptRoot
 $source        = Join-Path $repoRoot "BrickGen"
+$corePackage   = Join-Path $repoRoot "brick"
+$vendorSource  = Join-Path $repoRoot "vendor"
 $c4dRoot       = "C:\Users\Mike\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12"
 $c4dPlugins    = Join-Path $c4dRoot "plugins"
 $backupRoot    = Join-Path $c4dRoot "plugin_backups"
 $target        = Join-Path $c4dPlugins "Brick"
+$targetCore    = Join-Path $target "brick"
+$targetVendor  = Join-Path $target "vendor"
 $nativeGuiName = "bricklibrary.inline_gui"
 $targetNative  = Join-Path $target $nativeGuiName
 $rootNative    = Join-Path $c4dPlugins $nativeGuiName
 
 if (-not (Test-Path $source)) {
     throw "Source plugin folder not found: $source"
+}
+if (-not (Test-Path (Join-Path $corePackage "__init__.py"))) {
+    throw "Core brick package not found: $corePackage"
 }
 if (-not (Test-Path $c4dPlugins)) {
     throw "C4D plugins folder not found: $c4dPlugins"
@@ -83,6 +90,11 @@ Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGen") -Label "Brick
 Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGenerator") -Label "BrickGenerator"
 
 Copy-Item -Path $source -Destination $target -Recurse -Force
+Copy-Item -Path $corePackage -Destination $targetCore -Recurse -Force
+if (Test-Path $vendorSource) {
+    Copy-Item -Path $vendorSource -Destination $targetVendor -Recurse -Force
+    Write-Host "Bundled vendor deps: $targetVendor"
+}
 
 # Strip pycache to force a fresh import on next C4D launch
 Get-ChildItem -Path $target -Recurse -Directory -Filter "__pycache__" |

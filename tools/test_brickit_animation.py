@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "BrickGen"))
 
-from brickit_animation import (  # noqa: E402
+from brickit.brickit_animation import (  # noqa: E402
     BUILD_ANIMATION_DEFAULT_Y_OFFSET,
     BUILD_ANIMATION_DEFAULT_TILT_DEGREES,
     BUILD_ANIMATION_FIXED_MOTION_DURATION,

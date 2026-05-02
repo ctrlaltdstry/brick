@@ -37,6 +37,7 @@ Z:\02_MKE\2026\BRICK\brick\           ← repo root
   BrickGen\                            ← C4D plugin source, deployed as Brick
     c4d_brick_generator.pyp
     c4d_symbols.py
+    brickit\                            ← BrickIt assembly ObjectData modules
     res\
   tools\
     export_hires_brick.py              ← CLI wrapper around make_brick_hires
@@ -72,19 +73,44 @@ then deploy with:
 powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1
 ```
 
-Geometry-only changes inside `brick/*.py` do **not** need
-redeployment — the plugin imports the package live from
-`Z:\02_MKE\2026\BRICK\brick` (hardcoded fallback in
-`ensure_brick_on_path`). Just restart C4D (or recreate the
-Brick object so its mesh cache invalidates).
+The deployed plugin is self-contained for repo code: `deploy_plugin.ps1`
+copies both `BrickGen/` and the core `brick/` package into
+`plugins\Brick`. After changing `brick/*.py`, redeploy before testing in
+C4D so the bundled runtime copy is refreshed. `BRICK_ROOT` remains an
+override for unusual local debugging, and the old `Z:\02_MKE\2026\BRICK\brick`
+path is only a development fallback.
 
-`tools/deploy_plugin.ps1` copies repo `BrickGen` to C4D plugin folder
-`plugins\Brick`, moves stale sibling plugin folders (`BrickGen`,
-`BrickGenerator`, old `.bak_*` folders) into `plugin_backups`, strips
-`__pycache__`, and nests `bricklibrary.inline_gui` under the deployed
-plugin when the native GUI build is available. If C4D reports duplicate
-plugin registration, check for stale plugin folders under the C4D
-`plugins` root first.
+`tools/deploy_plugin.ps1` copies repo `BrickGen` and `brick` to C4D
+plugin folder `plugins\Brick`, includes `vendor/` when present, moves stale
+sibling plugin folders (`BrickGen`, `BrickGenerator`, old `.bak_*` folders)
+into `plugin_backups`, strips `__pycache__`, and nests
+`bricklibrary.inline_gui` under the deployed plugin when the native GUI build
+is available. If C4D reports duplicate plugin registration, check for stale
+plugin folders under the C4D `plugins` root first.
+
+### Runtime distribution workflow
+
+The first no-extra-steps package target is **Windows + Cinema 4D 2026**.
+Vendored dependencies are built with:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\vendor_c4d_deps.ps1
+```
+
+That downloads Windows CPython 3.11 wheels for `numpy` and `scipy` and
+unpacks them into repo `vendor/`. Do not use these vendored wheels for other
+platforms or Cinema 4D/Python versions without rebuilding and retesting.
+
+Build the runtime-only user package with:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1
+```
+
+The output is `dist\Brick`. It contains only the plugin runtime, bundled
+`brick/`, bundled `vendor/`, C4D resources, optional native GUI files, and
+`README_INSTALL.md`. It intentionally omits `tools/`, tests, project handoff
+docs, backups, caches, and generated outputs.
 
 The plugin's `Brick` ObjectData caches results on
 `(width, depth, height, quality)`. Changing any of those re-runs
@@ -126,8 +152,8 @@ is optional and decoupled from the pipeline — by design.
 
 `assembly.py` is legacy/offline plumbing and may still refer to older
 single-brick APIs. The live C4D BrickIt path is split across
-`BrickGen/brickit_fit.py`, `BrickGen/brickit_view.py`,
-`BrickGen/brickit_runtime.py`, and the core `brick.pipeline` /
+`BrickGen/brickit/brickit_fit.py`, `BrickGen/brickit/brickit_view.py`,
+`BrickGen/brickit/brickit_runtime.py`, and the core `brick.pipeline` /
 `brick.fitter` modules.
 
 ### BrickIt Make Physically Accurate mode contract — DO NOT REGRESS
@@ -168,7 +194,7 @@ runtime gates the integrated hierarchy purely on
 `visualization_mode == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE`. The
 debug viz modes (Shell Wireframe / Voxel Debug / Brick Size / Shell
 Depth) still go through the legacy `_build_hierarchy` in
-`BrickGen/brickit_view.py`. `Create Proxies`, `Proxy / High Res`, and
+`BrickGen/brickit/brickit_view.py`. `Create Proxies`, `Proxy / High Res`, and
 `Create RS Color Material` remain in the Library group. Old saved scenes
 that referenced parameter IDs `2092` (`MOGRAPH_OUTPUT`) or `2048`
 (`CREATE_MOGRAPH`) will produce a one-time "unknown parameter" log on
@@ -183,7 +209,7 @@ The locked-in answer:
   (`SetInstanceMatrices([m])`, `SetInstanceColors([c])`), and also sets
   `ID_BASEOBJECT_USECOLOR=ALWAYS` + `ID_BASEOBJECT_COLOR=c` on each
   carrier. This is the "expanded one-instance-per-carrier" mode in
-  `BrickGen/brickit_mograph_generator.py`. Do not switch the default
+  `BrickGen/brickit/brickit_mograph_generator.py`. Do not switch the default
   back to grouped multi-instance carriers — that shuffles `RSObjectColor`
   vs the no-material gradient (per-clone index disagrees with the carrier
   multi-instance index).
@@ -210,7 +236,7 @@ The locked-in answer:
 - The BrickIt AM has a one-click **Create RS Color Material** button
   that builds exactly this material (`BrickIt_PerBrick_Color`) and
   attaches it to the BrickIt object. Implementation in
-  `BrickGen/brickit_rs_material.py`. Two non-obvious things in there
+  `BrickGen/brickit/brickit_rs_material.py`. Two non-obvious things in there
   to keep working: (1) `CreateEmptyGraph` must be called BEFORE
   `doc.InsertMaterial`, then re-fetch with `GetGraph`, then
   `BeginTransaction`. (2) Redshift's Color User Data output port is
@@ -259,7 +285,7 @@ The only remaining theoretically-viable path for `RSMGColor` is a
 real `Omgcloner` per template with object-link arrays driving the
 clones (one Cloner per `(width, depth, height)` template, fed by an
 array of per-brick matrices and colors). That is a structural
-refactor of `BrickGen/brickit_mograph_generator.py` and shall not
+refactor of `BrickGen/brickit/brickit_mograph_generator.py` and shall not
 be started without explicit user go-ahead. Continue to recommend
 `RSObjectColor` via the **Create RS Color Material** button —
 that's the supported path for per-brick color in Redshift.
@@ -267,7 +293,7 @@ that's the supported path for per-brick color in Redshift.
 ### Integrated MoGraph template shape — DO NOT REGRESS
 
 Each per-type template proto in
-`BrickGen/brickit_mograph_generator.py::_get_template_obj` must be a
+`BrickGen/brickit/brickit_mograph_generator.py::_get_template_obj` must be a
 `Null` containing **exactly one** polygon child. In high-res template
 paths, stud logos are baked into that one polygon child via
 `_bake_template_logos_into_mesh`. Proxy templates intentionally do not
@@ -287,7 +313,7 @@ result is identical.
 
 ### Integrated MoGraph animation path — DO NOT REGRESS
 
-The integrated MoGraph generator (`BrickGen/brickit_mograph_generator.py`)
+The integrated MoGraph generator (`BrickGen/brickit/brickit_mograph_generator.py`)
 must run the same per-placement animation pipeline as the standard view
 path, or sliders on the Animate tab silently no-op:
 
@@ -316,7 +342,7 @@ path, or sliders on the Animate tab silently no-op:
   low-corner templates / `apply_humanize_to_low_corner_matrix`; the
   matrix math above assumes a centered pivot.
 
-`BrickGen/brickit_runtime.py` has an animation fast path for SOURCE mode:
+`BrickGen/brickit/brickit_runtime.py` has an animation fast path for SOURCE mode:
 when topology is unchanged and only animation/effectors move, it mutates
 the existing hierarchy's matrices/colors/visibility instead of rebuilding
 all objects. Set `BRICKIT_LOG_ANIMATION_FAST_PATH=1` to log timing while
@@ -554,7 +580,7 @@ visualization but not for hero shots.
   child when needed. Keep that distinction clear.
 - `assembly.py` is legacy/offline plumbing and may still refer to older
   single-brick APIs. Do not treat it as the live BrickIt C4D path without
-  checking the current `BrickGen/brickit_*` modules first.
+  checking the current `BrickGen/brickit/brickit_*` modules first.
 - The old "plugin only generates single bricks" statement is obsolete.
   BrickIt is the live C4D assembly object. What is still future work is
   broader assembly intelligence beyond the current fitter/preview/render

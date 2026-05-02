@@ -40,11 +40,13 @@ def ensure_brick_on_path():
     if env_root:
         candidates.append(env_root)
 
-    # C4D loads the deployed plugin from AppData, so keep explicit dev roots.
-    candidates.append(r"Z:\02_MKE\2026\BRICK\brick")
-
+    # Prefer a bundled `brick/` package beside the installed plugin before
+    # falling back to development paths.
     walk = here
     for _ in range(6):
+        vendor_dir = os.path.join(walk, "vendor")
+        if os.path.isdir(vendor_dir):
+            candidates.append(vendor_dir)
         pkg_init = os.path.join(walk, "brick", "__init__.py")
         if os.path.isfile(pkg_init):
             candidates.append(walk)
@@ -53,6 +55,9 @@ def ensure_brick_on_path():
             break
         walk = parent
     candidates.append(here)
+
+    # Development fallback for local, unpackaged runs.
+    candidates.append(r"Z:\02_MKE\2026\BRICK\brick")
 
     try:
         candidates.extend(site.getsitepackages())
@@ -83,8 +88,9 @@ def ensure_brick_on_path():
         ordered.append(p)
 
     for p in reversed(ordered):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+        while p in sys.path:
+            sys.path.remove(p)
+        sys.path.insert(0, p)
 
 
 def reload_brick_modules():

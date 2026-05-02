@@ -11,7 +11,7 @@ if _PLUGIN_DIR not in sys.path:
 
 from c4d_symbols import *  # noqa: F401,F403 - re-exported for headless tools.
 from brickgen_object import BrickGen
-from brickit_object import BrickAssembly
+from brickit.brickit_object import BrickAssembly
 from library_panel import BRICK_TOGGLE_NAMES
 from mesh_bridge import build_brick, mesh_to_polygon_object  # noqa: F401 - compatibility API.
 
@@ -130,7 +130,7 @@ def register():
     # command plugin. The library UI is kept embedded in BrickIt's Attribute
     # Manager instead of showing a separate "Brick Panel" plugin entry.
     try:
-        from brickit_effectors_autohook import register as _register_brickit_autohook
+        from brickit.brickit_effectors_autohook import register as _register_brickit_autohook
         _register_brickit_autohook()
     except Exception as exc:
         print("[brick] BrickIt effectors auto-hook register failed:", exc)
