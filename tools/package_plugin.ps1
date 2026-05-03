@@ -58,6 +58,14 @@ if (Test-Path $readme) {
     Copy-Item -Path $readme -Destination (Join-Path $packageRoot "README_INSTALL.md") -Force
 }
 
+# Bundle the user manual so the in-AM "Open User Manual" button can serve
+# it offline. The Python button handler looks for USER_MANUAL.html next to
+# the plugin first and falls back to the canonical GitHub URL otherwise.
+$userManual = Join-Path $repoRoot "USER_MANUAL.html"
+if (Test-Path $userManual) {
+    Copy-Item -Path $userManual -Destination (Join-Path $packageRoot "USER_MANUAL.html") -Force
+}
+
 # Strip development/generated content from the runtime package.
 $directoryFilters = @(
     "__pycache__",
