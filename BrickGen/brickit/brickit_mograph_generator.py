@@ -236,6 +236,12 @@ def _evaluate_native_mograph(
 ):
     """Evaluate matrices/colors through the native C++ MoData helper tag.
 
+    Returns ``(out_matrices, out_colors, out_visible)`` where ``out_visible``
+    is a per-clone list of bools reflecting the effector ``MOGENFLAG_CLONE_ON``
+    state after evaluation (``True`` = visible). ``None`` is used when the
+    native evaluator is unavailable or fell back, in which case callers
+    should treat all clones as visible.
+
     `frame_matrix` is the input matrices' parent-local matrix relative to op
     (i.e. the integrated root Null's local matrix, ``~op_mg * source_mg``).
     The native evaluator hands `op` to effectors as their generator, so it
@@ -247,14 +253,14 @@ def _evaluate_native_mograph(
     world identity, or coincident with the source axis) this is a no-op.
     """
     if not matrices:
-        return [], []
+        return [], [], None
     try:
         tag = c4d.BaseTag(ID_BRICK_MOGRAPH_EVALUATOR_TAG)
     except Exception:
         tag = None
     if tag is None:
         _brick_log("[brick] Integrated MoGraph: native evaluator tag unavailable")
-        return matrices, colors
+        return matrices, colors, None
 
     inv_frame = None
     if frame_matrix is not None:
@@ -280,7 +286,7 @@ def _evaluate_native_mograph(
         tag.Message(MSG_BRICK_MOGRAPH_EVALUATE)
         if not bool(tag[BRICK_MOGRAPH_EVAL_OK]):
             _brick_log("[brick] Integrated MoGraph: native evaluator reported no result")
-            return matrices, colors
+            return matrices, colors, None
         try:
             color_changed = int(tag[BRICK_MOGRAPH_EVAL_COLOR_CHANGED])
             field_color_modes = int(tag[BRICK_MOGRAPH_EVAL_FIELD_COLOR_MODE_COUNT])
@@ -316,6 +322,7 @@ def _evaluate_native_mograph(
             pass
         out_matrices = []
         out_colors = []
+        out_visible = []
         invalid_matrices = 0
         for i in range(count):
             matrix = tag[BRICK_MOGRAPH_EVAL_OUT_MATRIX_BASE + i]
@@ -326,6 +333,10 @@ def _evaluate_native_mograph(
                 invalid_matrices += 1
             out_matrices.append(matrix)
             out_colors.append(tag[BRICK_MOGRAPH_EVAL_OUT_COLOR_BASE + i])
+            try:
+                out_visible.append(bool(tag[BRICK_MOGRAPH_EVAL_OUT_VISIBLE_BASE + i]))
+            except Exception:
+                out_visible.append(True)
         if invalid_matrices:
             _brick_log(
                 "[brick] Integrated MoGraph: ignored {0}/{1} invalid effector matrices after field evaluation".format(
@@ -333,15 +344,25 @@ def _evaluate_native_mograph(
                     int(count),
                 )
             )
+        try:
+            visibility_changed = int(tag[BRICK_MOGRAPH_EVAL_VISIBILITY_CHANGED])
+            if visibility_changed:
+                _brick_log(
+                    "[brick] Integrated MoGraph visibility[{0}]: hidden_by_effectors={1}/{2}".format(
+                        label, int(visibility_changed), int(count),
+                    )
+                )
+        except Exception:
+            pass
         if inv_frame is not None:
             try:
                 out_matrices = [inv_frame * m for m in out_matrices]
             except Exception:
                 pass
-        return out_matrices, out_colors
+        return out_matrices, out_colors, out_visible
     except Exception as exc:
         _brick_log("[brick] Integrated MoGraph: native evaluator failed: {0}".format(exc))
-        return matrices, colors
+        return matrices, colors, None
 
 
 def _build_integrated_mograph_hierarchy(self, op, params=None):
@@ -722,7 +743,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         fast_path_descriptors.append((template_brick, smooth_top, p))
 
     if _has_mograph_effectors(params.get("mograph_effectors")):
-        matrices, colors = _evaluate_native_mograph(
+        matrices, colors, effector_visible = _evaluate_native_mograph(
             op,
             pre_matrices,
             pre_colors,
@@ -732,7 +753,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             frame_matrix=source_axis_local_matrix(op, source_obj),
         )
     else:
-        matrices, colors = pre_matrices, pre_colors
+        matrices, colors, effector_visible = pre_matrices, pre_colors, None
 
     output_mode = os.environ.get("BRICKIT_MOGRAPH_INSTANCE_OUTPUT_MODE", "expanded").strip().lower()
     # Collected per-instance for the cap-subset fast path.
@@ -750,7 +771,13 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
                 matrix = pre_matrices[i]
             color = colors[i] if i < len(colors) else pre_colors[i]
             state = animation_state_by_obj.get(id(fast_path_descriptors[i][2]))
-            visible = state is not None and state.local_progress > 0.0
+            anim_visible = state is not None and state.local_progress > 0.0
+            eff_visible = (
+                effector_visible[i]
+                if effector_visible is not None and i < len(effector_visible)
+                else True
+            )
+            visible = bool(anim_visible) and bool(eff_visible)
             matrix = _matrix_for_visibility(matrix, visible)
             try:
                 child = c4d.InstanceObject()
@@ -1182,7 +1209,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         pre_colors.append(_color_vector_from_rgb(getattr(placement, "rgb", (255, 255, 255))))
 
     if _has_mograph_effectors(params.get("mograph_effectors")):
-        matrices, colors = _evaluate_native_mograph(
+        matrices, colors, effector_visible = _evaluate_native_mograph(
             op,
             pre_matrices,
             pre_colors,
@@ -1192,7 +1219,16 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             frame_matrix=source_axis_local_matrix(op, op[BRICKIFYASSEMBLY_SOURCE]),
         )
     else:
-        matrices, colors = pre_matrices, pre_colors
+        matrices, colors, effector_visible = pre_matrices, pre_colors, None
+
+    def _carrier_visible(i):
+        anim = bool(visible_flags[i]) if i < len(visible_flags) else True
+        eff = (
+            effector_visible[i]
+            if effector_visible is not None and i < len(effector_visible)
+            else True
+        )
+        return anim and bool(eff)
 
     # Effector-present fast path: recreate InstanceObject carriers under
     # their existing group-null parents. Mutating cached carriers via
@@ -1207,7 +1243,8 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         for i, instance in enumerate(instances):
             matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
             color = colors[i] if i < len(colors) else pre_colors[i]
-            matrix = _matrix_for_visibility(matrix, visible_flags[i])
+            visible = _carrier_visible(i)
+            matrix = _matrix_for_visibility(matrix, visible)
             template_brick, smooth_top, _placement = descriptors[i]
             try:
                 group_parent = instance.GetUp()
@@ -1250,7 +1287,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
                     child.SetMl(matrix)
                 except Exception:
                     pass
-            _set_object_visible(child, visible_flags[i])
+            _set_object_visible(child, visible)
             _apply_object_color(child, color)
             _update_object(child)
             if group_parent is not None:
@@ -1266,7 +1303,8 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         for i, instance in enumerate(instances):
             matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
             color = colors[i] if i < len(colors) else pre_colors[i]
-            matrix = _matrix_for_visibility(matrix, visible_flags[i])
+            visible = _carrier_visible(i)
+            matrix = _matrix_for_visibility(matrix, visible)
             try:
                 instance.SetInstanceMatrices([matrix])
                 instance.SetInstanceColors([color])
@@ -1275,7 +1313,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
                     instance.SetMl(matrix)
                 except Exception:
                     pass
-            _set_object_visible(instance, visible_flags[i])
+            _set_object_visible(instance, visible)
             _apply_object_color(instance, color)
             _update_object(instance)
 

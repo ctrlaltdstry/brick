@@ -29,12 +29,14 @@ static const Int32 g_brick_mograph_eval_effector_color_changed = 1008;
 static const Int32 g_brick_mograph_eval_post_field_color_changed = 1009;
 static const Int32 g_brick_mograph_eval_manual_field_skipped = 1010;
 static const Int32 g_brick_mograph_eval_sample_count = 1011;
+static const Int32 g_brick_mograph_eval_visibility_changed = 1012;
 static const Int32 g_brick_mograph_eval_in_matrix_base = 200000;
 static const Int32 g_brick_mograph_eval_in_color_base = 300000;
 static const Int32 g_brick_mograph_eval_out_matrix_base = 400000;
 static const Int32 g_brick_mograph_eval_out_color_base = 500000;
 static const Int32 g_brick_mograph_eval_effector_color_sample_base = 600000;
 static const Int32 g_brick_mograph_eval_field_color_sample_base = 601000;
+static const Int32 g_brick_mograph_eval_out_visible_base = 700000;
 static const Int32 g_brick_count = 15;
 static const Int32 g_cols = 6;
 static const Int32 g_userarea_id = 2000;
@@ -878,12 +880,14 @@ public:
 			SetMoDataColorSamples(bc, g_brick_mograph_eval_field_color_sample_base, md, count);
 		}
 
+		Int32 visibilityChanged = 0;
 		if (ok)
 		{
 			AutoLocker lock(md->GetAutoLock());
 			MDArray<Matrix> matrices = md->GetMatrixArray(MODATA_MATRIX);
 			MDArray<Vector> colors = md->GetVectorArray(MODATA_COLOR);
-			if (!matrices || !colors)
+			MDArray<Int32> flags = md->GetLongArray(MODATA_FLAGS);
+			if (!matrices || !colors || !flags)
 			{
 				ok = false;
 			}
@@ -893,11 +897,16 @@ public:
 				{
 					bc.SetMatrix(g_brick_mograph_eval_out_matrix_base + i, matrices[i]);
 					bc.SetVector(g_brick_mograph_eval_out_color_base + i, colors[i]);
+					const Bool visible = (flags[i] & MOGENFLAG_CLONE_ON) != 0;
+					bc.SetBool(g_brick_mograph_eval_out_visible_base + i, visible);
+					if (!visible)
+						++visibilityChanged;
 				}
 			}
 		}
 
 		bc.SetInt32(g_brick_mograph_eval_color_changed, bc.GetInt32(g_brick_mograph_eval_post_field_color_changed, 0));
+		bc.SetInt32(g_brick_mograph_eval_visibility_changed, visibilityChanged);
 		bc.SetBool(g_brick_mograph_eval_ok, ok);
 		MoData::Free(md);
 		return true;
