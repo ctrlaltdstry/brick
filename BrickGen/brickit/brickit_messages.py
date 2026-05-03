@@ -17,7 +17,10 @@ from library_panel import (
     sync_library_mask_from_toggles as _sync_library_mask_from_toggles,
     toggle_id as _toggle_id,
 )
-from plugin_bootstrap import reload_brick_modules as _reload_brick_modules
+from plugin_bootstrap import (
+    open_user_manual as _open_user_manual,
+    reload_brick_modules as _reload_brick_modules,
+)
 
 
 def _apply_library_preset(self, op, preset_id):
@@ -126,6 +129,11 @@ def Message(self, op, msg_type, data):
             self._swap_proxy_to_render_handoff(op)
         elif desc_id == BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL:
             self._create_rs_color_material(op)
+        elif desc_id == BRICKIFYASSEMBLY_OPEN_USER_MANUAL:
+            try:
+                _open_user_manual()
+            except Exception:
+                pass
         elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
             self._open_library_picker(op)
         elif desc_id in (

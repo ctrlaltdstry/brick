@@ -96,6 +96,14 @@ if (Test-Path $vendorSource) {
     Write-Host "Bundled vendor deps: $targetVendor"
 }
 
+# Bundle the user manual HTML alongside the plugin so the BrickGen / BrickIt
+# "Open User Manual" button can serve it offline without a network round-trip.
+$userManual = Join-Path $repoRoot "USER_MANUAL.html"
+if (Test-Path $userManual) {
+    Copy-Item -Path $userManual -Destination (Join-Path $target "USER_MANUAL.html") -Force
+    Write-Host "Bundled user manual: $(Join-Path $target 'USER_MANUAL.html')"
+}
+
 # Strip pycache to force a fresh import on next C4D launch
 Get-ChildItem -Path $target -Recurse -Directory -Filter "__pycache__" |
     ForEach-Object { Remove-Item $_.FullName -Recurse -Force }

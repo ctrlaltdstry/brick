@@ -12,7 +12,7 @@ from logo_helpers import (
     normalized_logo_mesh_object,
 )
 from mesh_bridge import build_brick, mesh_to_polygon_object
-from plugin_bootstrap import ensure_brick_on_path
+from plugin_bootstrap import ensure_brick_on_path, open_user_manual
 from quality_presets import QUALITY_PRESETS
 from source_geometry import generator_document
 
@@ -52,6 +52,17 @@ class BrickGen(plugins.ObjectData):
         self._logo_cache = {}
 
     def Message(self, op, msg_type, data):
+        if msg_type == c4d.MSG_DESCRIPTION_COMMAND:
+            try:
+                desc_id = data["id"][0].id
+            except Exception:
+                desc_id = -1
+            if desc_id == BRICKGENERATOR_OPEN_USER_MANUAL:
+                try:
+                    open_user_manual()
+                except Exception:
+                    pass
+            return True
         if msg_type == c4d.MSG_DESCRIPTION_POSTSETPARAMETER:
             try:
                 desc_id = -1

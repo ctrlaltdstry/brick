@@ -23,6 +23,11 @@ CONTAINER obrickifyassembly
                     SCALE_H;
                 }
             }
+
+            BUTTON BRICKIFYASSEMBLY_OPEN_USER_MANUAL
+            {
+                NAME BRICKIFYASSEMBLY_OPEN_USER_MANUAL;
+            }
         }
 
         GROUP BRICKIFYASSEMBLY_GROUP_SOURCE

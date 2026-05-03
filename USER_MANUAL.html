@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brick — User Manual</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  a { color: #c8332b; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    background: #f5f5f5;
+    border-right: 1px solid #e0e0e0;
+    overflow-y: auto;
+    padding: 28px 20px;
+  }
+  aside h2 {
+    margin: 0 0 18px;
+    font-size: 18px;
+    color: #c8332b;
+    letter-spacing: 0.02em;
+  }
+  aside .tagline {
+    font-size: 12px;
+    color: #777;
+    margin: -12px 0 22px;
+  }
+  aside nav { display: flex; flex-direction: column; }
+  aside nav a {
+    color: #333;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    border-left: 2px solid transparent;
+  }
+  aside nav a:hover {
+    background: #ececec;
+    text-decoration: none;
+  }
+  aside nav a.section {
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  aside nav a.sub {
+    padding-left: 22px;
+    font-size: 13px;
+    color: #555;
+  }
+  aside nav a.sub2 {
+    padding-left: 36px;
+    font-size: 12.5px;
+    color: #777;
+  }
+
+  main {
+    margin-left: 280px;
+    padding: 36px 56px 80px;
+    max-width: 940px;
+  }
+  h1 {
+    color: #c8332b;
+    font-size: 28px;
+    margin: 0 0 4px;
+    letter-spacing: 0.01em;
+  }
+  .subtitle {
+    color: #666;
+    margin: 0 0 32px;
+    font-size: 15px;
+  }
+  h2 {
+    margin: 44px 0 12px;
+    font-size: 22px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 6px;
+    color: #222;
+  }
+  h3 {
+    margin: 32px 0 10px;
+    font-size: 17px;
+    color: #c8332b;
+  }
+  h4 {
+    margin: 22px 0 6px;
+    font-size: 15px;
+    color: #333;
+  }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 24px; margin: 10px 0; }
+  li { margin: 4px 0; }
+  li > ul { margin-top: 4px; }
+  code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: "SF Mono", Consolas, "Courier New", monospace;
+    color: #c8332b;
+  }
+  pre {
+    background: #f5f5f5;
+    padding: 12px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: "SF Mono", Consolas, "Courier New", monospace;
+    font-size: 13px;
+    border-left: 3px solid #c8332b;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: #1a1a1a;
+  }
+  hr {
+    border: 0;
+    border-top: 1px solid #e0e0e0;
+    margin: 44px 0;
+  }
+  strong { color: #111; }
+  em { color: #444; }
+  table {
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid #e0e0e0;
+    padding: 6px 12px;
+    text-align: left;
+  }
+  th { background: #f5f5f5; }
+
+  @media (max-width: 800px) {
+    aside { position: static; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid #e0e0e0; }
+    main { margin-left: 0; padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <h2>Brick</h2>
+  <div class="tagline">Cinema 4D plugin — user manual</div>
+  <nav>
+    <a href="#install" class="section">Install</a>
+
+    <a href="#brick" class="section">Brick — single-brick generator</a>
+    <a href="#brick-add" class="sub">Adding it</a>
+    <a href="#brick-params" class="sub">Parameters</a>
+    <a href="#brick-logo" class="sub">Stud Logo (optional)</a>
+
+    <a href="#brickit" class="section">BrickIt — mesh-to-brick assembly</a>
+    <a href="#brickit-quick" class="sub">Quick start</a>
+    <a href="#tab-shape" class="sub">Shape tab</a>
+      <a href="#shape-source" class="sub2">Source</a>
+      <a href="#shape-voxel" class="sub2">Voxelization</a>
+      <a href="#shape-buildtype" class="sub2">Build Type</a>
+      <a href="#shape-style" class="sub2">Brick Size Style</a>
+      <a href="#shape-finish" class="sub2">Surface finishing</a>
+      <a href="#shape-smoothtop" class="sub2">Smooth Top Surfaces</a>
+    <a href="#tab-bricks" class="sub">Bricks tab</a>
+      <a href="#bricks-choose" class="sub2">Choose Bricks</a>
+      <a href="#bricks-plates" class="sub2">Plate behavior</a>
+      <a href="#bricks-variation" class="sub2">Per-Brick Variation</a>
+    <a href="#tab-look" class="sub">Look tab</a>
+      <a href="#look-quality" class="sub2">Render Quality</a>
+      <a href="#look-logo" class="sub2">Custom Logo</a>
+      <a href="#look-preview" class="sub2">Preview Mode</a>
+      <a href="#look-live" class="sub2">Live Update / Rebuild</a>
+    <a href="#tab-animate" class="sub">Animate tab</a>
+      <a href="#animate-core" class="sub2">Core sliders</a>
+      <a href="#animate-physics" class="sub2">Drop physics</a>
+      <a href="#animate-polish" class="sub2">Polish</a>
+      <a href="#animate-topfinish" class="sub2">Top finish timing</a>
+    <a href="#tab-effectors" class="sub">Effectors tab</a>
+      <a href="#effectors-list" class="sub2">Effectors list</a>
+      <a href="#effectors-supported" class="sub2">Supported effectors</a>
+      <a href="#effectors-color" class="sub2">Per-brick color in Redshift</a>
+    <a href="#tab-tools" class="sub">Tools tab</a>
+
+    <a href="#recipes" class="section">Workflow recipes</a>
+    <a href="#recipe-hero" class="sub">Render a hero shot</a>
+    <a href="#recipe-build" class="sub">Set up a build animation</a>
+    <a href="#recipe-field" class="sub">Field-driven color and visibility</a>
+    <a href="#recipe-perf" class="sub">Big assembly, slow viewport</a>
+
+    <a href="#tips" class="section">Tips and troubleshooting</a>
+  </nav>
+</aside>
+
+<main>
+
+<h1>Brick — User Manual</h1>
+<p class="subtitle">Cinema 4D plugin suite for generating LEGO-style bricks and assemblies.</p>
+
+<p>Two objects ship in the same plugin:</p>
+<ul>
+  <li><strong>Brick</strong> — a single parametric brick.</li>
+  <li><strong>BrickIt</strong> — converts any source mesh into a structurally-buildable brick assembly with animation, MoGraph effectors, and per-brick color in Redshift.</li>
+</ul>
+
+<hr>
+
+<h2 id="install">Install</h2>
+<p>Supported package: Windows + Cinema 4D 2026.</p>
+<ol>
+  <li>Close Cinema 4D.</li>
+  <li>Unzip the release into your Cinema 4D user plugins folder so the plugin ends up at:
+    <pre><code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\Brick</code></pre>
+  </li>
+  <li>Start Cinema 4D. Both objects appear under the plugin menu:
+    <ul>
+      <li><code>Brick</code> — single brick generator.</li>
+      <li><code>BrickIt</code> — source-mesh-to-brick assembly.</li>
+    </ul>
+  </li>
+</ol>
+<p>The package is self-contained — Python dependencies (numpy, scipy) are vendored. You should not need to install anything yourself.</p>
+
+<hr>
+
+<h2 id="brick">Brick — single-brick generator</h2>
+<p>Use this when you want a clean parametric brick (for stills, beauty shots, hero set dressing, or as the source for your own MoGraph cloner).</p>
+
+<h3 id="brick-add">Adding it</h3>
+<p>Object menu → <strong>Brick</strong>. The default is a 2×4 brick.</p>
+
+<h3 id="brick-params">Parameters</h3>
+<ul>
+  <li><strong>Type</strong> — Brick (full plate-3 height) or Plate (1/3 height).</li>
+  <li><strong>Width</strong> — studs along X (1–8).</li>
+  <li><strong>Depth</strong> — studs along Z (1–8).</li>
+  <li><strong>Height</strong> — plates tall (1–8). One plate is 3.2 mm, three plates make a full brick.</li>
+  <li><strong>Quality</strong> — geometry detail:
+    <ul>
+      <li><strong>Draft</strong> — ~1k tris. Fast.</li>
+      <li><strong>Standard</strong> — ~5k tris. Good default for layout.</li>
+      <li><strong>Hero</strong> — ~50k verts on a 2×3, full filleted edges, dense studs and tubes. Use for renders.</li>
+    </ul>
+  </li>
+</ul>
+<p>The mesh is generated with named polygon selections (<code>body</code>, <code>studs</code>, <code>underside</code>, <code>tubes</code>) so you can apply different materials per region.</p>
+
+<h3 id="brick-logo">Stud Logo (optional)</h3>
+<p>Replace the default flat stud top with your own embossed logo:</p>
+<ul>
+  <li><strong>Use Custom Stud Logo</strong> — toggles the feature.</li>
+  <li><strong>Logo Source Mesh</strong> — link any polygon object. Its silhouette is projected onto each stud top.</li>
+  <li><strong>Logo Rotation</strong> — 0 / 90 / 180 / 270 degrees.</li>
+  <li><strong>Logo Fill %</strong> — how much of the stud top the logo occupies.</li>
+  <li><strong>Logo Height</strong> — embossed depth.</li>
+  <li><strong>Logo Blend</strong> — how softly the logo edges fade into the stud surface.</li>
+  <li><strong>Logo Sink</strong> — recess the logo below the stud surface (useful when you want the logo carved in rather than raised).</li>
+</ul>
+
+<hr>
+
+<h2 id="brickit">BrickIt — mesh-to-brick assembly</h2>
+<p>Drop in any polygon object, link it as the Source Mesh, and BrickIt voxelizes the mesh and tiles it with bricks. Real-time preview, animation, MoGraph effectors, Redshift per-brick color all work on the live output.</p>
+
+<h3 id="brickit-quick">Quick start</h3>
+<ol>
+  <li>Object menu → <strong>BrickIt</strong>.</li>
+  <li>Drag a polygon object into <strong>Source Mesh</strong> on the Shape tab.</li>
+  <li>The default settings produce a 2×4-brick shaped assembly. Adjust <strong>Resolution</strong> and <strong>Target Studs Across</strong> until the silhouette matches what you want.</li>
+  <li>Switch <strong>Brick Mesh Detail</strong> (Look tab) to <strong>Hero</strong> for a final render.</li>
+</ol>
+<p>The BrickIt object's parameters are organized into six tabs:</p>
+<ul>
+  <li><strong>Shape</strong> — voxelization, build type, surface finishing.</li>
+  <li><strong>Bricks</strong> — which brick sizes to use, plate-stack rules, per-brick variation.</li>
+  <li><strong>Look</strong> — render quality, preview mode, custom stud logo, live-update.</li>
+  <li><strong>Animate</strong> — build animation, smooth-top finishing animation.</li>
+  <li><strong>Effectors</strong> — MoGraph effectors that drive matrix and color (and now visibility).</li>
+  <li><strong>Tools / Surface Finish</strong> — utility buttons (proxy generator, RS color material, hide source mesh).</li>
+</ul>
+
+<h3 id="tab-shape">Shape tab</h3>
+<p>This is where you decide how the source mesh is sampled and what brick "texture" the assembly has.</p>
+
+<h4 id="shape-source">Source</h4>
+<ul>
+  <li><strong>Source Mesh</strong> — the polygon object BrickIt fits bricks into. Any polygon object works (Polygon Object, Spline Polygonized, Mesh Object, primitives made editable). The source's <em>world transform</em> defines where the brick assembly appears — moving the source moves the bricks; scaling it scales the assembly.</li>
+</ul>
+
+<h4 id="shape-voxel">Voxelization</h4>
+<ul>
+  <li><strong>Resolution</strong> — slider 0.1–1.0 controlling how many voxels are sampled. Lower = chunkier bricks, faster builds. Higher = finer detail, slower.</li>
+  <li><strong>Target Studs Across</strong> — sets the brick assembly width by stud count. Increase to get finer detail at the same source size; decrease for a blockier look.</li>
+  <li><strong>Use Custom Scale</strong> + <strong>Stud Size</strong> — override the auto-derived stud size with a fixed value. Useful when the brickified output needs to match a specific real-world scale.</li>
+  <li><strong>Algorithm</strong> — voxelization backend:
+    <ul>
+      <li><strong>Simple</strong> — internal voxelizer. Faster, less precise on thin features.</li>
+      <li><strong>Detailed</strong> — Cinema 4D Volume (<code>MeshToVolume</code>) sampling. Slower but handles thin walls and concave surfaces much better. Recommended for most production work.</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="shape-buildtype">Build Type</h4>
+<ul>
+  <li><strong>Solid</strong> — fill the entire interior with bricks.</li>
+  <li><strong>Shell</strong> — only place bricks within <code>Wall Thickness</code> of the surface. Lighter assemblies, hollow inside.</li>
+  <li><strong>Wall Thickness</strong> — only used in Shell mode. Number of brick layers inward from the surface.</li>
+</ul>
+
+<h4 id="shape-style">Brick Size Style</h4>
+<p>How aggressively BrickIt picks larger bricks vs smaller ones:</p>
+<ul>
+  <li><strong>Simple</strong> — favors larger brick sizes; fewest pieces.</li>
+  <li><strong>Balanced</strong> — default mix.</li>
+  <li><strong>Preserve Small Features</strong> — tries hardest to keep thin source details visible, even if it means many small bricks.</li>
+</ul>
+
+<h4 id="shape-finish">Surface finishing</h4>
+<ul>
+  <li><strong>Make Physically Accurate</strong> — when ON, the assembly must be a single connected structure (drops floating clusters; you can build it with real bricks). When OFF, BrickIt prioritizes silhouette accuracy and fills boundary cells with 1×1s as needed; physically separate islands are kept.</li>
+  <li><strong>Keep Tiny Gaps</strong> — preserves narrow gaps in the source by allowing smaller bricks; off by default for cleaner output.</li>
+  <li><strong>Clean Small Details</strong> — removes stray single-brick protrusions that read as noise rather than detail.</li>
+</ul>
+
+<h4 id="shape-smoothtop">Smooth Top Surfaces</h4>
+<p>Replace the lumpy top of the assembly with flat plates. When enabled:</p>
+<ul>
+  <li><strong>Cap Style</strong>:
+    <ul>
+      <li><strong>Match Brick Below</strong> — cap each top column with a plate the same footprint as the brick beneath it (most uniform look).</li>
+      <li><strong>Largest Merged Plates</strong> — pack the top with the biggest plates that fit (cleanest geometric look).</li>
+      <li><strong>Random Library Mix</strong> — random plates from your library selection.</li>
+    </ul>
+  </li>
+  <li><strong>Cap Random Seed</strong> — seed for the Random Library Mix style.</li>
+  <li><strong>Top Finish Starts At</strong> / <strong>Top Finish Duration</strong> — animation timing for when the smooth-top plates appear during Build Progress (see Animate tab).</li>
+  <li><strong>Smooth Top Coverage</strong> — fraction of top cells that get smoothed (1.0 = full coverage; lower values leave some studs poking through).</li>
+  <li><strong>Randomize Top Finish</strong> / <strong>Blend Top Finish</strong> — animation order and cross-fade behavior for the cap-on-top reveal.</li>
+</ul>
+
+<h3 id="tab-bricks">Bricks tab</h3>
+<p>Controls <em>which</em> brick sizes BrickIt is allowed to use and how plates and heights are handled.</p>
+
+<h4 id="bricks-choose">Choose Bricks</h4>
+<p>A thumbnail picker showing the 22 stock brick sizes (1×1 through 2×8 plus 3×3, 3×4, 3×6, 3×8). Click a thumbnail to toggle that size in/out of the active library. The current selection is the search space the fitter draws from.</p>
+<p><strong>Quick Select</strong> buttons:</p>
+<ul>
+  <li><strong>All</strong> — enable every brick.</li>
+  <li><strong>None</strong> — disable everything (you'll get an empty assembly until you add at least one).</li>
+  <li><strong>Invert</strong> — flip the current selection.</li>
+  <li><strong>Bricks</strong> / <strong>Plates</strong> — limit to one brick height class.</li>
+  <li><strong>1×1 Only</strong> — useful for a "voxel-perfect" look that ignores larger bricks entirely.</li>
+</ul>
+<p><strong>Open Thumbnail Picker</strong> — pops up a larger floating picker (handy on small monitors).</p>
+
+<h4 id="bricks-plates">Plate behavior</h4>
+<ul>
+  <li><strong>Use Plates</strong> — when ON, the fitter can use 1-plate-tall bricks (plates) in addition to 3-plate bricks. Lets the assembly hug curves more tightly at the cost of more total pieces.</li>
+  <li><strong>Brick Height (preset)</strong> — quick preset for the height search:
+    <ul>
+      <li><strong>Fine</strong> — allow plates and tall bricks.</li>
+      <li><strong>Balanced</strong> — default.</li>
+      <li><strong>Blocky</strong> — bias toward full bricks.</li>
+    </ul>
+  </li>
+  <li><strong>Vary Brick Heights</strong> — randomly mix tall and short bricks across the assembly for a less grid-uniform look.</li>
+  <li><strong>Variation Seed</strong> / <strong>Variation Amount</strong> — seed and intensity for that randomization.</li>
+  <li><strong>Merge Plate Stacks into Bricks</strong> — when three vertically-aligned plates can be replaced by one brick, do so. Reduces piece count.</li>
+</ul>
+
+<h4 id="bricks-variation">Per-Brick Variation</h4>
+<ul>
+  <li><strong>Brick Separation</strong> — adds a tiny gap between bricks (in scene units). Useful for renders where you want to read the seams. 0 = bricks touch exactly.</li>
+  <li><strong>Humanize Bricks</strong> — when ON, every brick gets a small random offset and rotation so the assembly looks hand-built rather than CNC-perfect.</li>
+  <li><strong>Humanize Seed</strong> — controls the random pattern.</li>
+  <li><strong>Position Variation</strong> / <strong>Rotation Variation</strong> — magnitude of the jitter (each 0–1 or 0–2). Use small values; the effect compounds.</li>
+</ul>
+
+<h3 id="tab-look">Look tab</h3>
+<p>Render quality, custom stud logos, preview/debug modes, live update.</p>
+
+<h4 id="look-quality">Render Quality</h4>
+<ul>
+  <li><strong>Brick Mesh Detail</strong> — geometry density per brick:
+    <ul>
+      <li><strong>Proxy</strong> — hollow shell + coarse studs, no tubes/ribs/indents. Lightest possible. Use for layout, animation playback, MoGraph effector setup. This is the default.</li>
+      <li><strong>Draft</strong> — ~1k tris, plain studs, low detail.</li>
+      <li><strong>Standard</strong> — ~5k tris, full anatomy, render-passable for distant shots.</li>
+      <li><strong>Hero</strong> — ~50k verts per brick with full edge fillets, dense studs and tubes, baked stud logos. Use for hero renders.</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="look-logo">Custom Logo</h4>
+<p>(Same controls as the Brick object): replace the flat top-of-stud with a custom embossed logo. Only baked at Hero quality — Proxy/Draft/Standard skip stud logos for performance.</p>
+
+<h4 id="look-preview">Preview Mode</h4>
+<ul>
+  <li><strong>Source Color</strong> — the live brick assembly with per-brick color from the source mesh. This is the normal working mode.</li>
+  <li><strong>Shell Wireframe</strong> — debug mode showing brick outlines on the source shell. Useful for checking voxelization results.</li>
+  <li><strong>Voxel Overlay</strong> — debug mode showing raw voxel cells, color-coded by shell depth.</li>
+</ul>
+
+<h4 id="look-live">Live Update / Rebuild Now</h4>
+<ul>
+  <li><strong>Live Update</strong> ON (default) — the assembly rebuilds whenever a slider changes. Best for interactive scrubbing.</li>
+  <li><strong>Live Update</strong> OFF — sliders only update the cached state. Press <strong>Rebuild Now</strong> to commit. Use this on heavy scenes when scrubbing feels sluggish.</li>
+</ul>
+
+<h3 id="tab-animate">Animate tab</h3>
+<p>Per-brick build animation. Bricks fall in from above, optionally bounce or tilt, and smooth-top plates can fade in last.</p>
+
+<h4 id="animate-core">Core sliders</h4>
+<ul>
+  <li><strong>Build Progress</strong> — 0 → 1 reveals the assembly. 0 = empty, 1 = fully built. Keyframe this for a "build" animation.</li>
+  <li><strong>Smooth Top Progress</strong> — 0 → 1 reveals the smooth-top cap separately from the body. Has no effect unless Smooth Top Surfaces is on.</li>
+</ul>
+
+<h4 id="animate-physics">Drop physics</h4>
+<ul>
+  <li><strong>Lift Height</strong> — how far above its final position each brick starts (in scene units).</li>
+  <li><strong>Stagger Amount</strong> — 0 = all bricks land simultaneously; higher values spread the landing across the timeline by Y-layer (lower bricks land first).</li>
+  <li><strong>Brick Hang Time</strong> — adds a pause before the brick starts moving. Lets later bricks build anticipation.</li>
+  <li><strong>Motion Style</strong> — easing curve:
+    <ul>
+      <li><strong>Ease</strong>, <strong>Ease In</strong>, <strong>Ease Out</strong>, <strong>Quadratic</strong> — classic curves.</li>
+      <li><strong>Spring</strong>, <strong>Bounce</strong> — bricks overshoot and settle.</li>
+      <li><strong>Slam</strong> — fast drop with hard stop (default; gives the LEGO snap).</li>
+      <li><strong>Custom Curve</strong> — use the <strong>Custom Motion Curve</strong> field to draw your own.</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="animate-polish">Polish</h4>
+<ul>
+  <li><strong>Scale Bricks In</strong> — bricks scale from a point up to full size as they land (rather than appearing at full size and falling).</li>
+  <li><strong>Use Rotation</strong> — bricks tumble slightly while falling.</li>
+  <li><strong>Tilt Amount</strong> — how strong the tumble is. Keyframeable.</li>
+</ul>
+
+<h4 id="animate-topfinish">Top finish timing</h4>
+<p>(Only matters with Smooth Top Surfaces on.)</p>
+<ul>
+  <li><strong>Top Finish Starts At</strong> — fraction of Build Progress at which the cap starts revealing.</li>
+  <li><strong>Top Finish Duration</strong> — how long the cap reveal takes.</li>
+  <li><strong>Smooth Top Coverage</strong>, <strong>Randomize Top Finish</strong>, <strong>Blend Top Finish</strong> — already covered on the Shape tab.</li>
+</ul>
+
+<h3 id="tab-effectors">Effectors tab</h3>
+<p>BrickIt accepts standard Cinema 4D MoGraph effectors and drives per-brick matrix and color from them.</p>
+
+<h4 id="effectors-list">Effectors list</h4>
+<p>The list at the top is an InExclude that stores which effectors apply to this BrickIt. Drag effectors in manually, or rely on auto-link: when you <strong>create</strong> a new MoGraph effector while a BrickIt object is selected, that new effector is automatically appended to BrickIt's Effectors list. (Pre-existing effectors are not auto-added — only newly-created ones.)</p>
+
+<h4 id="effectors-supported">Supported effectors</h4>
+<p>Plain, Random, Shader, Delay, Formula, Step, Sound, Time, Push Apart, Inheritance, Python, ReEffector, Effector Target, Weight Effector, plus anything that derives from the C4D base effector class. They all can drive:</p>
+<ul>
+  <li><strong>Position / Rotation / Scale</strong> — per-brick transform deltas.</li>
+  <li><strong>Color</strong> (Color Mode = User Defined or Field) — per-brick display color that flows into the <strong>Create RS Color Material</strong> path.</li>
+  <li><strong>Visibility</strong> — toggling the Plain effector's Visibility checkbox with a connected Field hides bricks where the field touches them. Hidden bricks drop out of both viewport and Redshift draw lists, not just shrink to zero.</li>
+</ul>
+
+<h4 id="effectors-color">Per-brick color in Redshift</h4>
+<p>Effectors that set color need a material that reads it. Click <strong>Create RS Color Material</strong> (Tools tab) and BrickIt builds and assigns <code>BrickIt_PerBrick_Color</code> — a Redshift node graph wired to the <code>RSObjectColor</code> user data attribute. After that, any color set by an effector (or by the source mesh sampling) shows up at render time.</p>
+<p>If you build the material yourself, the only requirement is a <code>Color User Data</code> node with <strong>Attribute Name</strong> = <code>RSObjectColor</code> (the case-sensitive attribute string Redshift maps the per-instance color to). The "Object Color" preset works because it stores <code>RSObjectColor</code> under the hood.</p>
+
+<h3 id="tab-tools">Tools tab — Surface Finish / utility actions</h3>
+<ul>
+  <li><strong>Hide Source Mesh</strong> — toggles the source polygon object's editor + render visibility. Convenient because the source usually overlaps the brick assembly.</li>
+  <li><strong>Create Proxies</strong> — bakes the live brick assembly into a static hierarchy under the BrickIt object: one Fracture object containing grouped Nulls per source-mesh region, with per-brick instances inside. This is what you reach for when you want to do dynamics, manual selection, or any work that needs real edit-able geometry instead of a live cache.</li>
+  <li><strong>Proxy / High Res</strong> — toggles the proxy hierarchy between Proxy-quality carrier meshes (light) and current-Brick-Mesh-Detail meshes (renderable). Quick way to hide the proxies during interaction and bring them back for the render pass.</li>
+  <li><strong>Create RS Color Material</strong> — see the Effectors section above.</li>
+</ul>
+
+<hr>
+
+<h2 id="recipes">Workflow recipes</h2>
+
+<h3 id="recipe-hero">Render a hero shot</h3>
+<ol>
+  <li>Drop a BrickIt, link your source.</li>
+  <li>On the Shape tab, <strong>Algorithm = Detailed</strong>.</li>
+  <li>On the Bricks tab, pick the brick sizes you want and a sensible variation.</li>
+  <li>On the Look tab, <strong>Brick Mesh Detail = Hero</strong>.</li>
+  <li><strong>Create RS Color Material</strong> (Tools tab) so per-brick color renders.</li>
+  <li>Render.</li>
+</ol>
+
+<h3 id="recipe-build">Set up a build animation</h3>
+<ol>
+  <li>With BrickIt configured to your liking on the Shape and Bricks tabs:</li>
+  <li>Animate tab → keyframe <strong>Build Progress</strong> from 0 (start of timeline) to 1 (end of timeline).</li>
+  <li>Pick a Motion Style (Slam is the default LEGO drop). Adjust <strong>Lift Height</strong> and <strong>Stagger Amount</strong> to taste.</li>
+  <li>If you have Smooth Top Surfaces on, also keyframe <strong>Smooth Top Progress</strong> so the cap finishes after the body builds.</li>
+  <li>Render with Brick Mesh Detail at Hero. (For animation playback, switch to Proxy quality first.)</li>
+</ol>
+
+<h3 id="recipe-field">Field-driven color and visibility</h3>
+<ol>
+  <li>Drop a BrickIt and a Plain effector. The Plain auto-links into BrickIt's Effectors list.</li>
+  <li>On the Plain effector, set <strong>Color Mode = Field</strong> and add a Field (e.g. Random Field, Spherical Field) under Falloff.</li>
+  <li><strong>Create RS Color Material</strong> to wire the per-brick color path.</li>
+  <li>To hide bricks the field touches: enable <strong>Visibility</strong> on the Plain effector and set Field strength such that touched clones turn off. Hidden bricks fall completely out of the scene rather than scaling to zero, so a moving Field is much lighter to interact with.</li>
+</ol>
+
+<h3 id="recipe-perf">Big assembly, slow viewport</h3>
+<ol>
+  <li><strong>Brick Mesh Detail = Proxy</strong> during interaction.</li>
+  <li>Turn <strong>Live Update</strong> off; press <strong>Rebuild Now</strong> when you want to see a change.</li>
+  <li>Use <strong>Hide Source Mesh</strong> so you only see the brick output.</li>
+  <li>Switch back to Hero only for the final render.</li>
+</ol>
+
+<hr>
+
+<h2 id="tips">Tips and troubleshooting</h2>
+
+<p><strong>Bricks render flat black in Redshift.</strong> Wire a Redshift material with a Color User Data node, Attribute Name = <code>RSObjectColor</code>. The <strong>Create RS Color Material</strong> button does this for you. Don't use the literal string "Object Color" — Redshift maps it via the underlying attribute string, not the menu label.</p>
+
+<p><strong>The assembly jumps when I add a MoGraph effector.</strong> This is fixed in the current build (effectors now anchor correctly to the source mesh's world position even when BrickIt sits at a different transform). If you see it, you're probably running an older build — update to the latest preview.</p>
+
+<p><strong>Animation is sluggish when an effector is active.</strong> Drop to Proxy quality on the Look tab while you scrub, switch back to Hero for the render. The effector-active fast path rebuilds carrier instances each frame; Proxy geometry makes that ~10× cheaper.</p>
+
+<p><strong>The brickified output is missing pieces in interior cavities.</strong> That's Shell mode at work — switch the Shape tab to <strong>Solid</strong> if you want the interior filled.</p>
+
+<p><strong>Adding 1×1 bricks to fill a boundary creates noise.</strong> Turn on <strong>Clean Small Details</strong> on the Shape tab, or switch <strong>Brick Size Style</strong> to <strong>Simple</strong> so the fitter prefers larger pieces.</p>
+
+<p><strong>Make Editable produces selection or material chaos.</strong> The non-Make-Editable workflow (using <strong>Create RS Color Material</strong>) is the recommended path for most renders. If you do need Make Editable, <strong>Create Proxies</strong> first — that produces a clean static hierarchy organized by source-mesh region (one Null per source child, sub-Nulls per disconnected polygon island) which is much easier to select and assign materials in.</p>
+
+</main>
+
+</body>
+</html>

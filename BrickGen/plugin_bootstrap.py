@@ -5,11 +5,43 @@ import site
 import sys
 import tempfile
 import time
+import webbrowser
 
 import c4d
 
 
 BRICK_LOG_PATH = os.path.join(tempfile.gettempdir(), "brickgen.log")
+USER_MANUAL_FALLBACK_URL = (
+    "https://github.com/ctrlaltdstry/brick/blob/main/USER_MANUAL.html"
+)
+
+
+def open_user_manual():
+    """Open the bundled USER_MANUAL.html in the user's default browser.
+
+    Looks for the HTML file alongside the deployed plugin first (so end
+    users get a fully-offline experience), then falls back to the canonical
+    GitHub URL if the local file is missing.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "USER_MANUAL.html"),
+        os.path.join(here, "..", "USER_MANUAL.html"),
+        os.path.join(here, "..", "..", "USER_MANUAL.html"),
+    ]
+    for path in candidates:
+        try:
+            normalized = os.path.normpath(path)
+            if os.path.isfile(normalized):
+                webbrowser.open("file:///" + normalized.replace("\\", "/"))
+                return True
+        except Exception:
+            continue
+    try:
+        webbrowser.open(USER_MANUAL_FALLBACK_URL)
+        return True
+    except Exception:
+        return False
 
 
 def brick_log(message):
