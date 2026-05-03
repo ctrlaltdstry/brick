@@ -425,6 +425,29 @@ def _resolve_params(self, op, source_obj):
         doc = None
     mograph_effectors_key = _inexclude_signature(mograph_effectors, doc)
 
+    try:
+        bind_to_source_deformation = bool(op[BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION])
+    except Exception:
+        bind_to_source_deformation = False
+    try:
+        bind_reference_frame = int(op[BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME] or 0)
+    except Exception:
+        bind_reference_frame = 0
+    try:
+        bind_orientation_mode = int(op[BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE] or 0)
+    except Exception:
+        bind_orientation_mode = BRICKIFYASSEMBLY_BIND_ORIENT_WORLD_UP
+    try:
+        bind_stretch_cull_ratio = float(op[BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO])
+    except Exception:
+        bind_stretch_cull_ratio = 0.6
+    bind_stretch_cull_ratio = max(0.0, min(1.0, bind_stretch_cull_ratio))
+    try:
+        bind_orient_smoothing = float(op[BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING])
+    except Exception:
+        bind_orient_smoothing = 0.7
+    bind_orient_smoothing = max(0.0, min(1.0, bind_orient_smoothing))
+
     # Library curation key — bitmask over brick toggles. Goes
     # into the fit cache key so toggling a brick reruns the fitter.
     lib_mask = _read_library_mask(op)
@@ -493,6 +516,11 @@ def _resolve_params(self, op, source_obj):
         "humanize_rotation": humanize_rotation,
         "mograph_effectors": mograph_effectors,
         "mograph_effectors_key": mograph_effectors_key,
+        "bind_to_source_deformation": bind_to_source_deformation,
+        "bind_reference_frame": bind_reference_frame,
+        "bind_orientation_mode": bind_orientation_mode,
+        "bind_stretch_cull_ratio": bind_stretch_cull_ratio,
+        "bind_orient_smoothing": bind_orient_smoothing,
         "lib_mask": lib_mask,
         "interactive_preview": False,
         "interactive_preview_actual_studs_across": studs_across,

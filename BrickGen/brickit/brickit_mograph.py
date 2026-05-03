@@ -1,4 +1,5 @@
 """BrickIt MoGraph handoff construction."""
+import json
 import time
 from types import SimpleNamespace
 
@@ -8,6 +9,8 @@ from .brickit_animation import (
     ordered_placements,
     smooth_top_cap_selection_for_coverage,
 )
+from .brickit_bind import deformed_centers_for_frame
+from .brickit_bind_follower import UD_CARRIER_BIND_INDEX
 from .brickit_groups import grouped_parent_for_placement
 from .brickit_humanize import apply_humanize_to_low_corner_matrix
 from .brickit_mograph_generator import (
@@ -15,6 +18,7 @@ from .brickit_mograph_generator import (
     _evaluate_native_mograph as _evaluate_native_mograph_for_proxy,
     _has_mograph_effectors as _has_mograph_effectors_for_proxy,
 )
+from .brickit_runtime import _maybe_rebind
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -27,6 +31,73 @@ from plugin_bootstrap import (
 )
 from quality_presets import QUALITY_HERO
 from source_geometry import source_axis_local_matrix
+
+
+_BIND_FOLLOWER_TAG_NAME = "BrickIt Follow Surface"
+
+
+def _stamp_carrier_bind_index(carrier, idx):
+    """Stamp a hidden 'bind_index' user-data field on a proxy carrier.
+
+    The follower walks the proxy hierarchy and matches carriers to bind
+    records by this id. Stored as `idx + 1` so a default-zero on a non-
+    bound carrier is distinguishable from index 0.
+    """
+    try:
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_LONG)
+        bc[c4d.DESC_NAME] = "bind_index"
+        try:
+            bc[c4d.DESC_HIDE] = True
+        except Exception:
+            pass
+        ud_id = carrier.AddUserData(bc)
+        carrier[ud_id] = int(idx) + 1
+    except Exception:
+        pass
+
+
+def _attach_bind_follower_tag(host, source_obj, records, params, brickit_op=None):
+    """Add a BrickIt Follow Surface tag to `host` that drives proxy
+    carriers from per-frame source deformation. `brickit_op` is the
+    BrickIt generator that produced the proxies — stored on the tag so
+    the post-bake "Swap to Hero" can reuse its template builder. Returns
+    the tag or None on failure.
+    """
+    try:
+        tag = host.MakeTag(ID_BRICKIT_FOLLOW_SURFACE_TAG)
+    except Exception as exc:
+        _brick_log("[brick] FollowSurface: MakeTag failed: {0}".format(exc))
+        return None
+    if tag is None:
+        _brick_log(
+            "[brick] FollowSurface: MakeTag returned None (is the tag plugin "
+            "registered? restart Cinema 4D after first install)"
+        )
+        return None
+    tag.SetName(_BIND_FOLLOWER_TAG_NAME)
+    try:
+        tag[BRICKIT_FOLLOW_SURFACE_ENABLED] = True
+        tag[BRICKIT_FOLLOW_SURFACE_SOURCE] = source_obj
+        tag[BRICKIT_FOLLOW_SURFACE_RECORDS] = json.dumps(records)
+        tag[BRICKIT_FOLLOW_SURFACE_ORIENT_MODE] = int(
+            params.get("bind_orientation_mode", 0) or 0
+        )
+        tag[BRICKIT_FOLLOW_SURFACE_ORIENT_SMOOTHING] = float(
+            params.get("bind_orient_smoothing", 0.7) or 0.0
+        )
+        if brickit_op is not None:
+            try:
+                tag[BRICKIT_FOLLOW_SURFACE_BRICKIT_OP] = brickit_op
+            except Exception:
+                pass
+    except Exception as exc:
+        _brick_log("[brick] FollowSurface: param set failed: {0}".format(exc))
+    try:
+        tag.SetDirty(c4d.DIRTYFLAGS_DATA)
+        host.SetDirty(c4d.DIRTYFLAGS_DATA)
+    except Exception:
+        pass
+    return tag
 
 
 def _hide_object_in_editor_and_render(obj):
@@ -66,7 +137,8 @@ def _configure_proxy_rigid_body(fracture):
         return False
     tag.SetName("proxy_rigid_body")
     settings = (
-        ("RIGIDBODY_USE", True),
+        # Tag ships disabled — user opts in by checking Enabled when ready.
+        ("RIGIDBODY_USE", False),
         ("RIGIDBODY_PBD_SYNC_MOGRAPH_MATRIX", True),
         (
             "RIGIDBODY_PBD_MASS_SELECTION",
@@ -273,6 +345,9 @@ def _create_proxy_mograph_handoff(self, op):
 
 def _create_mograph_handoff_impl(self, op, *, proxy=False):
     """Create a real scene-level MoGraph rig from the current BrickIt fit."""
+    _brick_log(
+        "[brick] MoGraph handoff: button pressed (proxy={0})".format(bool(proxy))
+    )
     _t_total0 = time.perf_counter()
     _ensure_brick_on_path()
     doc = op.GetDocument()
@@ -286,6 +361,16 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
     if not self._refit_if_needed(op, doc, params):
         _brick_log("[brick] MoGraph handoff: fit is not available")
         return False
+    bind_active = bool(params.get("bind_to_source_deformation"))
+    if bind_active and proxy:
+        # Ensure self._bind_records reflects the current fit/source pose so
+        # the proxy carriers are baked at the deformed centers and the
+        # follower tag has matching records to drive each frame.
+        try:
+            _maybe_rebind(self, params)
+        except Exception as _bind_exc:
+            _brick_log("[brick] MoGraph handoff: bind step failed: {0}".format(_bind_exc))
+            bind_active = False
     _t_refit = time.perf_counter() - _t_refit0
     placements = ordered_placements(self._fit_placements or [])
     info = self._fit_info or {}
@@ -630,6 +715,50 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 group_parent_cache,
             )
 
+        # When source-deformation binding is on, fetch the current-frame
+        # deformed brick centers + orient basis from the bind. The proxy
+        # carriers are then baked at those deformed positions (so the proxy
+        # starts in the same pose the live preview shows), and the bind
+        # records get mirrored onto a follower tag below so the proxies
+        # continue tracking deformation per frame.
+        bind_center_by_obj = None
+        bind_orient_by_obj = None
+        bind_record_by_obj = None
+        if bind_active and proxy:
+            try:
+                centers, _vis, _ratios, orient_basis = deformed_centers_for_frame(
+                    self, op, source_obj, doc, params
+                )
+            except Exception:
+                centers = None
+                orient_basis = None
+            fit_placements = list(self._fit_placements or [])
+            bind_records = self._bind_records or []
+            if (
+                centers is not None
+                and bind_records
+                and len(bind_records) == len(fit_placements)
+            ):
+                bind_center_by_obj = {}
+                bind_record_by_obj = {}
+                follow_normal = (
+                    int(params.get("bind_orientation_mode", 0) or 0)
+                    == BRICKIFYASSEMBLY_BIND_ORIENT_FOLLOW_NORMAL
+                )
+                if follow_normal and orient_basis is not None:
+                    bind_orient_by_obj = {}
+                for fi, fp in enumerate(fit_placements):
+                    if fi < len(centers) and centers[fi] is not None:
+                        bind_center_by_obj[id(fp)] = centers[fi]
+                    if fi < len(bind_records) and bind_records[fi] is not None:
+                        bind_record_by_obj[id(fp)] = bind_records[fi]
+                    if (
+                        bind_orient_by_obj is not None
+                        and fi < len(orient_basis)
+                        and orient_basis[fi] is not None
+                    ):
+                        bind_orient_by_obj[id(fp)] = orient_basis[fi]
+
         # Compute pre-effector matrices and colors in source-frame coordinates,
         # one per placement, in the same order the carrier-creation loop will
         # iterate. `root.SetMg(source_obj.GetMg())` above means root world ==
@@ -659,6 +788,31 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 stud_size,
                 plate_size,
             )
+            if bind_center_by_obj is not None and id(p) in bind_center_by_obj:
+                cx, cy, cz = bind_center_by_obj[id(p)]
+                hx = 0.5 * float(getattr(p, "w", 1)) * stud_size
+                hy = 0.5 * float(getattr(p, "h", 1)) * plate_size
+                hz = 0.5 * float(getattr(p, "d", 1)) * stud_size
+                m = c4d.Matrix()
+                ob = (
+                    bind_orient_by_obj.get(id(p))
+                    if bind_orient_by_obj is not None
+                    else None
+                )
+                if ob is not None:
+                    v1, v2, v3 = ob
+                    m.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
+                    m.v2 = c4d.Vector(float(v2[0]), float(v2[1]), float(v2[2]))
+                    m.v3 = c4d.Vector(float(v3[0]), float(v3[1]), float(v3[2]))
+                    shift_x = m.v1.x * hx + m.v2.x * hy + m.v3.x * hz
+                    shift_y = m.v1.y * hx + m.v2.y * hy + m.v3.y * hz
+                    shift_z = m.v1.z * hx + m.v2.z * hy + m.v3.z * hz
+                    m.off = c4d.Vector(cx - shift_x, cy - shift_y, cz - shift_z)
+                else:
+                    m.off = c4d.Vector(cx - hx, cy - hy, cz - hz)
+                m = apply_humanize_to_low_corner_matrix(
+                    m, p, params, stud_size, plate_size,
+                )
             pre_matrices.append(m)
             pre_colors.append(_color_vector_from_rgb_for_proxy(
                 getattr(p, "rgb", (255, 255, 255))
@@ -688,6 +842,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         _t_eval = time.perf_counter() - _t_eval0
 
         _t_carriers0 = time.perf_counter()
+        follower_records = [] if (bind_active and proxy) else None
         for i, p in enumerate(placements):
             if (
                 effector_visible is not None
@@ -754,12 +909,52 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             except Exception:
                 pass
             child.InsertUnder(_parent_for_placement(p))
+            if (
+                follower_records is not None
+                and bind_record_by_obj is not None
+                and id(p) in bind_record_by_obj
+            ):
+                rec = bind_record_by_obj[id(p)]
+                hx = 0.5 * float(getattr(p, "w", 1)) * stud_size
+                hy = 0.5 * float(getattr(p, "h", 1)) * plate_size
+                hz = 0.5 * float(getattr(p, "d", 1)) * stud_size
+                idx = len(follower_records)
+                follower_records.append(
+                    {
+                        "tri_idx": int(rec["tri_idx"]),
+                        "bary": [
+                            float(rec["bary"][0]),
+                            float(rec["bary"][1]),
+                            float(rec["bary"][2]),
+                        ],
+                        "normal_offset": float(rec["normal_offset"]),
+                        "half_size": [hx, hy, hz],
+                    }
+                )
+                _stamp_carrier_bind_index(child, idx)
             created_instances += 1
         _t_carriers = time.perf_counter() - _t_carriers0
 
+        if (
+            bind_active
+            and proxy
+            and follower_records
+        ):
+            _attach_bind_follower_tag(
+                root, source_obj, follower_records, params, brickit_op=op
+            )
+            _brick_log(
+                "[brick] MoGraph handoff: attached bind follower tag, "
+                "records={0}".format(len(follower_records))
+            )
+
         _t_finalize0 = time.perf_counter()
         if proxy:
-            _set_document_to_frame_zero(doc)
+            # Skip the frame-zero reset when binding is on; the follower
+            # tag drives carrier transforms each frame and the user
+            # explicitly chose the click-time pose as the dynamics start.
+            if not bind_active:
+                _set_document_to_frame_zero(doc)
             _configure_proxy_rigid_body(fracture)
             try:
                 fracture.Message(c4d.MSG_UPDATE)

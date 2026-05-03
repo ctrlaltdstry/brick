@@ -1,6 +1,8 @@
 """BrickIt library selection and pipeline refit helpers."""
 import time
 
+import c4d
+
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from library_panel import (
     BRICK_TOGGLE_NAMES,
@@ -156,14 +158,40 @@ def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
     )
 
 
-def _get_cached_source_arrays(self, source_obj, doc):
+def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
     source_key = self._source_state_key(source_obj)
-    if self._source_cache_key == source_key and self._source_cache_data is not None:
+    if (
+        not force_csto
+        and self._source_cache_key == source_key
+        and self._source_cache_data is not None
+    ):
         return self._source_cache_data
 
     log_first_eval = not getattr(self, "_first_eval_logged", False)
     t_bake0 = time.perf_counter() if log_first_eval else 0.0
-    baked, source_metadata = _baked_polygon_object_with_metadata(source_obj, doc)
+    baked = None
+    source_metadata = None
+    # When source-deformation binding is active, force CSTO so the fit-time
+    # source bake sees the same current-frame deformed mesh that the
+    # per-frame eval reads. Without this, the GetDeformCache/GetCache fall-
+    # back chain may return rest-pose for cloth-driven sources, so clicking
+    # "Re-bind to Current Frame" would always fit to rest pose regardless of
+    # the document time.
+    if force_csto:
+        try:
+            result = c4d.utils.SendModelingCommand(
+                command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
+                list=[source_obj],
+                mode=c4d.MODELINGCOMMANDMODE_ALL,
+                doc=doc,
+            )
+            if result and isinstance(result, list) and result and result[0] is not None:
+                baked = result[0]
+                source_metadata = {"groups": []}
+        except Exception:
+            baked = None
+    if baked is None:
+        baked, source_metadata = _baked_polygon_object_with_metadata(source_obj, doc)
     if log_first_eval:
         breakdown = getattr(self, "_first_eval_stage_breakdown", None) or {}
         breakdown["source_bake"] = (
@@ -190,10 +218,63 @@ def _get_cached_source_arrays(self, source_obj, doc):
         source_metadata=source_metadata,
         frame_inv=frame_inv,
     )
+    tri_geom = _compute_triangle_geometry(verts, faces)
+    if force_csto:
+        try:
+            mid = min(len(verts) // 2, len(verts) - 1)
+            v0 = verts[0]
+            vm = verts[mid]
+            _brick_log(
+                "[brick] Fit-time source bake (force_csto): n_verts={0}, n_faces={1}, "
+                "verts[0]=({2:.2f},{3:.2f},{4:.2f}), verts[{5}]=({6:.2f},{7:.2f},{8:.2f})".format(
+                    len(verts), len(faces),
+                    float(v0[0]), float(v0[1]), float(v0[2]),
+                    mid,
+                    float(vm[0]), float(vm[1]), float(vm[2]),
+                )
+            )
+        except Exception:
+            pass
 
     self._source_cache_key = source_key
-    self._source_cache_data = (baked, verts, faces, frame_inv, source_islands)
+    self._source_cache_data = (baked, verts, faces, frame_inv, source_islands, tri_geom)
     return self._source_cache_data
+
+
+def _compute_triangle_geometry(verts, faces):
+    """Return per-triangle centroid, normal, and area arrays for binding.
+
+    Computed alongside `_polygon_object_to_arrays` so the bind step can
+    reuse the same source-axis-local frame the fitter sees. All output
+    arrays are aligned with `faces[i]`.
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return None
+    try:
+        v = np.asarray(verts, dtype=np.float64)
+        f = np.asarray(faces, dtype=np.int64)
+        if f.size == 0:
+            return None
+        v0 = v[f[:, 0]]
+        v1 = v[f[:, 1]]
+        v2 = v[f[:, 2]]
+        centroids = (v0 + v1 + v2) / 3.0
+        cross = np.cross(v1 - v0, v2 - v0)
+        areas2 = np.linalg.norm(cross, axis=1)
+        areas = areas2 * 0.5
+        # Avoid division by zero for degenerate triangles; bind-time the
+        # closest-point step will reject these via large residuals.
+        safe = np.where(areas2 > 1e-20, areas2, 1.0).reshape(-1, 1)
+        normals = cross / safe
+        return {
+            "centroids": centroids,
+            "normals": normals,
+            "areas": areas,
+        }
+    except Exception:
+        return None
 
 
 def _refit_if_needed(self, op, doc, params=None):
@@ -230,7 +311,8 @@ def _refit_if_needed(self, op, doc, params=None):
         self._fit_info = {"note": "No brick types selected."}
         return True
 
-    source_data = self._get_cached_source_arrays(source_obj, doc)
+    force_csto_bake = bool(params.get("bind_to_source_deformation"))
+    source_data = self._get_cached_source_arrays(source_obj, doc, force_csto=force_csto_bake)
     if source_data is None:
         self._fit_cache_key = None
         self._fit_placements = None
@@ -239,7 +321,9 @@ def _refit_if_needed(self, op, doc, params=None):
         self._preview_voxel_cache_key = None
         self._preview_voxel_cache_voxels = None
         return False
-    if len(source_data) == 5:
+    if len(source_data) == 6:
+        baked, verts, faces, frame_inv, source_islands, _tri_geom = source_data
+    elif len(source_data) == 5:
         baked, verts, faces, frame_inv, source_islands = source_data
     elif len(source_data) == 4:
         baked, verts, faces, frame_inv = source_data

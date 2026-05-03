@@ -21,6 +21,25 @@ def _has_mograph_effectors_for_runtime(effectors):
     return bool(effectors)
 
 
+def _maybe_rebind(self, params):
+    """Run the source-deformation bind step when needed."""
+    from .brickit_bind import bind_placements_to_source, make_bind_cache_key
+
+    if not params.get("bind_to_source_deformation"):
+        return
+    bind_key = make_bind_cache_key(self, params)
+    if (
+        not getattr(self, "_bind_force_rebind", False)
+        and self._bind_cache_key == bind_key
+        and self._bind_records is not None
+    ):
+        return
+    records = bind_placements_to_source(self, params)
+    self._bind_records = records
+    self._bind_cache_key = bind_key
+    self._bind_force_rebind = False
+
+
 def GetVirtualObjects(self, op, hh):
     # First-eval stage timings: log only once per BrickIt per session so we
     # can attribute scene-open freeze cost to a specific stage.
@@ -140,7 +159,30 @@ def GetVirtualObjects(self, op, hh):
         round(float(params["logo_sink"]), 4),
         params["lib_mask"],
         cap_subset_key,
+        bool(params.get("bind_to_source_deformation", False)),
+        int(params.get("bind_orientation_mode", 0)),
     )
+    bind_per_frame_key = None
+    if params.get("bind_to_source_deformation"):
+        src_dirty = 0
+        try:
+            src_dirty = int(
+                source_obj.GetDirty(
+                    c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE | c4d.DIRTYFLAGS_MATRIX
+                )
+            )
+        except Exception:
+            src_dirty = 0
+        try:
+            doc_for_frame = op.GetDocument()
+            frame = (
+                int(doc_for_frame.GetTime().GetFrame(doc_for_frame.GetFps()))
+                if doc_for_frame is not None
+                else 0
+            )
+        except Exception:
+            frame = 0
+        bind_per_frame_key = (src_dirty, frame)
     # Animation-only values can be applied by mutating the existing Source
     # hierarchy's matrices/colors/visibility instead of rebuilding objects.
     animation_hierarchy_key = (
@@ -165,6 +207,9 @@ def GetVirtualObjects(self, op, hh):
         round(float(params.get("humanize_position", 0.0)), 5),
         round(float(params.get("humanize_rotation", 0.0)), 5),
         params.get("mograph_effectors_key"),
+        round(float(params.get("bind_stretch_cull_ratio", 0.6)), 4),
+        round(float(params.get("bind_orient_smoothing", 0.7)), 4),
+        bind_per_frame_key,
     )
     hierarchy_key = (topology_hierarchy_key, animation_hierarchy_key)
 
@@ -228,6 +273,7 @@ def GetVirtualObjects(self, op, hh):
     if not self._refit_if_needed(op, doc, params):
         return None
     refit_seconds = time.perf_counter() - t0
+    _maybe_rebind(self, params)
 
     t0 = time.perf_counter()
     if params.get("visualization_mode") == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE:

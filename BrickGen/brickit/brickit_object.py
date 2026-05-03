@@ -98,6 +98,10 @@ class BrickAssembly(plugins.ObjectData):
         self._last_prune_warning_key = None
         self._resolution_live_timer = None
         self._resolution_live_timer_op = None
+        self._bind_records = None
+        self._bind_cache_key = None
+        self._bind_diagnostics = None
+        self._bind_force_rebind = False
 
     def _restore_managed_source(self):
         state = self._managed_source
@@ -368,6 +372,17 @@ class BrickAssembly(plugins.ObjectData):
                 )
             except Exception:
                 return False
+        if pid in (
+            BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME,
+            BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE,
+            BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO,
+            BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING,
+            BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME,
+        ):
+            try:
+                return bool(op[BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION])
+            except Exception:
+                return True
         return True
 
     def Init(self, op, isCloneInit=False):
@@ -470,6 +485,18 @@ class BrickAssembly(plugins.ObjectData):
         self._last_prune_warning_key = None
         self._resolution_live_timer = None
         self._resolution_live_timer_op = None
+        self._bind_records = None
+        self._bind_cache_key = None
+        self._bind_diagnostics = None
+        self._bind_force_rebind = False
+        try:
+            op[BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION] = False
+            op[BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME] = 0
+            op[BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE] = BRICKIFYASSEMBLY_BIND_ORIENT_WORLD_UP
+            op[BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO] = 0.6
+            op[BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING] = 0.7
+        except Exception:
+            pass
         # Ensure a fresh scene/file load triggers at least one generator
         # evaluation without requiring a manual OM interaction.
         try:
@@ -497,8 +524,8 @@ class BrickAssembly(plugins.ObjectData):
     def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
         return _fit_make_voxel_key(self, source_obj, params, stud_size, plate_size)
 
-    def _get_cached_source_arrays(self, source_obj, doc):
-        return _fit_get_cached_source_arrays(self, source_obj, doc)
+    def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
+        return _fit_get_cached_source_arrays(self, source_obj, doc, force_csto=force_csto)
 
     def _resolution_key(self, params):
         return _params_resolution_key(self, params)

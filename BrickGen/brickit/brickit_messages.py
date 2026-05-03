@@ -55,6 +55,9 @@ def _reset_build_state(self):
     self._interactive_preview_log_key = None
     self._interactive_last_edit_at = 0.0
     self._interactive_last_desc_id = -1
+    self._bind_records = None
+    self._bind_cache_key = None
+    self._bind_diagnostics = None
 
 
 def _set_height_preset(op, max_brick_height):
@@ -90,6 +93,12 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_HUMANIZE_POSITION,
         BRICKIFYASSEMBLY_HUMANIZE_ROTATION,
         BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS,
+        BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION,
+        BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME,
+        BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE,
+        BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO,
+        BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING,
+        BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME,
     ):
         return False
     return desc_id in (
@@ -134,6 +143,21 @@ def Message(self, op, msg_type, data):
                 _open_user_manual()
             except Exception:
                 pass
+        elif desc_id == BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME:
+            # Invalidate everything so the next GVO bypasses the hierarchy
+            # cache, runs a full refit (which forces CSTO at fit-time when
+            # binding is on), and re-authors the bind against the current-
+            # frame deformed mesh.
+            self._source_cache_key = None
+            self._source_cache_data = None
+            self._fit_cache_key = None
+            self._bind_cache_key = None
+            self._bind_records = None
+            self._bind_force_rebind = True
+            self._hierarchy_cache_key = None
+            self._fast_cap_state = None
+            self._force_rebuild = True
+            _dirty(op)
         elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
             self._open_library_picker(op)
         elif desc_id in (

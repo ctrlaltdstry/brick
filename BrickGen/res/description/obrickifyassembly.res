@@ -369,6 +369,65 @@ CONTAINER obrickifyassembly
                 DEFAULT 0.0;
             }
         }
+
+        GROUP BRICKIFYASSEMBLY_GROUP_BIND
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+
+            BOOL BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION
+            {
+                NAME BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION;
+                DEFAULT 0;
+            }
+
+            LONG BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE
+            {
+                NAME BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE;
+                DEFAULT 0;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_BIND_ORIENT_WORLD_UP;
+                    BRICKIFYASSEMBLY_BIND_ORIENT_FOLLOW_NORMAL;
+                }
+            }
+
+            REAL BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO
+            {
+                NAME BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 1.0;
+                STEP 0.01;
+                DEFAULT 0.6;
+            }
+
+            REAL BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING
+            {
+                NAME BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 1.0;
+                STEP 0.01;
+                DEFAULT 0.7;
+            }
+
+            LONG BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME
+            {
+                NAME BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME;
+                MIN 0;
+                MAX 1000000;
+                STEP 1;
+                DEFAULT 0;
+            }
+
+            BUTTON BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME
+            {
+                NAME BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME;
+            }
+        }
     }
 
     GROUP BRICKIFYASSEMBLY_TAB_PREVIEW

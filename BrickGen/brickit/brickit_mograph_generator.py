@@ -124,6 +124,58 @@ def _has_mograph_effectors(effectors):
     return bool(effectors)
 
 
+def _resolve_bind_state(self, op, source_obj, doc, params):
+    """Return (bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj)
+    for the active frame.
+
+    All dicts are keyed by `id(placement)`. Returns (None, None, None) when
+    binding is off, records are missing, or per-frame eval failed.
+    `bind_orient_by_obj` is only populated when orientation_mode is
+    Follow-Surface-Normal; otherwise None to skip the rotation override.
+    """
+    if not params.get("bind_to_source_deformation"):
+        return None, None, None
+    if source_obj is None:
+        return None, None, None
+    bind_records = getattr(self, "_bind_records", None)
+    placements = list(self._fit_placements or [])
+    if not bind_records or not placements or len(bind_records) != len(placements):
+        return None, None, None
+    try:
+        from .brickit_bind import deformed_centers_for_frame
+    except Exception:
+        return None, None, None
+    centers, visible, _ratios, orient_basis = deformed_centers_for_frame(
+        self, op, source_obj, doc, params
+    )
+    if centers is None:
+        return None, None, None
+    bind_center_by_obj = {}
+    bind_visible_by_obj = {}
+    bind_orient_by_obj = None
+    follow_normal = (
+        int(params.get("bind_orientation_mode", 0))
+        == BRICKIFYASSEMBLY_BIND_ORIENT_FOLLOW_NORMAL
+    )
+    if follow_normal and orient_basis is not None:
+        bind_orient_by_obj = {}
+    for i, placement in enumerate(placements):
+        if i >= len(centers):
+            break
+        c = centers[i]
+        if c is not None:
+            bind_center_by_obj[id(placement)] = c
+        v = visible[i] if visible is not None and i < len(visible) else True
+        bind_visible_by_obj[id(placement)] = bool(v)
+        if bind_orient_by_obj is not None and i < len(orient_basis):
+            ob = orient_basis[i]
+            if ob is not None:
+                bind_orient_by_obj[id(placement)] = ob
+    if not bind_center_by_obj:
+        return None, None, None
+    return bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj
+
+
 def _smooth_top_target_cells(params, info, placements):
     if str(params.get("voxel_mode", "")).lower() != "shell":
         return None
@@ -606,11 +658,43 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
 
     mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_RENDERINSTANCE", 1)
 
+    bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj = _resolve_bind_state(
+        self, op, source_obj, op.GetDocument(), params
+    )
+
     def _placement_scene_center(p):
+        # Bind-to-source-deformation: when binding is active and this
+        # placement has a record, return the deformed-mesh center. Smooth
+        # caps with a `support` placement chain through the support's
+        # bound center so a deforming support carries its caps along.
+        support = getattr(p, "support", None)
+        if bind_center_by_obj is not None:
+            bound = bind_center_by_obj.get(id(p))
+            if bound is not None:
+                return bound
+            if support is not None:
+                bound_support = bind_center_by_obj.get(id(support))
+                if bound_support is not None:
+                    cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+                    cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+                    sx_local = (
+                        float(support.x) + float(support.w) * 0.5
+                    ) * float(stud_size)
+                    sz_local = (
+                        float(support.z) + float(support.d) * 0.5
+                    ) * float(stud_size)
+                    return (
+                        float(bound_support[0] + (cx_local - sx_local)),
+                        float(
+                            bound_support[1]
+                            + float(support.h) * 0.5 * float(plate_size)
+                            + float(p.h) * 0.5 * float(plate_size)
+                        ),
+                        float(bound_support[2] + (cz_local - sz_local)),
+                    )
         # Smooth caps with a recorded support placement are anchored to the
         # support's separated top so Brick Separation > 0 doesn't drift them
         # vertically off their underlying brick.
-        support = getattr(p, "support", None)
         if support is not None:
             ssx, ssy, ssz = separated_center(
                 support,
@@ -646,6 +730,16 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             float(origin[2] + sz),
         )
 
+    def _bind_visible(p):
+        if bind_visible_by_obj is None:
+            return True
+        if id(p) in bind_visible_by_obj:
+            return bool(bind_visible_by_obj[id(p)])
+        support = getattr(p, "support", None)
+        if support is not None and id(support) in bind_visible_by_obj:
+            return bool(bind_visible_by_obj[id(support)])
+        return True
+
     def _apply_tilt_clearance(p, wx, wz, clearance):
         if clearance <= 0.0:
             return wx, wz
@@ -680,13 +774,19 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         )
 
         m = c4d.Matrix()
+        ob = bind_orient_by_obj.get(id(p)) if bind_orient_by_obj is not None else None
+        if ob is not None:
+            v1, v2, v3 = ob
+            m.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
+            m.v2 = c4d.Vector(float(v2[0]), float(v2[1]), float(v2[2]))
+            m.v3 = c4d.Vector(float(v3[0]), float(v3[1]), float(v3[2]))
         tilt_x, tilt_z = build_tilt_for_progress(
             p,
             contact_progress,
             enabled=subtle_rotation,
             amount_degrees=tilt_amount,
         )
-        if tilt_x or tilt_z:
+        if (tilt_x or tilt_z) and ob is None:
             try:
                 m = (
                     c4d.utils.MatrixRotX(tilt_x)
@@ -702,7 +802,8 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             plate_size,
             enabled=subtle_rotation,
         )
-        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
+        if ob is None:
+            wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
 
         scale = build_scale_for_progress(contact_progress, scale_bricks_in)
         m.v1 *= scale
@@ -777,7 +878,8 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
                 if effector_visible is not None and i < len(effector_visible)
                 else True
             )
-            visible = bool(anim_visible) and bool(eff_visible)
+            bind_vis = _bind_visible(fast_path_descriptors[i][2])
+            visible = bool(anim_visible) and bool(eff_visible) and bool(bind_vis)
             matrix = _matrix_for_visibility(matrix, visible)
             try:
                 child = c4d.InstanceObject()
@@ -1094,11 +1196,39 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
     subtle_rotation = bool(params.get("build_subtle_rotation", False))
     tilt_amount = float(params.get("build_tilt_amount", 5.0))
 
+    bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj = _resolve_bind_state(
+        self, op, op[BRICKIFYASSEMBLY_SOURCE], op.GetDocument(), params
+    )
+
     def _placement_scene_center(p):
+        support = getattr(p, "support", None)
+        if bind_center_by_obj is not None:
+            bound = bind_center_by_obj.get(id(p))
+            if bound is not None:
+                return bound
+            if support is not None:
+                bound_support = bind_center_by_obj.get(id(support))
+                if bound_support is not None:
+                    cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+                    cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+                    sx_local = (
+                        float(support.x) + float(support.w) * 0.5
+                    ) * float(stud_size)
+                    sz_local = (
+                        float(support.z) + float(support.d) * 0.5
+                    ) * float(stud_size)
+                    return (
+                        float(bound_support[0] + (cx_local - sx_local)),
+                        float(
+                            bound_support[1]
+                            + float(support.h) * 0.5 * float(plate_size)
+                            + float(p.h) * 0.5 * float(plate_size)
+                        ),
+                        float(bound_support[2] + (cz_local - sz_local)),
+                    )
         # Smooth caps with a recorded support placement are anchored to the
         # support's separated top so Brick Separation > 0 doesn't drift them
         # vertically off their underlying brick.
-        support = getattr(p, "support", None)
         if support is not None:
             ssx, ssy, ssz = separated_center(
                 support,
@@ -1134,6 +1264,16 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             float(origin[2] + sz),
         )
 
+    def _bind_visible(p):
+        if bind_visible_by_obj is None:
+            return True
+        if id(p) in bind_visible_by_obj:
+            return bool(bind_visible_by_obj[id(p)])
+        support = getattr(p, "support", None)
+        if support is not None and id(support) in bind_visible_by_obj:
+            return bool(bind_visible_by_obj[id(support)])
+        return True
+
     def _apply_tilt_clearance(p, wx, wz, clearance):
         if clearance <= 0.0:
             return wx, wz
@@ -1168,13 +1308,19 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         )
 
         matrix = c4d.Matrix()
+        ob = bind_orient_by_obj.get(id(p)) if bind_orient_by_obj is not None else None
+        if ob is not None:
+            v1, v2, v3 = ob
+            matrix.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
+            matrix.v2 = c4d.Vector(float(v2[0]), float(v2[1]), float(v2[2]))
+            matrix.v3 = c4d.Vector(float(v3[0]), float(v3[1]), float(v3[2]))
         tilt_x, tilt_z = build_tilt_for_progress(
             p,
             contact_progress,
             enabled=subtle_rotation,
             amount_degrees=tilt_amount,
         )
-        if tilt_x or tilt_z:
+        if (tilt_x or tilt_z) and ob is None:
             try:
                 matrix = (
                     c4d.utils.MatrixRotX(tilt_x)
@@ -1190,7 +1336,8 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             plate_size,
             enabled=subtle_rotation,
         )
-        wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
+        if ob is None:
+            wx, wz = _apply_tilt_clearance(p, wx, wz, clearance)
 
         scale = build_scale_for_progress(contact_progress, scale_bricks_in)
         matrix.v1 *= scale
@@ -1228,7 +1375,10 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             if effector_visible is not None and i < len(effector_visible)
             else True
         )
-        return anim and bool(eff)
+        bind_vis = True
+        if i < len(descriptors):
+            bind_vis = _bind_visible(descriptors[i][2])
+        return anim and bool(eff) and bool(bind_vis)
 
     # Recreate InstanceObject carriers under their existing group-null
     # parents on every fast-path call. Mutating cached carriers via

@@ -134,6 +134,41 @@ def register():
         _register_brickit_autohook()
     except Exception as exc:
         print("[brick] BrickIt effectors auto-hook register failed:", exc)
+    try:
+        from plugin_bootstrap import brick_log as _bs_brick_log
+    except Exception:
+        _bs_brick_log = None
+    try:
+        from brickit.brickit_follow_surface_tag import BrickitFollowSurfaceTag
+        # Register here (not in the package submodule) because
+        # RegisterTagPlugin reads `__res__` from the calling module's
+        # globals — only the .pyp module has it auto-injected.
+        result = plugins.RegisterTagPlugin(
+            id=ID_BRICKIT_FOLLOW_SURFACE_TAG,
+            str=IDS_BRICKIT_FOLLOW_SURFACE_TAG,
+            g=BrickitFollowSurfaceTag,
+            description="Tbrickitfollowsurface",
+            info=c4d.TAG_VISIBLE | c4d.TAG_EXPRESSION,
+            icon=icon,
+        )
+        msg = "[brick] BrickIt Follow Surface tag register returned: {0}".format(result)
+        print(msg)
+        if _bs_brick_log is not None:
+            try:
+                _bs_brick_log(msg)
+            except Exception:
+                pass
+    except Exception as exc:
+        import traceback
+        msg = "[brick] BrickIt Follow Surface tag register failed: {0}\n{1}".format(
+            exc, traceback.format_exc()
+        )
+        print(msg)
+        if _bs_brick_log is not None:
+            try:
+                _bs_brick_log(msg)
+            except Exception:
+                pass
     # Parameter help registration is disabled — both `RegisterPluginHelpDelegate`
     # and `RegisterPluginHelpCallback` crashed C4D 2026 on right-click → Show
     # Help, even with a Bool-returning delegate that opens its own dialog. The
