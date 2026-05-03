@@ -134,6 +134,12 @@ def register():
         _register_brickit_autohook()
     except Exception as exc:
         print("[brick] BrickIt effectors auto-hook register failed:", exc)
+    # Parameter help registration is disabled — both `RegisterPluginHelpDelegate`
+    # and `RegisterPluginHelpCallback` crashed C4D 2026 on right-click → Show
+    # Help, even with a Bool-returning delegate that opens its own dialog. The
+    # registry content lives in `BrickGen/brickit_help.py` for when we figure
+    # out the correct binding (likely an HTML-files-in-plugins/Brick/help/
+    # path rather than a Python callback).
     return ok1 and ok2
 
 
