@@ -1,4 +1,5 @@
 """BrickIt MoGraph handoff construction."""
+import time
 from types import SimpleNamespace
 
 import c4d
@@ -9,6 +10,11 @@ from .brickit_animation import (
 )
 from .brickit_groups import grouped_parent_for_placement
 from .brickit_humanize import apply_humanize_to_low_corner_matrix
+from .brickit_mograph_generator import (
+    _color_vector_from_rgb as _color_vector_from_rgb_for_proxy,
+    _evaluate_native_mograph as _evaluate_native_mograph_for_proxy,
+    _has_mograph_effectors as _has_mograph_effectors_for_proxy,
+)
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -20,6 +26,7 @@ from plugin_bootstrap import (
     ensure_brick_on_path as _ensure_brick_on_path,
 )
 from quality_presets import QUALITY_HERO
+from source_geometry import source_axis_local_matrix
 
 
 def _hide_object_in_editor_and_render(obj):
@@ -86,6 +93,176 @@ def _configure_proxy_rigid_body(fracture):
     return True
 
 
+_PROXY_TEMPLATE_NAME_RE = None
+
+
+def _parse_proxy_template_name(name):
+    """Parse "proxy_brick_WxDxHp[_smooth]" into (w, d, h, smooth_top)."""
+    global _PROXY_TEMPLATE_NAME_RE
+    import re
+    if _PROXY_TEMPLATE_NAME_RE is None:
+        _PROXY_TEMPLATE_NAME_RE = re.compile(
+            r"^proxy_brick_(\d+)x(\d+)_h(\d+)p(_smooth)?$"
+        )
+    if not name:
+        return None
+    match = _PROXY_TEMPLATE_NAME_RE.match(str(name))
+    if match is None:
+        return None
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        match.group(4) is not None,
+    )
+
+
+def _collect_polygon_objects_with_matrices_top(obj, parent_m=None):
+    """Module-level walker — duplicate of the nested closure for the swap path."""
+    if obj is None:
+        return []
+    if parent_m is None:
+        parent_m = c4d.Matrix()
+    try:
+        local_m = parent_m * obj.GetMl()
+    except Exception:
+        local_m = parent_m
+    found = []
+    if obj.GetType() == c4d.Opolygon:
+        found.append((obj, local_m))
+    child = obj.GetDown()
+    while child is not None:
+        found.extend(_collect_polygon_objects_with_matrices_top(child, local_m))
+        child = child.GetNext()
+    return found
+
+
+def _merge_polygon_objects_local_top(objects_with_matrices, name):
+    """Module-level merger — duplicate of the nested closure for the swap path."""
+    objects_with_matrices = [
+        (obj, matrix)
+        for obj, matrix in (objects_with_matrices or [])
+        if obj is not None and obj.GetType() == c4d.Opolygon
+    ]
+    if not objects_with_matrices:
+        return None
+    total_points = sum(obj.GetPointCount() for obj, _ in objects_with_matrices)
+    total_polys = sum(obj.GetPolygonCount() for obj, _ in objects_with_matrices)
+    merged = c4d.PolygonObject(total_points, total_polys)
+    merged.SetName(name)
+    point_offset = 0
+    poly_offset = 0
+    for obj, matrix in objects_with_matrices:
+        try:
+            points = obj.GetAllPoints()
+            polygons = obj.GetAllPolygons()
+        except Exception:
+            continue
+        for i, point in enumerate(points):
+            try:
+                merged.SetPoint(point_offset + i, matrix * point)
+            except Exception:
+                merged.SetPoint(point_offset + i, point)
+        for j, poly in enumerate(polygons):
+            merged.SetPolygon(
+                poly_offset + j,
+                c4d.CPolygon(
+                    int(poly.a) + point_offset,
+                    int(poly.b) + point_offset,
+                    int(poly.c) + point_offset,
+                    int(poly.d) + point_offset,
+                ),
+            )
+        point_offset += obj.GetPointCount()
+        poly_offset += obj.GetPolygonCount()
+    try:
+        phong = merged.MakeTag(c4d.Tphong)
+        phong[c4d.PHONGTAG_PHONG_ANGLELIMIT] = True
+        phong[c4d.PHONGTAG_PHONG_ANGLE] = c4d.utils.DegToRad(40.0)
+    except Exception:
+        pass
+    merged.Message(c4d.MSG_UPDATE)
+    return merged
+
+
+def _build_render_template_proto(
+    self, brick_type, smooth_top, render_root, params, info, doc, target_name
+):
+    """Build one render template Null + baked mesh under render_root.
+
+    Used by `_swap_proxy_to_render_handoff` to lazily produce the render
+    template the user is requesting. The template mesh is built at the
+    BrickIt's current `Brick Mesh Detail` quality (params["quality"]) so
+    swapping respects the user's chosen render fidelity rather than always
+    forcing Hero. Stud logos are baked into a single merged polygon to keep
+    the Redshift `Oinstance` reference shape `Null { merged_polygon }`.
+    """
+    from quality_presets import QUALITY_PROXY
+
+    stud_size = float(info.get("stud_size", 8.0))
+    plate_size = float(info.get("plate_size", 3.2))
+
+    quality = int(params["quality"])
+    # Render templates intentionally never use Proxy quality — that defeats
+    # the swap. Clamp up to Draft when the BrickIt is at Proxy.
+    if quality == int(QUALITY_PROXY):
+        from quality_presets import QUALITY_DRAFT
+        quality = int(QUALITY_DRAFT)
+
+    mesh = self._get_template_mesh(
+        brick_type,
+        quality,
+        stud_size,
+        plate_size,
+        smooth_plate_visual=False,
+        force_smooth_top=bool(smooth_top),
+    )
+    proto = c4d.BaseObject(c4d.Onull)
+    proto.SetName(target_name)
+    mesh_obj = mesh_to_polygon_object(mesh, name="mesh_{0}".format(target_name))
+
+    logo_template = self._get_logo_template_obj(params, doc, stud_size, plate_size)
+    has_logos = (
+        logo_template is not None
+        and not bool(smooth_top)
+        and int(getattr(brick_type, "height", 0)) >= 1
+    )
+    if has_logos:
+        logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
+        logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
+        logo_surface_bias = -plate_size * logo_sink
+        objects = _collect_polygon_objects_with_matrices_top(mesh_obj)
+        top_y = (
+            float(brick_type.height) * plate_size
+            + plate_size * 0.55
+            + logo_surface_bias
+        )
+        for sx in range(int(brick_type.width)):
+            for sz in range(int(brick_type.depth)):
+                logo_obj = logo_template.GetClone(c4d.COPYFLAGS_NONE)
+                if logo_obj is None:
+                    continue
+                m = c4d.Matrix()
+                m.off = c4d.Vector(
+                    float((sx + 0.5) * stud_size),
+                    float(top_y),
+                    float((sz + 0.5) * stud_size),
+                )
+                _apply_logo_quarter_turn(m, logo_rotation)
+                try:
+                    logo_obj.SetMl(m)
+                except Exception:
+                    pass
+                objects.extend(_collect_polygon_objects_with_matrices_top(logo_obj))
+        baked = _merge_polygon_objects_local_top(objects, mesh_obj.GetName())
+        if baked is not None:
+            mesh_obj = baked
+
+    mesh_obj.InsertUnder(proto)
+    proto.InsertUnder(render_root)
+    return proto
+
+
 def _create_mograph_handoff(self, op):
     return _create_mograph_handoff_impl(self, op, proxy=False)
 
@@ -96,6 +273,7 @@ def _create_proxy_mograph_handoff(self, op):
 
 def _create_mograph_handoff_impl(self, op, *, proxy=False):
     """Create a real scene-level MoGraph rig from the current BrickIt fit."""
+    _t_total0 = time.perf_counter()
     _ensure_brick_on_path()
     doc = op.GetDocument()
     source_obj = op[BRICKIFYASSEMBLY_SOURCE]
@@ -103,10 +281,12 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         _brick_log("[brick] MoGraph handoff: no document/source object")
         return False
 
+    _t_refit0 = time.perf_counter()
     params = self._resolve_params(op, source_obj)
     if not self._refit_if_needed(op, doc, params):
         _brick_log("[brick] MoGraph handoff: fit is not available")
         return False
+    _t_refit = time.perf_counter() - _t_refit0
     placements = ordered_placements(self._fit_placements or [])
     info = self._fit_info or {}
     if not placements or not info:
@@ -427,6 +607,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
 
     from types import SimpleNamespace
 
+    _t_pre_loop0 = time.perf_counter()
     doc.StartUndo()
     try:
         try:
@@ -449,42 +630,15 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 group_parent_cache,
             )
 
+        # Compute pre-effector matrices and colors in source-frame coordinates,
+        # one per placement, in the same order the carrier-creation loop will
+        # iterate. `root.SetMg(source_obj.GetMg())` above means root world ==
+        # source_mg, so each placement's `m` (built from origin + separated_*
+        # offsets) is already in the carrier's parent-local frame.
+        _t_prematrices0 = time.perf_counter()
+        pre_matrices = []
+        pre_colors = []
         for p in placements:
-            if p.rotation_y == 90:
-                template_brick = SimpleNamespace(
-                    width=p.brick.depth,
-                    depth=p.brick.width,
-                    height=p.brick.height,
-                )
-            else:
-                template_brick = p.brick
-            smooth_top = bool(smooth_top_by_obj.get(id(p), False))
-            if proxy:
-                template = _get_template_obj(
-                    template_brick,
-                    smooth_top=smooth_top,
-                    render_template=False,
-                )
-                _get_template_obj(
-                    template_brick,
-                    smooth_top=smooth_top,
-                    render_template=True,
-                )
-            else:
-                template = _get_template_obj(template_brick, smooth_top=smooth_top)
-            if _brick_has_template_logos(template_brick, smooth_top=smooth_top):
-                logo_count += int(template_brick.width) * int(template_brick.depth)
-
-            name_prefix = "proxy_brick" if proxy else "brick"
-            child_name = (
-                "{0}_{1}x{2}x{3}p_{4:04d}".format(
-                    name_prefix,
-                    int(template_brick.width),
-                    int(template_brick.depth),
-                    int(template_brick.height),
-                    created_instances,
-                )
-            )
             m = c4d.Matrix()
             sx, sy, sz = separated_low_corner(
                 p,
@@ -505,6 +659,82 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 stud_size,
                 plate_size,
             )
+            pre_matrices.append(m)
+            pre_colors.append(_color_vector_from_rgb_for_proxy(
+                getattr(p, "rgb", (255, 255, 255))
+            ))
+        _t_prematrices = time.perf_counter() - _t_prematrices0
+
+        # If MoGraph effectors are wired into BrickIt, run them through the
+        # native evaluator with the same source-axis frame conversion the live
+        # output uses. Each carrier is then created with the effector-resolved
+        # matrix/color so the baked proxy hierarchy reflects what the user
+        # sees in the live preview — useful as a "starting position" for a
+        # downstream simulation.
+        _t_eval0 = time.perf_counter()
+        effector_visible = None
+        if _has_mograph_effectors_for_proxy(params.get("mograph_effectors")):
+            matrices, colors, effector_visible = _evaluate_native_mograph_for_proxy(
+                op,
+                pre_matrices,
+                pre_colors,
+                params.get("mograph_effectors"),
+                skip_field_override=True,
+                label="proxy_handoff" if proxy else "mograph_handoff",
+                frame_matrix=source_axis_local_matrix(op, source_obj),
+            )
+        else:
+            matrices, colors = pre_matrices, pre_colors
+        _t_eval = time.perf_counter() - _t_eval0
+
+        _t_carriers0 = time.perf_counter()
+        for i, p in enumerate(placements):
+            if (
+                effector_visible is not None
+                and i < len(effector_visible)
+                and not bool(effector_visible[i])
+            ):
+                # Effector Visibility hid this clone — keep it out of the
+                # baked hierarchy so the proxy matches the live render.
+                continue
+
+            if p.rotation_y == 90:
+                template_brick = SimpleNamespace(
+                    width=p.brick.depth,
+                    depth=p.brick.width,
+                    height=p.brick.height,
+                )
+            else:
+                template_brick = p.brick
+            smooth_top = bool(smooth_top_by_obj.get(id(p), False))
+            if proxy:
+                template = _get_template_obj(
+                    template_brick,
+                    smooth_top=smooth_top,
+                    render_template=False,
+                )
+                # Render-quality templates are deferred to the first
+                # Proxy/High Res swap. Pre-building them here at hero quality
+                # for every unique brick type used to dominate Create Proxies
+                # time (~36ms/brick × hundreds of placements). The swap path
+                # builds them on demand from `BRICK_LIBRARY_RENDER` lazily.
+            else:
+                template = _get_template_obj(template_brick, smooth_top=smooth_top)
+            if _brick_has_template_logos(template_brick, smooth_top=smooth_top):
+                logo_count += int(template_brick.width) * int(template_brick.depth)
+
+            name_prefix = "proxy_brick" if proxy else "brick"
+            child_name = (
+                "{0}_{1}x{2}x{3}p_{4:04d}".format(
+                    name_prefix,
+                    int(template_brick.width),
+                    int(template_brick.depth),
+                    int(template_brick.height),
+                    created_instances,
+                )
+            )
+            m = matrices[i] if i < len(matrices) else pre_matrices[i]
+            color = colors[i] if i < len(colors) else pre_colors[i]
             child = c4d.BaseObject(c4d.Oinstance)
             child.SetName(child_name)
             child[c4d.INSTANCEOBJECT_LINK] = template
@@ -518,9 +748,16 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             except Exception:
                 pass
             child.SetMl(m)
+            try:
+                child[c4d.ID_BASEOBJECT_USECOLOR] = c4d.ID_BASEOBJECT_USECOLOR_ALWAYS
+                child[c4d.ID_BASEOBJECT_COLOR] = color
+            except Exception:
+                pass
             child.InsertUnder(_parent_for_placement(p))
             created_instances += 1
+        _t_carriers = time.perf_counter() - _t_carriers0
 
+        _t_finalize0 = time.perf_counter()
         if proxy:
             _set_document_to_frame_zero(doc)
             _configure_proxy_rigid_body(fracture)
@@ -531,12 +768,29 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
 
         doc.SetActiveObject(fracture)
         c4d.EventAdd()
+        _t_finalize = time.perf_counter() - _t_finalize0
+        _t_total = time.perf_counter() - _t_total0
+        _t_pre_loop = time.perf_counter() - _t_pre_loop0
         _brick_log(
             "[brick] MoGraph handoff: created {0}Fracture rig, bricks={1}, logos={2}, library_items={3}".format(
                 "proxy " if proxy else "",
                 created_instances,
                 logo_count,
                 len(type_to_template) + len(type_to_render_template),
+            )
+        )
+        _brick_log(
+            "[brick] MoGraph handoff timings: total={0:.3f}s, refit={1:.3f}s, "
+            "pre_loop_setup={2:.3f}s, prematrices={3:.3f}s, effector_eval={4:.3f}s, "
+            "carriers={5:.3f}s, finalize={6:.3f}s, placements={7}".format(
+                float(_t_total),
+                float(_t_refit),
+                float(_t_pre_loop - _t_prematrices - _t_eval - _t_carriers - _t_finalize),
+                float(_t_prematrices),
+                float(_t_eval),
+                float(_t_carriers),
+                float(_t_finalize),
+                int(len(placements)),
             )
         )
     finally:
@@ -574,11 +828,36 @@ def _child_name_map(parent):
 
 
 def _swap_proxy_to_render_handoff(self, op):
-    """Toggle generated proxy sim instances between proxy and render templates."""
+    """Toggle generated proxy sim instances between proxy and render templates.
+
+    Render templates are built lazily on first swap-to-render. Create Proxies
+    skips the (expensive) render-template build, and the render mesh is only
+    materialized when the user actually clicks Proxy/High Res. The render
+    quality matches the BrickIt's current `Brick Mesh Detail` setting so the
+    swap respects user intent (Standard / Hero), instead of always forcing
+    Hero like the previous always-pre-built path did.
+    """
     doc = op.GetDocument()
     if doc is None:
         _brick_log("[brick] Proxy swap: no document")
         return False
+
+    # Resolve params and info once for any lazy render-template build below.
+    swap_params = None
+    swap_info = None
+    swap_t_lazy_total = 0.0
+    swap_lazy_built = 0
+    try:
+        source_obj = op[BRICKIFYASSEMBLY_SOURCE]
+    except Exception:
+        source_obj = None
+    if source_obj is not None:
+        try:
+            swap_params = self._resolve_params(op, source_obj)
+            self._refit_if_needed(op, doc, swap_params)
+            swap_info = self._fit_info or {}
+        except Exception as exc:
+            _brick_log("[brick] Proxy swap: param resolve failed: {0}".format(exc))
 
     swapped = 0
     rig_count = 0
@@ -617,6 +896,47 @@ def _swap_proxy_to_render_handoff(self, op):
                 if target_mode == "render":
                     target_name = "render_" + linked_name[len("proxy_"):]
                     target_template = render_templates.get(target_name)
+                    # Lazy-build the render template using the current
+                    # Brick Mesh Detail. The proxy template name encodes the
+                    # brick dims and the smooth-top flag, so we can derive
+                    # the brick_type spec without crawling the rig further.
+                    if (
+                        target_template is None
+                        and swap_params is not None
+                        and swap_info is not None
+                    ):
+                        spec = _parse_proxy_template_name(linked_name)
+                        if spec is not None:
+                            w, d, h, smooth_top = spec
+                            brick_type = SimpleNamespace(
+                                width=int(w), depth=int(d), height=int(h)
+                            )
+                            try:
+                                _t_lazy0 = time.perf_counter()
+                                target_template = _build_render_template_proto(
+                                    self,
+                                    brick_type,
+                                    smooth_top,
+                                    render_root,
+                                    swap_params,
+                                    swap_info,
+                                    doc,
+                                    target_name,
+                                )
+                                swap_t_lazy_total += (time.perf_counter() - _t_lazy0)
+                                swap_lazy_built += 1
+                                render_templates[target_name] = target_template
+                                doc.AddUndo(
+                                    c4d.UNDOTYPE_NEWOBJ, target_template
+                                )
+                            except Exception as exc:
+                                _brick_log(
+                                    "[brick] Proxy swap: lazy render template "
+                                    "build failed for {0}: {1}".format(
+                                        target_name, exc,
+                                    )
+                                )
+                                target_template = None
                 else:
                     target_name = "proxy_" + linked_name[len("render_"):]
                     target_template = proxy_templates.get(target_name)
@@ -642,12 +962,19 @@ def _swap_proxy_to_render_handoff(self, op):
         doc.EndUndo()
 
     if swapped:
-        _brick_log(
-            "[brick] Proxy swap: relinked {0} instances across {1} rig(s)".format(
-                swapped,
-                rig_count,
+        if swap_lazy_built:
+            _brick_log(
+                "[brick] Proxy swap: relinked {0} instances across {1} rig(s) "
+                "(built {2} render templates lazily in {3:.3f}s)".format(
+                    swapped, rig_count, swap_lazy_built, swap_t_lazy_total,
+                )
             )
-        )
+        else:
+            _brick_log(
+                "[brick] Proxy swap: relinked {0} instances across {1} rig(s)".format(
+                    swapped, rig_count,
+                )
+            )
         return True
     _brick_log("[brick] Proxy swap: no proxy instances found")
     return False
