@@ -123,6 +123,10 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         root.SetName("BrickIt_ProxySim_{0}".format(src_name))
     else:
         root.SetName("BrickIt_MoGraph_{0}".format(src_name))
+    try:
+        root.SetMg(source_obj.GetMg())
+    except Exception:
+        pass
 
     templates_root = c4d.BaseObject(c4d.Onull)
     templates_root.SetName("BRICK_LIBRARY_PROXY" if proxy else "BRICK_LIBRARY")

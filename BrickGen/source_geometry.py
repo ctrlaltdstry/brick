@@ -18,7 +18,7 @@ def generator_document(op, hh):
     return doc
 
 
-def polygon_object_to_arrays(poly_obj):
+def polygon_object_to_arrays(poly_obj, frame_inv=None):
     """Return geometry arrays for BrickIt fitting."""
     import numpy as np
 
@@ -30,6 +30,8 @@ def polygon_object_to_arrays(poly_obj):
     verts = np.empty((n_pts, 3), dtype=np.float64)
     for i, p in enumerate(pts):
         wp = mg * p
+        if frame_inv is not None:
+            wp = frame_inv * wp
         verts[i, 0] = wp.x
         verts[i, 1] = wp.y
         verts[i, 2] = wp.z
@@ -53,6 +55,7 @@ def c4d_volume_voxels_from_polygon_object(
     stud_size,
     plate_size,
     default_color,
+    frame_inv=None,
 ):
     """Experimental C4D Volume backend: sample MeshToVolume into LEGO cells."""
     import time
@@ -78,6 +81,8 @@ def c4d_volume_voxels_from_polygon_object(
     volume_vertices = maxon.BaseArray(maxon.Vector)
     for p in pts:
         wp = mg * p
+        if frame_inv is not None:
+            wp = frame_inv * wp
         volume_vertices.Append(maxon.Vector(float(wp.x), float(wp.y), float(wp.z)))
 
     volume_polys = maxon.BaseArray(maxon_volume.VolumeConversionPolygon)
@@ -153,3 +158,18 @@ def c4d_volume_voxels_from_polygon_object(
             "volume={1:.2f}s, sample={2:.2f}s, samples={3}."
         ).format(threshold, t_volume - t0, t_sample - t_volume, int(nx * ny * nz)),
     }
+
+
+def source_axis_local_matrix(op, source_obj):
+    """Return the source axis matrix in the BrickIt generator's local frame."""
+    if source_obj is None:
+        return c4d.Matrix()
+    try:
+        source_mg = source_obj.GetMg()
+    except Exception:
+        return c4d.Matrix()
+    try:
+        op_mg = op.GetMg()
+        return ~op_mg * source_mg
+    except Exception:
+        return source_mg

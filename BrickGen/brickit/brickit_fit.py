@@ -174,14 +174,18 @@ def _get_cached_source_arrays(self, source_obj, doc):
         self._source_cache_data = None
         return None
 
-    verts, faces = _polygon_object_to_arrays(baked)
+    try:
+        frame_inv = ~source_obj.GetMg()
+    except Exception:
+        frame_inv = None
+    verts, faces = _polygon_object_to_arrays(baked, frame_inv=frame_inv)
     if len(faces) == 0:
         self._source_cache_key = None
         self._source_cache_data = None
         return None
 
     self._source_cache_key = source_key
-    self._source_cache_data = (baked, verts, faces)
+    self._source_cache_data = (baked, verts, faces, frame_inv)
     return self._source_cache_data
 
 
@@ -228,7 +232,11 @@ def _refit_if_needed(self, op, doc, params=None):
         self._preview_voxel_cache_key = None
         self._preview_voxel_cache_voxels = None
         return False
-    baked, verts, faces = source_data
+    if len(source_data) == 4:
+        baked, verts, faces, frame_inv = source_data
+    else:
+        baked, verts, faces = source_data
+        frame_inv = None
 
     precomputed_voxels = None
     call_stud_size = params["stud_size"]
@@ -285,6 +293,7 @@ def _refit_if_needed(self, op, doc, params=None):
                     resolved_stud_size,
                     resolved_plate_size,
                     BRICKIT_DEFAULT_RGB,
+                    frame_inv=frame_inv,
                 )
                 if _log_first_eval:
                     _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}

@@ -23,6 +23,7 @@ from logo_helpers import (
 from mesh_bridge import mesh_to_polygon_object
 from plugin_bootstrap import brick_log as _brick_log
 from quality_presets import QUALITY_PROXY
+from source_geometry import source_axis_local_matrix
 
 
 def _hide_object_in_editor_and_render(obj):
@@ -336,6 +337,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
 
     root = c4d.BaseObject(c4d.Onull)
     root.SetName("Brickified_MoGraph_{0}".format(src_name))
+    root.SetMl(source_axis_local_matrix(op, source_obj))
 
     templates_root = c4d.BaseObject(c4d.Onull)
     templates_root.SetName("brick_templates")

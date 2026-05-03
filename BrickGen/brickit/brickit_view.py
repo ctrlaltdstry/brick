@@ -19,6 +19,7 @@ from logo_helpers import (
 )
 from mesh_bridge import mesh_to_polygon_object
 from plugin_bootstrap import brick_log as _brick_log
+from source_geometry import source_axis_local_matrix
 
 
 def _build_hierarchy(self, op):
@@ -52,6 +53,7 @@ def _build_hierarchy(self, op):
     source_obj = op[BRICKIFYASSEMBLY_SOURCE]
     src_name = source_obj.GetName() if source_obj is not None else "mesh"
     result.SetName("Brickified_{0}".format(src_name))
+    result.SetMl(source_axis_local_matrix(op, source_obj))
     doc = op.GetDocument()
 
     if visualization_mode in (
