@@ -461,23 +461,27 @@ Do not pass root-local matrices to the native evaluator without
 `frame_matrix`. Do not switch the generator handed to effectors away from
 `op` — color-mode and effector-recognition behavior are anchored to it.
 
-### Effector-active fast path (2026-05-03) — DO NOT REGRESS
+### Integrated MoGraph fast path always recreates carriers (2026-05-03) — DO NOT REGRESS
 
-Mutating cached `InstanceObject` matrices via `SetInstanceMatrices` is broken
-when effectors apply non-trivial deltas: bricks render at the raw matrix
-offset (near world / op origin) instead of `parent.Mg * matrix`. Re-applying
+Mutating cached `InstanceObject` matrices via `SetInstanceMatrices` drops the
+parent transform: bricks render at the raw matrix offset (near world / op
+origin) instead of `parent.Mg * matrix`. Re-applying
 `INSTANCEOBJECT_RENDERINSTANCE_MODE`, the template ref, and dirty flags does
 not restore correct rendering.
 
-`_apply_integrated_mograph_animation_fast_path` now branches when effectors
-are present: it captures each carrier's group-null parent, removes the
-cached `InstanceObject`, creates a fresh one (template, mode, matrix, color,
-visibility) and re-inserts it under the same group null, then updates
-`state["instances"]` so the next call operates on the new carriers.
-Animation scrubbing without effectors keeps the cheap pure-mutation path —
-that one renders correctly because there's no parent-transform mismatch to
-expose. Do not collapse the two branches back into a single `SetInstanceMatrices`
-mutation; effectors will silently render wrong again.
+This was first observed with effectors. Toggling **Humanize Bricks** with no
+effectors present reproduces the same snap, so the original "scrubbing
+without effectors keeps the cheap pure-mutation path" assumption was wrong.
+
+`_apply_integrated_mograph_animation_fast_path` now ALWAYS uses the
+structural-recreate branch when `get_template_obj` is available: capture each
+carrier's group-null parent, remove the cached `InstanceObject`, create a
+fresh one (template, mode, matrix, color, visibility), re-insert it under the
+same group null, and update `state["instances"]` so the next call operates on
+the new carriers. The cheap pure-mutation branch is kept only as a fallback
+when the template factory isn't available. Do not re-gate this on
+`has_effectors_now` — humanize toggles (and likely other animation deltas)
+will silently render bricks at world origin.
 
 **Public prerelease build:** tag `brick-c4d2026-preview-20260503-c8fe7e2` on
 repo `ctrlaltdstry/brick-releases`, asset `Brick.zip` (Windows + C4D 2026).

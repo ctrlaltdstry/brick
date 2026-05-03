@@ -1230,15 +1230,18 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         )
         return anim and bool(eff)
 
-    # Effector-present fast path: recreate InstanceObject carriers under
-    # their existing group-null parents. Mutating cached carriers via
-    # `SetInstanceMatrices` doesn't render correctly when effectors apply
-    # non-trivial deltas (bricks render at the raw matrix offset instead of
-    # `parent.Mg * matrix`). Recreating bypasses that — fresh
-    # InstanceObjects always render with the correct parent transform — and
-    # still reuses the slow parts of the build (refit, templates, group
-    # null hierarchy) so it's much cheaper than a full rebuild.
-    if has_effectors_now and get_template_obj is not None:
+    # Recreate InstanceObject carriers under their existing group-null
+    # parents on every fast-path call. Mutating cached carriers via
+    # `SetInstanceMatrices` can drop the parent transform — bricks render at
+    # the raw matrix offset (near world / op origin) instead of
+    # `parent.Mg * matrix`. This was first observed with effectors; toggling
+    # Humanize Bricks (no effectors) reproduces the same snap. Recreating
+    # bypasses the bug — fresh InstanceObjects always render with the correct
+    # parent transform — and still reuses the slow parts of the build (refit,
+    # templates, group null hierarchy) so it's much cheaper than a full
+    # rebuild. The cheap pure-mutation branch is kept only as a fallback when
+    # the template factory isn't available.
+    if get_template_obj is not None:
         new_instances = []
         for i, instance in enumerate(instances):
             matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
