@@ -15,6 +15,7 @@ from .brickit_animation import (
     smooth_top_cap_selection_for_coverage,
 )
 from .brickit_humanize import apply_humanize_to_center_matrix
+from .brickit_groups import grouped_parent_for_placement
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -710,6 +711,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
         )
         created_instances = 0
+        group_parent_cache = {}
         for i, (template_brick, template) in enumerate(instance_specs):
             try:
                 matrix = matrices[i]
@@ -747,7 +749,13 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             _set_object_visible(child, visible)
             _apply_object_color(child, color)
             _update_object(child)
-            child.InsertUnder(instances_root)
+            group_parent = grouped_parent_for_placement(
+                info,
+                fast_path_descriptors[i][2],
+                instances_root,
+                group_parent_cache,
+            )
+            child.InsertUnder(group_parent)
             fast_path_instances.append(child)
             created_instances += 1
 

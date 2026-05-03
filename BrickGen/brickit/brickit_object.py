@@ -13,6 +13,7 @@ from logo_helpers import (
 )
 from library_panel import (
     BRICK_TOGGLE_NAMES,
+    DEFAULT_BRICK_LIBRARY_MASK,
     toggle_id as _toggle_id,
 )
 from .brickit_templates import (
@@ -433,11 +434,11 @@ class BrickAssembly(plugins.ObjectData):
             pass
         op[BRICKIFYASSEMBLY_TOP_SURFACE_PHASE] = 15.0
         op[BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE] = 100.0
-        # Default: start with no brick types selected; artists opt-in via the
-        # thumbnail library / quick select controls.
+        # Default to one common brick so a fresh BrickIt gives visual feedback
+        # as soon as the user links a source mesh.
         for i in range(len(BRICK_TOGGLE_NAMES)):
-            op[_toggle_id(i)] = False
-        op[BRICKIFYASSEMBLY_LIBRARY_MASK] = 0
+            op[_toggle_id(i)] = bool(DEFAULT_BRICK_LIBRARY_MASK & (1 << i))
+        op[BRICKIFYASSEMBLY_LIBRARY_MASK] = int(DEFAULT_BRICK_LIBRARY_MASK)
         self._fit_cache_key = None
         self._fit_placements = None
         self._fit_info = None

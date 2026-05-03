@@ -13,6 +13,7 @@ BRICK_TOGGLE_NAMES = [
     "brick_3x3", "brick_3x4", "brick_3x6", "brick_3x8",
 ]
 BRICK_LIBRARY_ALL_MASK = (1 << len(BRICK_TOGGLE_NAMES)) - 1
+DEFAULT_BRICK_LIBRARY_MASK = 1 << BRICK_TOGGLE_NAMES.index("brick_2x4")
 PLATE_LIBRARY_NAMES = (
     "plate_1x1", "plate_1x2", "plate_1x3", "plate_1x4",
     "plate_1x6", "plate_1x8",

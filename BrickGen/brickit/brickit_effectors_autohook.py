@@ -29,6 +29,33 @@ from c4d_symbols import (
 # every C4D build but the value has been stable for many years.
 _OBASEEFFECTOR = 1018643
 
+# Prefer explicit flags: `GetActiveObjects(0)` is ambiguous across SDK versions.
+_GETACTIVEOBJECTFLAGS_NONE = int(
+    getattr(c4d, "GETACTIVEOBJECTFLAGS_NONE", 0) or 0
+)
+
+_EFFECTOR_TYPE_IDS = {
+    int(v)
+    for v in (
+        getattr(c4d, "Obaseeffector", _OBASEEFFECTOR),
+        getattr(c4d, "Omgplain", None),
+        getattr(c4d, "Omgrandom", None),
+        getattr(c4d, "Omgshader", None),
+        getattr(c4d, "Omgdelay", None),
+        getattr(c4d, "Omgformula", None),
+        getattr(c4d, "Omgstep", None),
+        getattr(c4d, "Omgsound", None),
+        getattr(c4d, "Omgtime", None),
+        getattr(c4d, "Omgpushapart", None),
+        getattr(c4d, "Omginheritance", None),
+        getattr(c4d, "Omgpython", None),
+        getattr(c4d, "Omgreeffector", None),
+        getattr(c4d, "Omgeffectortarget", None),
+        getattr(c4d, "Oweighteffector", None),
+    )
+    if v is not None
+}
+
 _DEBUG = False
 
 
@@ -51,6 +78,32 @@ def _iter_subtree(node):
         node = node.GetNext()
 
 
+def _is_effector(obj):
+    if obj is None:
+        return False
+    try:
+        if obj.IsInstanceOf(_OBASEEFFECTOR):
+            return True
+    except Exception:
+        pass
+    try:
+        if int(obj.GetType()) in _EFFECTOR_TYPE_IDS:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _active_effectors(doc):
+    if doc is None:
+        return []
+    try:
+        active = doc.GetActiveObjects(_GETACTIVEOBJECTFLAGS_NONE) or []
+    except Exception:
+        return []
+    return [obj for obj in active if _is_effector(obj)]
+
+
 def _doc_effectors(doc):
     """Return {guid: BaseObject} for every Effector currently in `doc`."""
     out = {}
@@ -61,7 +114,7 @@ def _doc_effectors(doc):
         return out
     for obj in _iter_subtree(first):
         try:
-            if not obj.IsInstanceOf(_OBASEEFFECTOR):
+            if not _is_effector(obj):
                 continue
             out[obj.GetGUID()] = obj
         except Exception:
@@ -69,17 +122,39 @@ def _doc_effectors(doc):
     return out
 
 
+def _is_brickit(obj):
+    """True if `obj` is our BrickIt ObjectData plugin instance.
+
+    `IsInstanceOf(plugin_id)` is not reliable for custom generators; the
+    rest of BrickGen uses `GetType() == ID_BRICKIFYASSEMBLY`. Match that here
+    so selection caching sees BrickIt when it is active.
+    """
+    if obj is None:
+        return False
+    try:
+        if int(obj.GetType()) == int(ID_BRICKIFYASSEMBLY):
+            return True
+    except Exception:
+        pass
+    try:
+        if obj.IsInstanceOf(ID_BRICKIFYASSEMBLY):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _selected_brickits(doc):
     if doc is None:
         return []
     try:
-        active = doc.GetActiveObjects(0) or []
+        active = doc.GetActiveObjects(_GETACTIVEOBJECTFLAGS_NONE) or []
     except Exception:
         return []
     out = []
     for obj in active:
         try:
-            if obj.IsInstanceOf(ID_BRICKIFYASSEMBLY):
+            if _is_brickit(obj):
                 out.append(obj)
         except Exception:
             continue
@@ -200,7 +275,14 @@ def register():
                 return "{0}|{1}".format(path, name)
             try:
                 first = doc.GetFirstObject()
-                return "untitled|{0}".format(id(first) if first else 0)
+                if first is None:
+                    return "untitled|noroot"
+                # Python `id(first)` is not stable across CoreMessage calls
+                # (wrapper churn). Use the root object's GUID for this session.
+                try:
+                    return "untitled|rootguid|{0}".format(first.GetGUID())
+                except Exception:
+                    return "untitled|norootguid"
             except Exception:
                 return "untitled|0"
 
@@ -244,8 +326,17 @@ def register():
                 # effectors are intentionally NOT auto-added (matches native
                 # Cloner behavior of only auto-linking on creation).
                 self._effector_snapshot[doc_key] = current_guids
+                cur_sel = _selected_brickits(doc)
+                if cur_sel:
+                    self._last_brickit_selection[doc_key] = cur_sel
                 return
 
+            for eff in _active_effectors(doc):
+                try:
+                    current[eff.GetGUID()] = eff
+                except Exception:
+                    pass
+            current_guids = set(current.keys())
             new_guids = current_guids - prev_guids
             if not new_guids:
                 # No new effectors: update the cached BrickIt selection so the

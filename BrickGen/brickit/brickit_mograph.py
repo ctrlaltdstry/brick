@@ -7,6 +7,7 @@ from .brickit_animation import (
     ordered_placements,
     smooth_top_cap_selection_for_coverage,
 )
+from .brickit_groups import grouped_parent_for_placement
 from .brickit_humanize import apply_humanize_to_low_corner_matrix
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
@@ -436,6 +437,18 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
 
         created_instances = 0
         logo_count = 0
+        group_parent_cache = {}
+
+        def _parent_for_placement(placement):
+            if not proxy:
+                return fracture
+            return grouped_parent_for_placement(
+                info,
+                placement,
+                fracture,
+                group_parent_cache,
+            )
+
         for p in placements:
             if p.rotation_y == 90:
                 template_brick = SimpleNamespace(
@@ -505,7 +518,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             except Exception:
                 pass
             child.SetMl(m)
-            child.InsertUnder(fracture)
+            child.InsertUnder(_parent_for_placement(p))
             created_instances += 1
 
         if proxy:

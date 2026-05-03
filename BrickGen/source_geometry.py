@@ -48,6 +48,194 @@ def polygon_object_to_arrays(poly_obj, frame_inv=None):
     return verts, faces
 
 
+def _polygon_vertices(fp):
+    verts = [int(fp.a), int(fp.b), int(fp.c)]
+    if fp.c != fp.d:
+        verts.append(int(fp.d))
+    return verts
+
+
+def source_polygon_islands(poly_obj, source_metadata=None, frame_inv=None):
+    """Return disconnected polygon-island summaries in source-local space."""
+    import numpy as np
+
+    if poly_obj is None:
+        return {"islands": []}
+
+    pts = poly_obj.GetAllPoints()
+    polys = poly_obj.GetAllPolygons()
+    n_pts = int(poly_obj.GetPointCount())
+    n_polys = int(poly_obj.GetPolygonCount())
+    if n_pts <= 0 or n_polys <= 0:
+        return {"islands": []}
+
+    mg = poly_obj.GetMg()
+    vertices = np.empty((n_pts, 3), dtype=np.float64)
+    for i, p in enumerate(pts):
+        wp = mg * p
+        if frame_inv is not None:
+            wp = frame_inv * wp
+        vertices[i, 0] = float(wp.x)
+        vertices[i, 1] = float(wp.y)
+        vertices[i, 2] = float(wp.z)
+
+    groups = []
+    try:
+        groups = list((source_metadata or {}).get("groups") or [])
+    except Exception:
+        groups = []
+    if not groups:
+        groups = [{
+            "name": "Source",
+            "poly_start": 0,
+            "poly_end": n_polys,
+        }]
+
+    islands = []
+
+    def _find(parent, x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(parent, a, b):
+        ra = _find(parent, a)
+        rb = _find(parent, b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for group_index, group in enumerate(groups):
+        start = max(0, min(n_polys, int(group.get("poly_start", 0) or 0)))
+        end = max(start, min(n_polys, int(group.get("poly_end", n_polys) or n_polys)))
+        poly_indices = list(range(start, end))
+        if not poly_indices:
+            continue
+
+        parent = {idx: idx for idx in poly_indices}
+        edges = {}
+        for idx in poly_indices:
+            verts_for_poly = _polygon_vertices(polys[idx])
+            for a, b in zip(verts_for_poly, verts_for_poly[1:] + verts_for_poly[:1]):
+                edge = tuple(sorted((int(a), int(b))))
+                prev = edges.get(edge)
+                if prev is None:
+                    edges[edge] = idx
+                else:
+                    _union(parent, prev, idx)
+
+        components = {}
+        for idx in poly_indices:
+            root = _find(parent, idx)
+            components.setdefault(root, []).append(idx)
+
+        group_name = str(group.get("name") or "Source")
+        for island_index, component_polys in enumerate(
+            sorted(components.values(), key=lambda rows: min(rows))
+        ):
+            point_ids = set()
+            for poly_idx in component_polys:
+                point_ids.update(_polygon_vertices(polys[poly_idx]))
+            if not point_ids:
+                continue
+            coords = vertices[list(sorted(point_ids))]
+            bbox_min = coords.min(axis=0)
+            bbox_max = coords.max(axis=0)
+            center = coords.mean(axis=0)
+            islands.append({
+                "key": "g{0:03d}_i{1:03d}".format(group_index + 1, island_index + 1),
+                "group_index": int(group_index),
+                "island_index": int(island_index),
+                "source_name": group_name,
+                "island_name": "Island {0:03d}".format(island_index + 1),
+                "bbox_min": tuple(float(v) for v in bbox_min),
+                "bbox_max": tuple(float(v) for v in bbox_max),
+                "center": tuple(float(v) for v in center),
+                "polygon_count": int(len(component_polys)),
+            })
+
+    return {"islands": islands}
+
+
+def placement_group_key(placement):
+    """Stable key for looking up grouping metadata for a fitted placement."""
+    brick = getattr(placement, "brick", None)
+    brick_name = str(getattr(brick, "name", "brick"))
+    return (
+        int(getattr(placement, "x", 0)),
+        int(getattr(placement, "y", 0)),
+        int(getattr(placement, "z", 0)),
+        int(getattr(placement, "w", getattr(brick, "width", 1))),
+        int(getattr(placement, "h", getattr(brick, "height", 1))),
+        int(getattr(placement, "d", getattr(brick, "depth", 1))),
+        int(getattr(placement, "rotation_y", 0)),
+        brick_name,
+    )
+
+
+def placement_grouping_for_islands(placements, island_metadata, origin, stud_size, plate_size):
+    """Classify fitted placements to nearest source child/polygon island."""
+    import numpy as np
+
+    islands = list((island_metadata or {}).get("islands") or [])
+    if not placements or not islands or origin is None:
+        return {"groups": [], "placement_groups": {}}
+
+    origin = np.asarray(origin, dtype=np.float64)
+    island_rows = []
+    for island in islands:
+        try:
+            bbox_min = np.asarray(island.get("bbox_min"), dtype=np.float64)
+            bbox_max = np.asarray(island.get("bbox_max"), dtype=np.float64)
+            center = np.asarray(island.get("center"), dtype=np.float64)
+        except Exception:
+            continue
+        if bbox_min.shape != (3,) or bbox_max.shape != (3,) or center.shape != (3,):
+            continue
+        island_rows.append((island, bbox_min, bbox_max, center))
+    if not island_rows:
+        return {"groups": [], "placement_groups": {}}
+
+    groups = {}
+    placement_groups = {}
+
+    def _score(center, bbox_min, bbox_max, island_center):
+        outside = np.maximum(0.0, np.maximum(bbox_min - center, center - bbox_max))
+        return float(np.dot(outside, outside)), float(np.sum((center - island_center) ** 2))
+
+    for placement in placements:
+        brick = getattr(placement, "brick", None)
+        w = float(getattr(placement, "w", getattr(brick, "width", 1)))
+        h = float(getattr(placement, "h", getattr(brick, "height", 1)))
+        d = float(getattr(placement, "d", getattr(brick, "depth", 1)))
+        center = origin + np.array([
+            (float(getattr(placement, "x", 0)) + w * 0.5) * float(stud_size),
+            (float(getattr(placement, "y", 0)) + h * 0.5) * float(plate_size),
+            (float(getattr(placement, "z", 0)) + d * 0.5) * float(stud_size),
+        ], dtype=np.float64)
+        island, _bbox_min, _bbox_max, _center = min(
+            island_rows,
+            key=lambda row: _score(center, row[1], row[2], row[3]),
+        )
+        group_key = str(island.get("key") or "ungrouped")
+        groups[group_key] = {
+            "key": group_key,
+            "source_name": str(island.get("source_name") or "Source"),
+            "island_name": str(island.get("island_name") or "Island"),
+            "group_index": int(island.get("group_index", 0) or 0),
+            "island_index": int(island.get("island_index", 0) or 0),
+        }
+        placement_groups[placement_group_key(placement)] = group_key
+
+    return {
+        "groups": sorted(
+            groups.values(),
+            key=lambda row: (int(row.get("group_index", 0)), int(row.get("island_index", 0))),
+        ),
+        "placement_groups": placement_groups,
+    }
+
+
 def c4d_volume_voxels_from_polygon_object(
     poly_obj,
     verts,

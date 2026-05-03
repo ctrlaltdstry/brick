@@ -9,11 +9,13 @@ from library_panel import (
     read_library_mask as _read_library_mask,
     toggle_id as _toggle_id,
 )
-from logo_helpers import baked_polygon_object as _baked_polygon_object
+from logo_helpers import baked_polygon_object_with_metadata as _baked_polygon_object_with_metadata
 from plugin_bootstrap import brick_log as _brick_log
 from source_geometry import (
     c4d_volume_voxels_from_polygon_object as _c4d_volume_voxels_from_polygon_object,
+    placement_grouping_for_islands as _placement_grouping_for_islands,
     polygon_object_to_arrays as _polygon_object_to_arrays,
+    source_polygon_islands as _source_polygon_islands,
 )
 
 
@@ -161,7 +163,7 @@ def _get_cached_source_arrays(self, source_obj, doc):
 
     log_first_eval = not getattr(self, "_first_eval_logged", False)
     t_bake0 = time.perf_counter() if log_first_eval else 0.0
-    baked = _baked_polygon_object(source_obj, doc)
+    baked, source_metadata = _baked_polygon_object_with_metadata(source_obj, doc)
     if log_first_eval:
         breakdown = getattr(self, "_first_eval_stage_breakdown", None) or {}
         breakdown["source_bake"] = (
@@ -183,9 +185,14 @@ def _get_cached_source_arrays(self, source_obj, doc):
         self._source_cache_key = None
         self._source_cache_data = None
         return None
+    source_islands = _source_polygon_islands(
+        baked,
+        source_metadata=source_metadata,
+        frame_inv=frame_inv,
+    )
 
     self._source_cache_key = source_key
-    self._source_cache_data = (baked, verts, faces, frame_inv)
+    self._source_cache_data = (baked, verts, faces, frame_inv, source_islands)
     return self._source_cache_data
 
 
@@ -232,11 +239,15 @@ def _refit_if_needed(self, op, doc, params=None):
         self._preview_voxel_cache_key = None
         self._preview_voxel_cache_voxels = None
         return False
-    if len(source_data) == 4:
+    if len(source_data) == 5:
+        baked, verts, faces, frame_inv, source_islands = source_data
+    elif len(source_data) == 4:
         baked, verts, faces, frame_inv = source_data
+        source_islands = None
     else:
         baked, verts, faces = source_data
         frame_inv = None
+        source_islands = None
 
     precomputed_voxels = None
     call_stud_size = params["stud_size"]
@@ -374,6 +385,13 @@ def _refit_if_needed(self, op, doc, params=None):
     info["prune_auto_reason"] = str(params.get("prune_auto_reason") or "")
     info["prune_user"] = bool(params.get("prune_user"))
     info["height_mix_amount_ui"] = float(params.get("height_mix_amount_ui", 0.0))
+    info["source_island_groups"] = _placement_grouping_for_islands(
+        placements,
+        source_islands,
+        info.get("origin"),
+        info.get("stud_size", 8.0),
+        info.get("plate_size", 3.2),
+    )
     try:
         final_buildability = info.get("final_buildability") or {}
         physical_repair = info.get("physical_repair") or {}

@@ -94,10 +94,30 @@ def soften_raised_logo_contact(poly_obj, stud_size, plate_size, blend=1.0):
     poly_obj.Message(c4d.MSG_UPDATE)
 
 
-def baked_polygon_object(source_obj, doc):
-    """Return a polygon-only baked clone of `source_obj`."""
+def _object_label(obj, fallback):
+    try:
+        name = obj.GetName()
+        if name:
+            return str(name)
+    except Exception:
+        pass
+    return fallback
+
+
+def _polygon_group_meta(obj, point_start, point_count, poly_start, poly_count, fallback):
+    return {
+        "name": _object_label(obj, fallback),
+        "point_start": int(point_start),
+        "point_end": int(point_start + point_count),
+        "poly_start": int(poly_start),
+        "poly_end": int(poly_start + poly_count),
+    }
+
+
+def baked_polygon_object_with_metadata(source_obj, doc):
+    """Return a polygon-only baked clone plus source child range metadata."""
     if source_obj is None:
-        return None
+        return None, {"groups": []}
 
     def _collect_polygons(root):
         found = []
@@ -124,9 +144,21 @@ def baked_polygon_object(source_obj, doc):
             return None
         if len(found) == 1:
             try:
-                return found[0].GetClone(c4d.COPYFLAGS_NONE)
+                merged = found[0].GetClone(c4d.COPYFLAGS_NONE)
             except Exception:
-                return found[0]
+                merged = found[0]
+            return merged, {
+                "groups": [
+                    _polygon_group_meta(
+                        found[0],
+                        0,
+                        found[0].GetPointCount(),
+                        0,
+                        found[0].GetPolygonCount(),
+                        "source",
+                    )
+                ]
+            }
         total_v = sum(o.GetPointCount() for o in found)
         total_f = sum(o.GetPolygonCount() for o in found)
         merged = c4d.PolygonObject(total_v, total_f)
@@ -138,6 +170,7 @@ def baked_polygon_object(source_obj, doc):
             merged_uvw = None
         v_off = 0
         f_off = 0
+        groups = []
         for o in found:
             pts = o.GetAllPoints()
             polys = o.GetAllPolygons()
@@ -159,6 +192,16 @@ def baked_polygon_object(source_obj, doc):
                         merged_uvw.SetSlow(f_off + j, uvw.GetSlow(j))
                     except Exception:
                         pass
+            groups.append(
+                _polygon_group_meta(
+                    o,
+                    v_off,
+                    len(pts),
+                    f_off,
+                    len(polys),
+                    "source_{0:03d}".format(len(groups) + 1),
+                )
+            )
             v_off += len(pts)
             f_off += len(polys)
         if merged_uvw is not None:
@@ -167,13 +210,25 @@ def baked_polygon_object(source_obj, doc):
             except Exception:
                 pass
         merged.Message(c4d.MSG_UPDATE)
-        return merged
+        return merged, {"groups": groups}
 
     if source_obj.GetType() == c4d.Opolygon:
         try:
-            return source_obj.GetClone(c4d.COPYFLAGS_NONE)
+            baked = source_obj.GetClone(c4d.COPYFLAGS_NONE)
         except Exception:
-            return source_obj
+            baked = source_obj
+        return baked, {
+            "groups": [
+                _polygon_group_meta(
+                    source_obj,
+                    0,
+                    source_obj.GetPointCount(),
+                    0,
+                    source_obj.GetPolygonCount(),
+                    "source",
+                )
+            ]
+        }
 
     cache_roots = []
     try:
@@ -190,7 +245,7 @@ def baked_polygon_object(source_obj, doc):
         pass
     for root in cache_roots:
         merged = _merge_polygon_objects(_collect_polygons(root))
-        if merged is not None and merged.GetPointCount() > 0:
+        if merged is not None and merged[0] is not None and merged[0].GetPointCount() > 0:
             return merged
 
     result = c4d.utils.SendModelingCommand(
@@ -200,11 +255,17 @@ def baked_polygon_object(source_obj, doc):
         doc=doc,
     )
     if not result:
-        return None
+        return None, {"groups": []}
     merged = _merge_polygon_objects(_collect_polygons(result))
-    if merged is not None:
+    if merged is not None and merged[0] is not None:
         return merged
-    return None
+    return None, {"groups": []}
+
+
+def baked_polygon_object(source_obj, doc):
+    """Return a polygon-only baked clone of `source_obj`."""
+    baked, _metadata = baked_polygon_object_with_metadata(source_obj, doc)
+    return baked
 
 
 def logo_source_state_key(source_obj):
