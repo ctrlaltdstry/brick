@@ -10,5 +10,12 @@ from .fitter import BrickFitter, BrickPlacement, merge_plates_to_bricks
 from .connectivity import (
     check_buildability, check_connectivity, find_articulation_points,
 )
-from .exporters import export_ldraw, export_json, render_preview
 from .pipeline import brick_mesh, brickify_mesh, auto_stud_size, placement_world_position
+
+
+def __getattr__(name):
+    """Lazily expose optional exporter helpers without importing matplotlib."""
+    if name in {"export_ldraw", "export_json", "render_preview"}:
+        from . import exporters
+        return getattr(exporters, name)
+    raise AttributeError("module 'brick' has no attribute {0!r}".format(name))

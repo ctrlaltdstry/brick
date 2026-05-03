@@ -3,8 +3,6 @@ import json
 from collections import defaultdict
 from typing import List, Optional
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from .fitter import BrickPlacement
 from .palette import LegoPalette
 from .voxelize import STUD_MM, PLATE_MM
@@ -155,6 +153,9 @@ def render_preview(
     plate_size: float = PLATE_MM,
 ):
     """Render a 3D preview. Internal Y is up; we map it to matplotlib's Z."""
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
     Nx, Ny, Nz = grid_shape
     # local aliases so the rest of the function reads naturally
     SS = stud_size
