@@ -21,9 +21,19 @@ The C4D port is **live**:
   hierarchy used for effectors, fields, and Redshift per-brick color.
 
 Current pushed checkpoint before this guide refresh:
-`e65e10c` (`Update BrickIt animation and proxy workflow`). It includes the
-Smooth Top animation controls, proxy quality defaults, integrated MoGraph
-animation updates, and `tools/diagnose_brickit_animation_jump.py`.
+`c8fe7e2` (`BrickIt island groups, default library, effector autohook`). It
+adds source-child / polygon-island grouping for live SOURCE MoGraph and for
+Make Proxy (single Fracture + grouped nulls inside), defaults new BrickIt to
+the `brick_2x4` library entry, hardens effector auto-append to BrickIt’s
+Effectors list, and ships `tools/test_brickit_island_grouping.py`. Animation
+/ Smooth Top / `tools/diagnose_brickit_animation_jump.py` remain as in
+`e65e10c`.
+
+Open since `c8fe7e2` (not yet committed): MoGraph effector coordinate-frame
+fix in `_evaluate_native_mograph` (frame-matrix conversion) and structural
+fast path in `_apply_integrated_mograph_animation_fast_path` for
+effector-active scrubbing. See the "Effector evaluation frame" and
+"Effector-active fast path" sections below.
 
 ## Project layout
 
@@ -366,6 +376,112 @@ timeline jumps that only show up in-scene, run
 with the BrickIt object selected; it writes
 `brickit_animation_jump_report.txt` to the Desktop.
 
+### BrickIt source-child / polygon-island grouping (2026-05)
+
+**Why:** Make Editable and per-region work (selection, materials, RSObjectColor
+pipelines) are much easier when carriers are parented under Nulls that mirror
+the source hierarchy: one branch per **source mesh child object**, then
+sub-branches per **disconnected polygon island** inside that child.
+
+**Non-negotiables (same as the integrated MoGraph sections above):**
+
+- Still **one `InstanceObject` per brick** with the existing multi-instance +
+  display-color contract — do not switch to grouped multi-instance carriers.
+- Template protos remain **Null + exactly one polygon child** (logos baked into
+  that mesh). Do not wrap carriers in `Omgfracture` hoping for `RSMGColor`.
+
+**Data / fit:**
+
+- `BrickGen/logo_helpers.py` — `baked_polygon_object_with_metadata` carries
+  per-source-child polygon index ranges through the bake; `baked_polygon_object`
+  is the thin wrapper for existing callers.
+- `BrickGen/source_geometry.py` — island IDs from baked triangle connectivity
+  (`source_polygon_islands`), plus helpers to assign placements to a stable
+  `(child, island)` key (`placement_grouping_for_islands`,
+  `placement_group_key`).
+- `BrickGen/brickit/brickit_fit.py` — reads that metadata and records group
+  membership in the fit `info` payload (e.g. `source_island_groups`).
+- `BrickGen/brickit/brickit_groups.py` — `grouped_parent_for_placement`,
+  `resolve_group_key`, and fallbacks so caps and odd placements land in a
+  nearest island or under `99_Ungrouped/001_Ungrouped` instead of sitting
+  loose directly under `bricks`.
+
+**Live SOURCE MoGraph:**
+
+- `BrickGen/brickit/brickit_mograph_generator.py` — under the existing
+  `bricks` root, carriers are parented under the appropriate child/island
+  Nulls. MoGraph invariants and animation matrix pipeline are unchanged.
+
+**Make Proxy:**
+
+- `BrickGen/brickit/brickit_mograph.py` — **one** handoff Fracture
+  (`bricks_mograph_fracture`) with **grouped Nulls inside it** and per-brick
+  instances under island Nulls. Multi-Fracture-per-group was tried and reverted;
+  keep the single-Fracture layout so dynamics stays per-brick without fighting
+  the fracture object count.
+
+**Defaults + AM wiring:**
+
+- New BrickIt objects default to library brick type **`brick_2x4`**
+  (`BrickGen/brickit/brickit_object.py`, `BrickGen/library_panel.py`).
+
+**Effector list auto-append:**
+
+- `BrickGen/brickit/brickit_effectors_autohook.py` — when you drop/create a
+  MoGraph effector with BrickIt active, it should appear on BrickIt’s
+  Effectors list without manual drag. Implementation uses generator `GetType`,
+  a first-reconcile BrickIt selection snapshot, and explicit recognition of
+  MoGraph effector types (`Omgplain`, other `Omg*`, `Obaseeffector`), not only
+  `IsInstanceOf` checks on a narrow type set.
+
+**Test:**
+
+```
+python tools/test_brickit_island_grouping.py
+```
+
+### Effector evaluation frame (2026-05-03) — DO NOT REGRESS
+
+When MoGraph effectors run via `BRICK_MOGRAPH_EVAL_GENERATOR=op`, the native
+evaluator (and `ApplyFieldListColors`) treats input matrices as local to
+`op.GetMg()` — it samples falloff at `op_mg * matrix.off`. Pre-effector brick
+matrices, however, are authored in the source-axis frame (relative to the
+integrated root Null whose local matrix is `~op_mg * source_mg`). When
+`op_mg ≠ source_mg`, the mismatch caused fields to sample at the wrong world
+positions and the assembly to jump toward `op`'s origin.
+
+`_evaluate_native_mograph` now takes a `frame_matrix` kwarg
+(= `source_axis_local_matrix(op, source_obj)`). Pre-multiplying by it
+converts root-local → op-local before the evaluator sees the matrices, and
+post-multiplying outputs by `~frame_matrix` converts back to root-local for
+the carriers. Both call sites (build path and integrated-MoGraph fast path)
+pass it. When BrickIt and the source mesh are coincident this is a no-op.
+
+Do not pass root-local matrices to the native evaluator without
+`frame_matrix`. Do not switch the generator handed to effectors away from
+`op` — color-mode and effector-recognition behavior are anchored to it.
+
+### Effector-active fast path (2026-05-03) — DO NOT REGRESS
+
+Mutating cached `InstanceObject` matrices via `SetInstanceMatrices` is broken
+when effectors apply non-trivial deltas: bricks render at the raw matrix
+offset (near world / op origin) instead of `parent.Mg * matrix`. Re-applying
+`INSTANCEOBJECT_RENDERINSTANCE_MODE`, the template ref, and dirty flags does
+not restore correct rendering.
+
+`_apply_integrated_mograph_animation_fast_path` now branches when effectors
+are present: it captures each carrier's group-null parent, removes the
+cached `InstanceObject`, creates a fresh one (template, mode, matrix, color,
+visibility) and re-inserts it under the same group null, then updates
+`state["instances"]` so the next call operates on the new carriers.
+Animation scrubbing without effectors keeps the cheap pure-mutation path —
+that one renders correctly because there's no parent-transform mismatch to
+expose. Do not collapse the two branches back into a single `SetInstanceMatrices`
+mutation; effectors will silently render wrong again.
+
+**Public prerelease build:** tag `brick-c4d2026-preview-20260503-c8fe7e2` on
+repo `ctrlaltdstry/brick-releases`, asset `Brick.zip` (Windows + C4D 2026).
+
 ## The brick generator (current focus)
 
 Two implementations exist. **Use `brick_geom_hires.py`. The other one
@@ -573,7 +689,6 @@ visualization but not for hero shots.
   repo root plus the canonical `brick/` package.
 
 ## What's NOT done yet
-
 - `brick_geom_hires.py` does not natively emit SVG-extruded logos as part
   of the core single-brick mesh. BrickIt handles logos at the template
   level and the integrated MoGraph path bakes them into a single polygon

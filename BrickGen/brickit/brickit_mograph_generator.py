@@ -232,8 +232,20 @@ def _evaluate_native_mograph(
     *,
     skip_field_override=False,
     label="default",
+    frame_matrix=None,
 ):
-    """Evaluate matrices/colors through the native C++ MoData helper tag."""
+    """Evaluate matrices/colors through the native C++ MoData helper tag.
+
+    `frame_matrix` is the input matrices' parent-local matrix relative to op
+    (i.e. the integrated root Null's local matrix, ``~op_mg * source_mg``).
+    The native evaluator hands `op` to effectors as their generator, so it
+    interprets matrices as local to `op_mg`. Our matrices are local to the
+    root Null (= local to `source_mg`), so we pre-multiply by `frame_matrix`
+    to convert root-local → op-local for the evaluator and post-multiply
+    outputs by ``~frame_matrix`` to convert op-local → root-local for the
+    carriers. When `frame_matrix` is None or close to identity (BrickIt at
+    world identity, or coincident with the source axis) this is a no-op.
+    """
     if not matrices:
         return [], []
     try:
@@ -244,14 +256,25 @@ def _evaluate_native_mograph(
         _brick_log("[brick] Integrated MoGraph: native evaluator tag unavailable")
         return matrices, colors
 
-    count = len(matrices)
+    inv_frame = None
+    if frame_matrix is not None:
+        try:
+            inv_frame = ~frame_matrix
+            input_matrices = [frame_matrix * m for m in matrices]
+        except Exception:
+            inv_frame = None
+            input_matrices = matrices
+    else:
+        input_matrices = matrices
+
+    count = len(input_matrices)
     try:
         tag[BRICK_MOGRAPH_EVAL_COUNT] = int(count)
         tag[BRICK_MOGRAPH_EVAL_GENERATOR] = op
         tag[BRICK_MOGRAPH_EVAL_SKIP_FIELD_OVERRIDE] = bool(skip_field_override)
         if effectors is not None:
             tag[BRICK_MOGRAPH_EVAL_EFFECTORS] = effectors
-        for i, matrix in enumerate(matrices):
+        for i, matrix in enumerate(input_matrices):
             tag[BRICK_MOGRAPH_EVAL_IN_MATRIX_BASE + i] = matrix
             tag[BRICK_MOGRAPH_EVAL_IN_COLOR_BASE + i] = colors[i]
         tag.Message(MSG_BRICK_MOGRAPH_EVALUATE)
@@ -297,7 +320,9 @@ def _evaluate_native_mograph(
         for i in range(count):
             matrix = tag[BRICK_MOGRAPH_EVAL_OUT_MATRIX_BASE + i]
             if not _is_sane_effector_matrix(matrix):
-                matrix = matrices[i]
+                # Fall back to the op-local input — the post-multiply below
+                # converts back to root-local consistently with sane outputs.
+                matrix = input_matrices[i]
                 invalid_matrices += 1
             out_matrices.append(matrix)
             out_colors.append(tag[BRICK_MOGRAPH_EVAL_OUT_COLOR_BASE + i])
@@ -308,6 +333,11 @@ def _evaluate_native_mograph(
                     int(count),
                 )
             )
+        if inv_frame is not None:
+            try:
+                out_matrices = [inv_frame * m for m in out_matrices]
+            except Exception:
+                pass
         return out_matrices, out_colors
     except Exception as exc:
         _brick_log("[brick] Integrated MoGraph: native evaluator failed: {0}".format(exc))
@@ -699,6 +729,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             params.get("mograph_effectors"),
             skip_field_override=True,
             label="effector",
+            frame_matrix=source_axis_local_matrix(op, source_obj),
         )
     else:
         matrices, colors = pre_matrices, pre_colors
@@ -979,6 +1010,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
     root = state.get("root")
     instances = state.get("instances") or []
     descriptors = state.get("descriptors") or []
+    get_template_obj = state.get("get_template_obj")
     if root is None or not instances or len(instances) != len(descriptors):
         return None
 
@@ -988,6 +1020,11 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         return None
     if params is None:
         params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+
+    multi_mode = int(
+        getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", 1)
+    )
+    has_effectors_now = _has_mograph_effectors(params.get("mograph_effectors"))
 
     stud_size = info.get("stud_size", 8.0)
     plate_size = info.get("plate_size", 3.2)
@@ -1152,25 +1189,95 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             params.get("mograph_effectors"),
             skip_field_override=True,
             label="effector",
+            frame_matrix=source_axis_local_matrix(op, op[BRICKIFYASSEMBLY_SOURCE]),
         )
     else:
         matrices, colors = pre_matrices, pre_colors
 
-    for i, instance in enumerate(instances):
-        matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
-        color = colors[i] if i < len(colors) else pre_colors[i]
-        matrix = _matrix_for_visibility(matrix, visible_flags[i])
-        try:
-            instance.SetInstanceMatrices([matrix])
-            instance.SetInstanceColors([color])
-        except Exception:
+    # Effector-present fast path: recreate InstanceObject carriers under
+    # their existing group-null parents. Mutating cached carriers via
+    # `SetInstanceMatrices` doesn't render correctly when effectors apply
+    # non-trivial deltas (bricks render at the raw matrix offset instead of
+    # `parent.Mg * matrix`). Recreating bypasses that — fresh
+    # InstanceObjects always render with the correct parent transform — and
+    # still reuses the slow parts of the build (refit, templates, group
+    # null hierarchy) so it's much cheaper than a full rebuild.
+    if has_effectors_now and get_template_obj is not None:
+        new_instances = []
+        for i, instance in enumerate(instances):
+            matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
+            color = colors[i] if i < len(colors) else pre_colors[i]
+            matrix = _matrix_for_visibility(matrix, visible_flags[i])
+            template_brick, smooth_top, _placement = descriptors[i]
             try:
-                instance.SetMl(matrix)
+                group_parent = instance.GetUp()
+            except Exception:
+                group_parent = None
+            try:
+                instance.Remove()
             except Exception:
                 pass
-        _set_object_visible(instance, visible_flags[i])
-        _apply_object_color(instance, color)
-        _update_object(instance)
+            template = get_template_obj(template_brick, smooth_top=bool(smooth_top))
+            try:
+                child = c4d.InstanceObject()
+            except Exception:
+                child = c4d.BaseObject(c4d.Oinstance)
+            child.SetName(
+                "brick_{0}x{1}x{2}p_inst_{3:04d}".format(
+                    int(template_brick.width),
+                    int(template_brick.depth),
+                    int(template_brick.height),
+                    i,
+                )
+            )
+            if template is not None:
+                try:
+                    child.SetReferenceObject(template)
+                except Exception:
+                    try:
+                        child[c4d.INSTANCEOBJECT_LINK] = template
+                    except Exception:
+                        pass
+            try:
+                child[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = multi_mode
+            except Exception:
+                pass
+            try:
+                child.SetInstanceMatrices([matrix])
+                child.SetInstanceColors([color])
+            except Exception:
+                try:
+                    child.SetMl(matrix)
+                except Exception:
+                    pass
+            _set_object_visible(child, visible_flags[i])
+            _apply_object_color(child, color)
+            _update_object(child)
+            if group_parent is not None:
+                try:
+                    child.InsertUnder(group_parent)
+                except Exception:
+                    pass
+            new_instances.append(child)
+        # Future fast-path calls must operate on the recreated InstanceObjects,
+        # not the discarded ones.
+        state["instances"] = new_instances
+    else:
+        for i, instance in enumerate(instances):
+            matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
+            color = colors[i] if i < len(colors) else pre_colors[i]
+            matrix = _matrix_for_visibility(matrix, visible_flags[i])
+            try:
+                instance.SetInstanceMatrices([matrix])
+                instance.SetInstanceColors([color])
+            except Exception:
+                try:
+                    instance.SetMl(matrix)
+                except Exception:
+                    pass
+            _set_object_visible(instance, visible_flags[i])
+            _apply_object_color(instance, color)
+            _update_object(instance)
 
     try:
         root.Message(c4d.MSG_UPDATE)

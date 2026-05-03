@@ -11,6 +11,16 @@ from plugin_bootstrap import (
 )
 
 
+def _has_mograph_effectors_for_runtime(effectors):
+    if effectors is None:
+        return False
+    try:
+        return int(effectors.GetObjectCount()) > 0
+    except Exception:
+        pass
+    return bool(effectors)
+
+
 def GetVirtualObjects(self, op, hh):
     # First-eval stage timings: log only once per BrickIt per session so we
     # can attribute scene-open freeze cost to a specific stage.
@@ -166,6 +176,16 @@ def GetVirtualObjects(self, op, hh):
     ):
         return cached
 
+    # Fast-path eligibility. When MoGraph effectors are present, the fast
+    # path internally destroys + recreates `InstanceObject` carriers under
+    # the existing root/templates/group-null hierarchy because mutating
+    # cached carriers' matrices via `SetInstanceMatrices` does not pick up
+    # the carrier hierarchy's parent transform the way a fresh build does
+    # (bricks render at the raw matrix offset instead of `source_mg *
+    # matrix`). The recreation path costs ~3-5× a pure mutation but is
+    # still a fraction of a full rebuild because it reuses templates,
+    # refit, and group-null hierarchy. Without effectors we keep the
+    # cheaper pure-mutation path.
     animation_fast_path_eligible = (
         not self._force_rebuild
         and cached is not None
