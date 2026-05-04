@@ -577,6 +577,19 @@ swaps rebuild correctly. Do not re-introduce the relink approach for
 post-bake swaps; it only worked when the carriers were still
 InstanceObjects.
 
+**Test:**
+
+```
+python tools/test_brickit_bind.py
+```
+
+Headless regression for the bind math primitives — closest-point-on-
+triangle, per-frame center reconstruction (rest pose + after vertex
+translation), and the shortest-arc orient basis (no flips through the
+world-X singularity). Run before changing `brickit_bind.py`,
+`brickit_bind_follower.py`, or the bind matrix code in
+`brickit_mograph.py`.
+
 **Public prerelease build:** tag `brick-c4d2026-preview-20260503-c8fe7e2` on
 repo `ctrlaltdstry/brick-releases`, asset `Brick.zip` (Windows + C4D 2026).
 

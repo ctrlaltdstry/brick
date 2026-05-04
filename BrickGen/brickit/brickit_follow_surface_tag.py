@@ -770,6 +770,29 @@ def _swap_baked_to_hero(tag):
 class BrickitFollowSurfaceTag(plugins.TagData):
     """Per-frame proxy-brick driver from a deforming source mesh."""
 
+    def GetDEnabling(self, node, desc_id, t_data, flags, itemdesc):
+        try:
+            pid = desc_id[0].id
+        except Exception:
+            return True
+        if pid == BRICKIT_FOLLOW_SURFACE_BAKE_BUTTON:
+            try:
+                records = node[BRICKIT_FOLLOW_SURFACE_RECORDS] or ""
+                source = node[BRICKIT_FOLLOW_SURFACE_SOURCE]
+            except Exception:
+                return True
+            return bool(records) and source is not None
+        if pid in (
+            BRICKIT_FOLLOW_SURFACE_SWAP_HERO_BUTTON,
+            BRICKIT_FOLLOW_SURFACE_SWAP_QUALITY,
+        ):
+            try:
+                brickit = node[BRICKIT_FOLLOW_SURFACE_BRICKIT_OP]
+            except Exception:
+                return True
+            return brickit is not None
+        return True
+
     def Init(self, node, isCloneInit=False):
         try:
             node[BRICKIT_FOLLOW_SURFACE_ENABLED] = True
