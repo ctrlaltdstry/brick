@@ -675,22 +675,49 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             if support is not None:
                 bound_support = bind_center_by_obj.get(id(support))
                 if bound_support is not None:
-                    cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
-                    cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
-                    sx_local = (
-                        float(support.x) + float(support.w) * 0.5
+                    # Cap position is computed in the support's LOCAL frame
+                    # (lateral X/Z by source-axis stud spacing, vertical by
+                    # half-thicknesses) and then projected through the
+                    # support's deformed orient basis when in follow-normal
+                    # mode. Without the basis projection, caps would stay
+                    # axis-aligned in source-axis-local space and slide off
+                    # tilted supports.
+                    dx_local = (
+                        (float(p.x) + float(p.w) * 0.5)
+                        - (float(support.x) + float(support.w) * 0.5)
                     ) * float(stud_size)
-                    sz_local = (
-                        float(support.z) + float(support.d) * 0.5
+                    dz_local = (
+                        (float(p.z) + float(p.d) * 0.5)
+                        - (float(support.z) + float(support.d) * 0.5)
                     ) * float(stud_size)
-                    return (
-                        float(bound_support[0] + (cx_local - sx_local)),
-                        float(
+                    dy_local = (
+                        float(support.h) * 0.5 * float(plate_size)
+                        + float(p.h) * 0.5 * float(plate_size)
+                    )
+                    sob = (
+                        bind_orient_by_obj.get(id(support))
+                        if bind_orient_by_obj is not None
+                        else None
+                    )
+                    if sob is not None:
+                        sv1, sv2, sv3 = sob
+                        wx = (
+                            bound_support[0]
+                            + sv1[0] * dx_local + sv2[0] * dy_local + sv3[0] * dz_local
+                        )
+                        wy = (
                             bound_support[1]
-                            + float(support.h) * 0.5 * float(plate_size)
-                            + float(p.h) * 0.5 * float(plate_size)
-                        ),
-                        float(bound_support[2] + (cz_local - sz_local)),
+                            + sv1[1] * dx_local + sv2[1] * dy_local + sv3[1] * dz_local
+                        )
+                        wz = (
+                            bound_support[2]
+                            + sv1[2] * dx_local + sv2[2] * dy_local + sv3[2] * dz_local
+                        )
+                        return (float(wx), float(wy), float(wz))
+                    return (
+                        float(bound_support[0] + dx_local),
+                        float(bound_support[1] + dy_local),
+                        float(bound_support[2] + dz_local),
                     )
         # Smooth caps with a recorded support placement are anchored to the
         # support's separated top so Brick Separation > 0 doesn't drift them
@@ -775,6 +802,14 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
 
         m = c4d.Matrix()
         ob = bind_orient_by_obj.get(id(p)) if bind_orient_by_obj is not None else None
+        if ob is None and bind_orient_by_obj is not None:
+            # Generated smooth caps don't have their own bind records, but
+            # they're anchored to a support placement that does. Inherit
+            # the support's orient so caps tilt with the surface alongside
+            # their parent brick instead of staying world-up.
+            support = getattr(p, "support", None)
+            if support is not None:
+                ob = bind_orient_by_obj.get(id(support))
         if ob is not None:
             v1, v2, v3 = ob
             m.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
@@ -1209,22 +1244,49 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             if support is not None:
                 bound_support = bind_center_by_obj.get(id(support))
                 if bound_support is not None:
-                    cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
-                    cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
-                    sx_local = (
-                        float(support.x) + float(support.w) * 0.5
+                    # Cap position is computed in the support's LOCAL frame
+                    # (lateral X/Z by source-axis stud spacing, vertical by
+                    # half-thicknesses) and then projected through the
+                    # support's deformed orient basis when in follow-normal
+                    # mode. Without the basis projection, caps would stay
+                    # axis-aligned in source-axis-local space and slide off
+                    # tilted supports.
+                    dx_local = (
+                        (float(p.x) + float(p.w) * 0.5)
+                        - (float(support.x) + float(support.w) * 0.5)
                     ) * float(stud_size)
-                    sz_local = (
-                        float(support.z) + float(support.d) * 0.5
+                    dz_local = (
+                        (float(p.z) + float(p.d) * 0.5)
+                        - (float(support.z) + float(support.d) * 0.5)
                     ) * float(stud_size)
-                    return (
-                        float(bound_support[0] + (cx_local - sx_local)),
-                        float(
+                    dy_local = (
+                        float(support.h) * 0.5 * float(plate_size)
+                        + float(p.h) * 0.5 * float(plate_size)
+                    )
+                    sob = (
+                        bind_orient_by_obj.get(id(support))
+                        if bind_orient_by_obj is not None
+                        else None
+                    )
+                    if sob is not None:
+                        sv1, sv2, sv3 = sob
+                        wx = (
+                            bound_support[0]
+                            + sv1[0] * dx_local + sv2[0] * dy_local + sv3[0] * dz_local
+                        )
+                        wy = (
                             bound_support[1]
-                            + float(support.h) * 0.5 * float(plate_size)
-                            + float(p.h) * 0.5 * float(plate_size)
-                        ),
-                        float(bound_support[2] + (cz_local - sz_local)),
+                            + sv1[1] * dx_local + sv2[1] * dy_local + sv3[1] * dz_local
+                        )
+                        wz = (
+                            bound_support[2]
+                            + sv1[2] * dx_local + sv2[2] * dy_local + sv3[2] * dz_local
+                        )
+                        return (float(wx), float(wy), float(wz))
+                    return (
+                        float(bound_support[0] + dx_local),
+                        float(bound_support[1] + dy_local),
+                        float(bound_support[2] + dz_local),
                     )
         # Smooth caps with a recorded support placement are anchored to the
         # support's separated top so Brick Separation > 0 doesn't drift them
@@ -1309,6 +1371,12 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
 
         matrix = c4d.Matrix()
         ob = bind_orient_by_obj.get(id(p)) if bind_orient_by_obj is not None else None
+        if ob is None and bind_orient_by_obj is not None:
+            # Generated smooth caps inherit orient from their support so
+            # they tilt with the brick beneath them on a deformed surface.
+            support = getattr(p, "support", None)
+            if support is not None:
+                ob = bind_orient_by_obj.get(id(support))
         if ob is not None:
             v1, v2, v3 = ob
             matrix.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))

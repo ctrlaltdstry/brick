@@ -858,6 +858,7 @@ def missing_smooth_top_cap_placements(
                     w=w,
                     d=d,
                     h=1,
+                    support=p,
                 )
             )
         else:
@@ -887,6 +888,7 @@ def missing_smooth_top_cap_placements(
                         w=rw,
                         d=rd,
                         h=1,
+                        support=p,
                     )
                 )
     return caps
