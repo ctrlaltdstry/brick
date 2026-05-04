@@ -219,22 +219,6 @@ def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
         frame_inv=frame_inv,
     )
     tri_geom = _compute_triangle_geometry(verts, faces)
-    if force_csto:
-        try:
-            mid = min(len(verts) // 2, len(verts) - 1)
-            v0 = verts[0]
-            vm = verts[mid]
-            _brick_log(
-                "[brick] Fit-time source bake (force_csto): n_verts={0}, n_faces={1}, "
-                "verts[0]=({2:.2f},{3:.2f},{4:.2f}), verts[{5}]=({6:.2f},{7:.2f},{8:.2f})".format(
-                    len(verts), len(faces),
-                    float(v0[0]), float(v0[1]), float(v0[2]),
-                    mid,
-                    float(vm[0]), float(vm[1]), float(vm[2]),
-                )
-            )
-        except Exception:
-            pass
 
     self._source_cache_key = source_key
     self._source_cache_data = (baked, verts, faces, frame_inv, source_islands, tri_geom)

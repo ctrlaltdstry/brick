@@ -1,63 +1,26 @@
-"""Per-frame deformation follower for proxy brick hierarchies.
+"""Per-frame deformation follower implementation.
 
-Attached as a Python expression tag (TPython) on a Make-Proxies-built
-hierarchy when source-deformation binding is active. Each frame the tag
-reads the linked source mesh via `MCOMMAND_CURRENTSTATETOOBJECT` (the same
-path the live integrated MoGraph eval uses), looks up each carrier's bind
-record by `bind_index` user-data, and writes a fresh local matrix on the
-carrier so it tracks the deformed surface.
+Used by the BrickIt Follow Surface tag (registered in
+`brickit_follow_surface_tag.py`) to drive each bound carrier under a
+proxy hierarchy at the deformed-mesh position read from the live source.
+Each frame the tag's `Execute` calls `apply_follow_surface(...)` here.
 
-This is the "keyframed target" that C4D Rigid Body Dynamics' Follow
-Position / Follow Rotation springs pull each brick toward — the user can
-add an RBD tag on the proxy Fracture with collision enabled and high
-follow weights, and the simulation will pull bricks along the cloth while
-collisions push neighbors apart.
-
-The follower is deliberately self-contained and depends only on numpy +
-c4d + the small `polygon_object_to_arrays` helper, so the tag continues to
-work on scene-open / re-evaluate without the full BrickIt runtime.
+This module reads the live deformed source via
+`SendModelingCommand(MCOMMAND_CURRENTSTATETOOBJECT)` — the same path the
+integrated-MoGraph live preview uses — so cloth/dynamics on the source
+are reflected in the proxy bricks before any RBD simulation runs.
 """
-import json
-
 import c4d
 
 from source_geometry import polygon_object_to_arrays as _polygon_object_to_arrays
 
 
-# User-data IDs on the follower tag (1-indexed). Match what
-# `_attach_bind_follower_tag` writes when stamping the tag.
-UD_SOURCE = 1
-UD_RECORDS = 2
-UD_ORIENT_MODE = 3
-UD_ORIENT_SMOOTHING = 4
-
-# User-data ID stamped on each carrier so the follower can identify it.
+# User-data ID stamped on each carrier (instance or post-bake polygon)
+# so the follower can match carriers to bind records by index.
 UD_CARRIER_BIND_INDEX = 1
 
 ORIENT_MODE_WORLD_UP = 0
 ORIENT_MODE_FOLLOW_NORMAL = 1
-
-
-def _read_tag_userdata(tag):
-    src = None
-    try:
-        src = tag[c4d.ID_USERDATA, UD_SOURCE]
-    except Exception:
-        src = None
-    records_json = ""
-    try:
-        records_json = tag[c4d.ID_USERDATA, UD_RECORDS] or ""
-    except Exception:
-        records_json = ""
-    try:
-        orient_mode = int(tag[c4d.ID_USERDATA, UD_ORIENT_MODE] or 0)
-    except Exception:
-        orient_mode = 0
-    try:
-        smoothing = float(tag[c4d.ID_USERDATA, UD_ORIENT_SMOOTHING] or 0.7)
-    except Exception:
-        smoothing = 0.7
-    return src, records_json, orient_mode, max(0.0, min(1.0, smoothing))
 
 
 def _evaluate_deformed_source(source_obj, doc):
@@ -153,23 +116,6 @@ def _shortest_arc_basis(nx, ny, nz):
         (1.0 - nx * nx * inv_one_plus_y, -nx, -nx * nz * inv_one_plus_y),
         (nx, ny, nz),
         (-nx * nz * inv_one_plus_y, -nz, 1.0 - nz * nz * inv_one_plus_y),
-    )
-
-
-def update_proxy_followers(host_op, tag, doc):
-    """Legacy entry point that reads tag user-data fields. Kept for the
-    Python-tag prototype; the TagData plugin uses
-    `apply_follow_surface(host_op, doc, source_obj, records, orient_mode,
-    smoothing)` directly."""
-    source_obj, records_json, orient_mode, smoothing = _read_tag_userdata(tag)
-    if source_obj is None or not records_json:
-        return False
-    try:
-        records = json.loads(records_json)
-    except Exception:
-        return False
-    return apply_follow_surface(
-        host_op, doc, source_obj, records, orient_mode, smoothing
     )
 
 

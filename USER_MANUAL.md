@@ -421,6 +421,72 @@ Color" preset works because it stores `RSObjectColor` under the hood.
 3. Use **Hide Source Mesh** so you only see the brick output.
 4. Switch back to Hero only for the final render.
 
+### Bricks that follow a deforming mesh + collide with each other
+
+When the source is deforming (cloth dynamics, an Alembic point cache,
+deformer chains), BrickIt can lock each brick to the closest triangle
+on the source and ride the deformation per frame. Combined with C4D's
+Rigid Body Dynamics, you can have the bricks track the mesh while
+collisions push them apart instead of overlapping.
+
+1. **Set up the source.** Apply your deformer/cloth/Alembic to the
+   source mesh and link it as BrickIt's Source.
+2. **Bind.** On the Layout tab → Bind to Source Deformation group,
+   check **Bind Bricks to Source Deformation**. The bricks will now
+   ride the surface in the live preview.
+   - **Brick Orientation = Follow Surface Normal** tilts each brick to
+     match the local surface orientation. **Orientation Smoothing**
+     dampens the per-face-normal jitter that small / heavily deformed
+     triangles produce; 0.7 is a good default.
+   - **Stretch Cull Threshold** hides bricks whose anchor triangle
+     compresses below the threshold ratio of its rest-pose area —
+     useful when the cloth bunches up tight enough that bricks would
+     otherwise overlap.
+   - **Re-bind to Current Frame** re-fits and re-binds with the
+     current deformed pose as the new rest pose.
+3. **Make Proxies.** Once you're happy with the binding, click
+   **Create Proxies** (Tools tab) to spawn a real proxy hierarchy
+   under a `BrickIt_ProxySim_<source>` Null. The proxies follow the
+   deformation via a **BrickIt Follow Surface** tag added to that
+   Null automatically.
+4. **Set the timeline preview range** to the frames you want to bake
+   (Edit → Project Settings or the timeline header).
+5. **Bake to Keyframes.** Select the Follow Surface tag and click
+   **Bake to Keyframes (Preview Range)**. The bake:
+   - Iterates each frame and writes position + rotation keyframes on
+     every brick.
+   - Converts each brick instance into a real polygon mesh.
+   - Flattens the hierarchy into a single `bricks` Null containing all
+     polygon bricks.
+   - Adds a Rigid Body tag (PBD) to each brick with Follow Position
+     and Follow Rotation set high.
+   - Disables the Follow Surface tag so the keyframes drive the
+     bricks unobstructed.
+6. **Run the simulation.** Scrub or play — the per-brick RBD pulls each
+   brick toward its keyframed target while collisions push neighbors
+   apart. **Cache the simulation** (Project → Simulation → Cache) so
+   playback is stable.
+7. **Swap to high-res for render.** On the Follow Surface tag, set
+   **Quality** (Draft / Standard / Hero) and click **Swap Quality**.
+   Each baked brick's mesh data is replaced in-place with a polygon at
+   the chosen render fidelity. Animation tracks, RBD tags, and the
+   dynamics cache stay intact — the swap only changes mesh data.
+   Templates are built lazily on first click; subsequent swaps at the
+   same quality are near-instant.
+
+Notes:
+
+- The Source BrickIt must still exist when you click Swap Quality — the
+  swap looks up the original BrickIt's brick library and template
+  builder via a hidden link on the Follow Surface tag. Don't delete the
+  BrickIt object until after your final render.
+- The bake is a one-shot per preview range. To rebake at a different
+  range, re-do the workflow from Make Proxies.
+- Cloth + Bullet PBD doesn't read scripted matrices as Follow targets,
+  which is why Bake to Keyframes is required — it materializes the
+  follower's per-frame transforms into animation tracks the simulator
+  can read.
+
 ---
 
 ## Tips and troubleshooting

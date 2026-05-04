@@ -483,6 +483,100 @@ when the template factory isn't available. Do not re-gate this on
 `has_effectors_now` — humanize toggles (and likely other animation deltas)
 will silently render bricks at world origin.
 
+### Bind to Source Deformation (2026-05-03) — DO NOT REGRESS
+
+The "Bind Bricks to Source Deformation" toggle on BrickIt makes each
+placement track a deforming source mesh (cloth, Alembic point cache,
+deformer chain) without re-running the fitter every frame. The full
+workflow is **Bind → Make Proxies → Bake to Keyframes → Swap Quality**;
+each phase has an architectural invariant that took multiple rounds to
+get right.
+
+**Bind frame is source-axis-local.** All bind math (rest-pose snapshot,
+per-frame deformed eval, follow-normal orient basis) lives in
+source-axis-local space — the same frame `_placement_scene_center`
+produces today. The integrated-MoGraph root Null already has
+`Ml = source_axis_local_matrix(op, source_obj) = ~op_mg * source_mg`,
+so source-axis-local matrices compose with `_evaluate_native_mograph`'s
+`frame_matrix` plumbing without modification. Do not author bind
+matrices in world space or in op-local — effectors will silently sample
+at the wrong positions.
+
+**Force CSTO for the source bake when binding is on.** Cloth/dynamics
+sources don't surface their deformation through `GetDeformCache()` /
+`GetCache()`; only `MCOMMAND_CURRENTSTATETOOBJECT` runs the full tag
+chain to produce the deformed polygon. `_get_cached_source_arrays`
+takes a `force_csto` flag (set by `_refit_if_needed` when bind is
+active and by the Re-bind button) that bypasses the cache fallback
+chain and goes straight to CSTO. Without this, Re-bind to current
+frame silently fits to rest pose regardless of the document time.
+
+**Per-frame eval also uses CSTO.** `brickit_bind._evaluate_deformed_source_arrays`
+calls `SendModelingCommand(MCOMMAND_CURRENTSTATETOOBJECT)` every frame
+to read the live deformed source. Triangle indices stay stable across
+calls because triangulation is deterministic on the same polygon list.
+If a future C4D version starts returning sorted/unsorted polys
+per-frame, the bind will visually drift — re-bind via the button if so.
+
+**Follow Surface tag is a TagData plugin, not a TPython tag.** The first
+prototype attached a `Tpython` tag with embedded Python source.
+Programmatically setting `TPYTHON_CODE` did NOT trigger compilation in
+C4D 2026 — the tag stayed inert and `main()` never ran. Sending
+`MSG_UPDATE`, dirty flags, and various description-command messages did
+not help. The shipped follower is a real TagData plugin
+(`Tbrickitfollowsurface` resource, registered by ID `1069994` in the
+.pyp via `RegisterTagPlugin` — note that the call must happen from the
+.pyp's `register()`, not from a package submodule, because
+`RegisterTagPlugin` reads `__res__` from the calling module's globals).
+
+**Twist-stable orient basis (Follow Surface Normal mode).** The
+follow-normal mode constructs a per-brick rotation by taking the
+shortest arc from world-Y to the surface normal — see
+`_shortest_arc_basis` in `brickit_bind.py` and `brickit_bind_follower.py`.
+Earlier prototypes projected world-X onto the tangent plane, which
+flipped 90/180° when the normal swept through ±world-X. Don't switch
+back to the projection method — edge-of-cloth bricks will spin around
+their Y axis again on heavy folds. Vertex-normal blending
+(`bind_orient_smoothing`) further dampens per-face-normal jitter on
+small distorted triangles.
+
+**Bake to Keyframes uses manual instance→polygon conversion, not
+MAKEEDITABLE.** `MCOMMAND_MAKEEDITABLE` returned inconsistent results
+(empty instance hierarchies, in-place vs. list semantics that varied
+per call) on InstanceObjects pointing at Null-wrapped templates. The
+bake's `_convert_instance_to_polygon` instead walks
+`INSTANCEOBJECT_LINK → polygon child`, clones the polygon, transfers
+animation tracks (`track.Remove()` + `dst.InsertTrackSorted(track)`),
+and copies user-data + display color, then re-parents and removes the
+original. After conversion all bricks are flattened under a single
+`bricks` Null and emptied parent Fractures/group Nulls are pruned.
+
+**RBD goes per-brick, not on the Fracture.** PBD on a Fracture pulls
+clones from MoGraph data, which doesn't see per-child animation
+tracks. After Bake to Keyframes the Fracture-level RBD tag is
+removed and each polygon brick gets its own Rigid Body tag with
+`RIGIDBODY_USE = True` and Follow Position / Follow Rotation
+strengths set high. The Follow Surface tag's `Enabled` flips to False
+once tracks are authoritative so it doesn't fight the simulation.
+
+**Swap Quality is mesh-data swap, not relink.** The original Proxy /
+High Res button worked by re-linking each `InstanceObject`'s
+`INSTANCEOBJECT_LINK` to a render template — that mechanism doesn't
+apply post-bake because the bricks are real polygons. The new
+`Swap Quality` button on the Follow Surface tag walks each baked
+polygon, looks up its `template_key` user-data (stamped at bake time),
+calls `_build_render_template_proto` lazily through the BrickIt's
+Python instance (retrieved via `BaseObject.GetNodeData()` no-arg form
+on the `Source BrickIt` BaseLink stored on the tag), and does an
+in-place mesh swap via `target.ResizeObject(len(pts), len(polys))` +
+`SetAllPoints(pts)` + per-polygon `SetPolygon(i, p)`. The polygon's
+identity (Python ref, animation tracks, RBD tag, parent, dynamics
+cache) is preserved — only mesh data changes. The cache key for
+built render templates includes the chosen quality so Standard→Hero
+swaps rebuild correctly. Do not re-introduce the relink approach for
+post-bake swaps; it only worked when the carriers were still
+InstanceObjects.
+
 **Public prerelease build:** tag `brick-c4d2026-preview-20260503-c8fe7e2` on
 repo `ctrlaltdstry/brick-releases`, asset `Brick.zip` (Windows + C4D 2026).
 

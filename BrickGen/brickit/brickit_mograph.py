@@ -345,9 +345,6 @@ def _create_proxy_mograph_handoff(self, op):
 
 def _create_mograph_handoff_impl(self, op, *, proxy=False):
     """Create a real scene-level MoGraph rig from the current BrickIt fit."""
-    _brick_log(
-        "[brick] MoGraph handoff: button pressed (proxy={0})".format(bool(proxy))
-    )
     _t_total0 = time.perf_counter()
     _ensure_brick_on_path()
     doc = op.GetDocument()

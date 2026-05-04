@@ -69,6 +69,7 @@ CONTAINER Tbrickitfollowsurface
         {
             NAME BRICKIT_FOLLOW_SURFACE_BRICKIT_OP;
             ACCEPT { Obase; }
+            HIDDEN;
         }
 
         STRING BRICKIT_FOLLOW_SURFACE_RECORDS

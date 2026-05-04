@@ -308,14 +308,9 @@ def deformed_centers_for_frame(self, op, source_obj, doc, params):
     verts, faces, _frame_inv = arrays
 
     bind_face_count = None
-    bind_verts0 = None
     src_data = self._source_cache_data
     if src_data and len(src_data) >= 3:
         bind_face_count = int(len(src_data[2]))
-        try:
-            bind_verts0 = src_data[1][0]
-        except Exception:
-            bind_verts0 = None
     if bind_face_count is not None and len(faces) != bind_face_count:
         _brick_log(
             "[brick] Bind to Source Deformation: triangle count mismatch "
@@ -324,7 +319,6 @@ def deformed_centers_for_frame(self, op, source_obj, doc, params):
             )
         )
         return None, None, None, None
-    pass  # per-frame eval log was helpful for diagnosis; quieted to reduce noise
 
     cull_ratio = float(params.get("bind_stretch_cull_ratio", 0.6) or 0.0)
     smoothing = float(params.get("bind_orient_smoothing", 0.7) or 0.0)

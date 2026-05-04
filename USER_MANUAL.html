@@ -197,6 +197,7 @@
     <a href="#recipe-build" class="sub">Set up a build animation</a>
     <a href="#recipe-field" class="sub">Field-driven color and visibility</a>
     <a href="#recipe-perf" class="sub">Big assembly, slow viewport</a>
+    <a href="#recipe-deformation" class="sub">Bricks following a deforming mesh + collisions</a>
 
     <a href="#tips" class="section">Tips and troubleshooting</a>
   </nav>
@@ -520,6 +521,30 @@
   <li>Use <strong>Hide Source Mesh</strong> so you only see the brick output.</li>
   <li>Switch back to Hero only for the final render.</li>
 </ol>
+
+<h3 id="recipe-deformation">Bricks that follow a deforming mesh + collide with each other</h3>
+<p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), BrickIt can lock each brick to the closest triangle on the source and ride the deformation per frame. Combined with C4D's Rigid Body Dynamics, you can have the bricks track the mesh while collisions push them apart instead of overlapping.</p>
+<ol>
+  <li><strong>Set up the source.</strong> Apply your deformer/cloth/Alembic to the source mesh and link it as BrickIt's Source.</li>
+  <li><strong>Bind.</strong> On the Layout tab → Bind to Source Deformation group, check <strong>Bind Bricks to Source Deformation</strong>. The bricks ride the surface in the live preview.
+    <ul>
+      <li><strong>Brick Orientation = Follow Surface Normal</strong> tilts each brick to match the local surface orientation. <strong>Orientation Smoothing</strong> dampens per-face-normal jitter on small / heavily deformed triangles; 0.7 is a good default.</li>
+      <li><strong>Stretch Cull Threshold</strong> hides bricks whose anchor triangle compresses below the threshold ratio of its rest-pose area — useful when the cloth bunches up tight enough that bricks would otherwise overlap.</li>
+      <li><strong>Re-bind to Current Frame</strong> re-fits and re-binds with the current deformed pose as the new rest pose.</li>
+    </ul>
+  </li>
+  <li><strong>Make Proxies.</strong> Once you're happy with the binding, click <strong>Create Proxies</strong> (Tools tab) to spawn a real proxy hierarchy under a <code>BrickIt_ProxySim_&lt;source&gt;</code> Null. The proxies follow the deformation via a <strong>BrickIt Follow Surface</strong> tag added to that Null automatically.</li>
+  <li><strong>Set the timeline preview range</strong> to the frames you want to bake.</li>
+  <li><strong>Bake to Keyframes.</strong> Select the Follow Surface tag and click <strong>Bake to Keyframes (Preview Range)</strong>. The bake writes per-brick keyframes, converts each instance into a real polygon mesh, flattens the hierarchy under a single <code>bricks</code> Null, adds a Rigid Body tag to each brick with Follow Position/Rotation set high, and disables the Follow Surface tag.</li>
+  <li><strong>Run the simulation.</strong> Scrub or play — the per-brick RBD pulls each brick toward its keyframed target while collisions push neighbors apart. <strong>Cache the simulation</strong> so playback is stable.</li>
+  <li><strong>Swap to high-res for render.</strong> On the Follow Surface tag, set <strong>Quality</strong> (Draft / Standard / Hero) and click <strong>Swap Quality</strong>. Each baked brick's mesh data is replaced in-place at the chosen render fidelity. Animation tracks, RBD tags, and the dynamics cache stay intact — the swap only changes mesh data. Templates are built lazily on first click.</li>
+</ol>
+<p><strong>Notes</strong></p>
+<ul>
+  <li>The Source BrickIt must still exist when you click Swap Quality — the swap looks up the original BrickIt's brick library and template builder via a hidden link on the Follow Surface tag. Don't delete the BrickIt object until after your final render.</li>
+  <li>The bake is a one-shot per preview range. To rebake at a different range, re-do the workflow from Make Proxies.</li>
+  <li>Cloth + Bullet PBD doesn't read scripted matrices as Follow targets, which is why Bake to Keyframes is required — it materializes the follower's per-frame transforms into animation tracks the simulator can read.</li>
+</ul>
 
 <hr>
 
