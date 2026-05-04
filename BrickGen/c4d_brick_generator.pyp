@@ -143,13 +143,20 @@ def register():
         # Register here (not in the package submodule) because
         # RegisterTagPlugin reads `__res__` from the calling module's
         # globals — only the .pyp module has it auto-injected.
+        follow_surface_icon = _load_bitmap(
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "res",
+                "follow_surface_icon.png",
+            )
+        ) or icon
         result = plugins.RegisterTagPlugin(
             id=ID_BRICKIT_FOLLOW_SURFACE_TAG,
             str=IDS_BRICKIT_FOLLOW_SURFACE_TAG,
             g=BrickitFollowSurfaceTag,
             description="Tbrickitfollowsurface",
             info=c4d.TAG_VISIBLE | c4d.TAG_EXPRESSION,
-            icon=icon,
+            icon=follow_surface_icon,
         )
         msg = "[brick] BrickIt Follow Surface tag register returned: {0}".format(result)
         print(msg)
