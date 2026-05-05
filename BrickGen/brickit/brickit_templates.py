@@ -172,7 +172,12 @@ def _get_logo_template_obj(self, params, doc, stud_size, plate_size):
             height_ratio=height,
             blend=blend,
         )
-        self._logo_cache[key] = baked
+        # Only store successful bakes. Caching None on a transient bake
+        # failure (e.g. doc=None during a nested rebuild) would lock the
+        # logo off until the user happened to land back on a previously-
+        # cached parameter combination.
+        if baked is not None:
+            self._logo_cache[key] = baked
         _logo_log(
             "BrickIt: baked logo template ({0}) source={1!r} diameter={2:.3f} height={3:.3f}".format(
                 "ok" if baked is not None else "FAILED",
@@ -184,6 +189,6 @@ def _get_logo_template_obj(self, params, doc, stud_size, plate_size):
     template = self._logo_cache.get(key)
     if template is not None:
         return template.GetClone(c4d.COPYFLAGS_NONE)
-    _logo_log("BrickIt: cached template is None, no logo will render")
+    _logo_log("BrickIt: no logo template available for current params (bake failed)")
     return None
 

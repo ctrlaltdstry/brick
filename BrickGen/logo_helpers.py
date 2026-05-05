@@ -324,13 +324,30 @@ def baked_polygon_object_with_metadata(source_obj, doc):
         if merged is not None and merged[0] is not None and merged[0].GetPointCount() > 0:
             return merged
 
+    csto_doc = doc
+    if csto_doc is None:
+        try:
+            csto_doc = source_obj.GetDocument()
+        except Exception:
+            csto_doc = None
+    if csto_doc is None:
+        try:
+            csto_doc = c4d.documents.GetActiveDocument()
+        except Exception:
+            csto_doc = None
     result = c4d.utils.SendModelingCommand(
         command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
         list=[source_obj],
         mode=c4d.MODELINGCOMMANDMODE_ALL,
-        doc=doc,
+        doc=csto_doc,
     )
     if not result:
+        _logo_log(
+            "baked_polygon_object: CSTO returned no result for source={0!r} (doc={1})".format(
+                source_obj.GetName() if source_obj is not None else None,
+                "set" if csto_doc is not None else "None",
+            )
+        )
         return None, {"groups": []}
     merged = _merge_polygon_objects(_collect_polygons(result))
     if merged is not None and merged[0] is not None:
@@ -410,16 +427,38 @@ def normalized_logo_mesh_object(
 ):
     """Bake and normalize a logo as a local-XY stamp on the stud top."""
     if source_obj is None:
+        _logo_log("normalized_logo_mesh_object: source_obj is None")
         return None
+    if doc is None:
+        try:
+            doc = source_obj.GetDocument()
+        except Exception:
+            doc = None
+    if doc is None:
+        try:
+            doc = c4d.documents.GetActiveDocument()
+        except Exception:
+            doc = None
     baked = baked_polygon_object(source_obj, doc)
-    if baked is None or baked.GetPointCount() <= 0:
+    if baked is None:
+        _logo_log(
+            "normalized_logo_mesh_object: baked_polygon_object returned None for {0!r} (type={1})".format(
+                source_obj.GetName() if source_obj is not None else None,
+                source_obj.GetType() if source_obj is not None else None,
+            )
+        )
+        return None
+    if baked.GetPointCount() <= 0:
+        _logo_log("normalized_logo_mesh_object: baked polygon has 0 points")
         return None
     try:
         pts = list(baked.GetAllPoints())
         mg = baked.GetMg()
-    except Exception:
+    except Exception as exc:
+        _logo_log("normalized_logo_mesh_object: failed reading baked points: {0}".format(exc))
         return None
     if not pts:
+        _logo_log("normalized_logo_mesh_object: baked points list is empty")
         return None
 
     try:

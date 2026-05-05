@@ -218,7 +218,7 @@ class BrickGen(plugins.ObjectData):
                 round(logo_blend, 4),
             )
             if logo_key not in self._logo_cache:
-                self._logo_cache[logo_key] = normalized_logo_mesh_object(
+                baked = normalized_logo_mesh_object(
                     logo_source,
                     doc,
                     stud_size,
@@ -227,6 +227,12 @@ class BrickGen(plugins.ObjectData):
                     height_ratio=logo_height,
                     blend=logo_blend,
                 )
+                # Don't poison the cache with None on transient bake
+                # failures — let the next eval retry instead of locking
+                # the logo off until the user lands on a previously-
+                # cached parameter combination.
+                if baked is not None:
+                    self._logo_cache[logo_key] = baked
             tmpl = self._logo_cache.get(logo_key)
             if tmpl is not None:
                 logo_template = tmpl.GetClone(c4d.COPYFLAGS_NONE)
