@@ -11,6 +11,7 @@ from library_panel import (
 from logo_helpers import (
     BRICKGEN_LOGO_FILL_UI_DEFAULT,
     logo_fill_to_diameter_ratio as _logo_fill_to_diameter_ratio,
+    resolve_logo_source_link as _resolve_logo_source_link,
 )
 from quality_presets import ASSEMBLY_QUALITY_PRESETS
 from .brickit_animation import custom_curve_signature
@@ -321,7 +322,7 @@ def _resolve_params(self, op, source_obj):
     else:
         visualization_mode = raw_visualization_mode
     logo_enabled = bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
-    logo_source = op[BRICKIFYASSEMBLY_LOGO_SOURCE]
+    logo_source = _resolve_logo_source_link(op, BRICKIFYASSEMBLY_LOGO_SOURCE)
     logo_rotation = int(op[BRICKIFYASSEMBLY_LOGO_ROTATION] or 0) % 4
     logo_diameter = _logo_fill_to_diameter_ratio(op[BRICKIFYASSEMBLY_LOGO_DIAMETER])
     logo_height = max(0.02, min(0.25, float(op[BRICKIFYASSEMBLY_LOGO_HEIGHT] or 0.06)))

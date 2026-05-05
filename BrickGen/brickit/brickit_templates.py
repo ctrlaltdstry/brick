@@ -141,34 +141,49 @@ def _normalized_logo_source_object(
     )
 
 def _get_logo_template_obj(self, params, doc, stud_size, plate_size):
-    if not bool(params.get("logo_enabled")):
+    from logo_helpers import _logo_log
+    logo_enabled = bool(params.get("logo_enabled"))
+    source_obj = params.get("logo_source")
+    if not logo_enabled:
+        _logo_log("BrickIt: logo_enabled=False, skipping logo template")
+        return None
+    if source_obj is None:
+        _logo_log("BrickIt: logo_enabled=True but logo_source is None — link did not resolve")
         return None
     diameter = float(params.get("logo_diameter", BRICKGEN_LOGO_FILL_MIN_RATIO))
     height = float(params.get("logo_height", 0.06))
     blend = float(params.get("logo_blend", 1.0))
-    source_obj = params.get("logo_source")
-    if source_obj is not None:
-        key = (
-            "source",
-            self._source_state_key(source_obj),
-            round(float(stud_size), 6),
-            round(float(plate_size), 6),
-            round(diameter, 4),
-            round(height, 4),
-            round(blend, 4),
+    key = (
+        "source",
+        self._source_state_key(source_obj),
+        round(float(stud_size), 6),
+        round(float(plate_size), 6),
+        round(diameter, 4),
+        round(height, 4),
+        round(blend, 4),
+    )
+    if key not in self._logo_cache:
+        baked = self._normalized_logo_source_object(
+            source_obj,
+            doc,
+            stud_size,
+            plate_size,
+            diameter_ratio=diameter,
+            height_ratio=height,
+            blend=blend,
         )
-        if key not in self._logo_cache:
-            self._logo_cache[key] = self._normalized_logo_source_object(
-                source_obj,
-                doc,
-                stud_size,
-                plate_size,
-                diameter_ratio=diameter,
-                height_ratio=height,
-                blend=blend,
+        self._logo_cache[key] = baked
+        _logo_log(
+            "BrickIt: baked logo template ({0}) source={1!r} diameter={2:.3f} height={3:.3f}".format(
+                "ok" if baked is not None else "FAILED",
+                source_obj.GetName() if source_obj is not None else None,
+                diameter,
+                height,
             )
-        template = self._logo_cache.get(key)
-        if template is not None:
-            return template.GetClone(c4d.COPYFLAGS_NONE)
+        )
+    template = self._logo_cache.get(key)
+    if template is not None:
+        return template.GetClone(c4d.COPYFLAGS_NONE)
+    _logo_log("BrickIt: cached template is None, no logo will render")
     return None
 

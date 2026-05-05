@@ -10,6 +10,7 @@ from logo_helpers import (
     logo_fill_to_diameter_ratio,
     logo_link_identity_key,
     normalized_logo_mesh_object,
+    resolve_logo_source_link,
 )
 from mesh_bridge import build_brick, mesh_to_polygon_object
 from plugin_bootstrap import ensure_brick_on_path, open_user_manual
@@ -78,7 +79,7 @@ class BrickGen(plugins.ObjectData):
                     c4d.EventAdd()
                 elif desc_id == BRICKGENERATOR_LOGO_SOURCE:
                     try:
-                        if op[BRICKGENERATOR_LOGO_SOURCE] is not None:
+                        if resolve_logo_source_link(op, BRICKGENERATOR_LOGO_SOURCE) is not None:
                             op[BRICKGENERATOR_ENABLE_LOGO] = True
                     except Exception:
                         pass
@@ -158,7 +159,7 @@ class BrickGen(plugins.ObjectData):
         logo_sink = BRICKGEN_LOGO_DEFAULT_SINK
         try:
             logo_enabled = bool(op[BRICKGENERATOR_ENABLE_LOGO])
-            logo_source = op[BRICKGENERATOR_LOGO_SOURCE]
+            logo_source = resolve_logo_source_link(op, BRICKGENERATOR_LOGO_SOURCE)
             logo_rotation = int(op[BRICKGENERATOR_LOGO_ROTATION] or 0) % 4
             logo_diameter = logo_fill_to_diameter_ratio(op[BRICKGENERATOR_LOGO_DIAMETER])
             logo_height = max(0.02, min(0.25, float(op[BRICKGENERATOR_LOGO_HEIGHT] or 0.06)))

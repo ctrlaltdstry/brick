@@ -1,4 +1,5 @@
 """Logo baking and placement helpers for BrickGen/BrickIt."""
+import os
 import c4d
 
 
@@ -8,6 +9,81 @@ BRICKGEN_LOGO_FILL_MAX_RATIO = 0.40
 BRICKGEN_LOGO_DEFAULT_SINK = 0.015
 BRICKGEN_LOGO_BASE_OUTSET_RATIO = 0.006
 BRICKGEN_LOGO_BASE_BEVEL_HEIGHT_RATIO = 0.018
+
+
+def _logo_log_enabled():
+    return os.environ.get("BRICKIT_LOG_LOGO", "").strip().lower() not in ("", "0", "false", "no")
+
+
+def _logo_log(message):
+    if not _logo_log_enabled():
+        return
+    try:
+        c4d.GePrint("[brick] {0}".format(message))
+    except Exception:
+        try:
+            print("[brick] {0}".format(message))
+        except Exception:
+            pass
+
+
+def resolve_logo_source_link(op, link_param_id):
+    """Resolve a LINK parameter's target with a doc-context fallback chain.
+
+    `op[LINK_ID]` shorthand resolves the BaseLink against `op.GetDocument()`,
+    which can transiently return None during nested message dispatch in some
+    C4D 2026 configurations. When that happens, the logo silently disappears.
+    Falling back to GetParameter + an explicit GetLink(doc) with the active
+    document recovers the link in those cases. Returns None when no link is
+    set or when the link target genuinely does not exist.
+    """
+    if op is None:
+        return None
+    target = None
+    try:
+        target = op[link_param_id]
+    except Exception:
+        target = None
+    if target is not None:
+        return target
+
+    doc = None
+    try:
+        doc = op.GetDocument()
+    except Exception:
+        doc = None
+    if doc is None:
+        try:
+            doc = c4d.documents.GetActiveDocument()
+        except Exception:
+            doc = None
+
+    try:
+        link = op.GetParameter(c4d.DescID(link_param_id), c4d.DESCFLAGS_GET_NONE)
+    except Exception:
+        link = None
+    if link is None:
+        return None
+
+    for resolver in ("GetLink", "GetLinkAtom", "GetObject"):
+        getter = getattr(link, resolver, None)
+        if getter is None:
+            continue
+        try:
+            resolved = getter(doc) if doc is not None else getter()
+        except TypeError:
+            try:
+                resolved = getter()
+            except Exception:
+                resolved = None
+        except Exception:
+            resolved = None
+        if resolved is not None:
+            _logo_log(
+                "Logo link recovered via {0} for param id={1}".format(resolver, link_param_id)
+            )
+            return resolved
+    return None
 
 
 def logo_fill_to_diameter_ratio(value):
