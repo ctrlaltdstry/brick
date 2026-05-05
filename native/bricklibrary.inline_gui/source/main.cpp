@@ -915,10 +915,14 @@ public:
 
 Bool RegisterBrickMoGraphEvaluatorTag()
 {
+	// PLUGINFLAG_HIDEPLUGINMENU + PLUGINFLAG_HIDE keep this internal
+	// message-passing tag out of the OM right-click "Add Tag" menu. The
+	// tag is instantiated programmatically by brickit_mograph_generator
+	// and is never user-addable.
 	return RegisterTagPlugin(
 		g_brick_mograph_evaluator_tag_id,
 		"Brick MoGraph Evaluator"_s,
-		TAG_MULTIPLE,
+		TAG_MULTIPLE | PLUGINFLAG_HIDEPLUGINMENU | PLUGINFLAG_HIDE,
 		BrickMoGraphEvaluatorTag::Alloc,
 		""_s,
 		nullptr,
