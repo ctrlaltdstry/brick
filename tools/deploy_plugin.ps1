@@ -7,7 +7,31 @@ $repoRoot      = Split-Path -Parent $PSScriptRoot
 $source        = Join-Path $repoRoot "BrickGen"
 $corePackage   = Join-Path $repoRoot "brick"
 $vendorSource  = Join-Path $repoRoot "vendor"
-$c4dRoot       = "C:\Users\Mike\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12"
+
+# Discover the C4D 2026 instance folder dynamically. Each install gets its
+# own per-machine hash (e.g. `Maxon Cinema 4D 2026_1ABCDC12` on this box,
+# different on a friend's 2026.1.0 install). Honor BRICK_C4D_ROOT to override
+# for unusual setups; otherwise pick the most recently modified 2026 instance.
+if ($env:BRICK_C4D_ROOT -and (Test-Path $env:BRICK_C4D_ROOT)) {
+    $c4dRoot = $env:BRICK_C4D_ROOT
+} else {
+    $maxonRoot = Join-Path $env:APPDATA "Maxon"
+    $c4dInstances = @()
+    if (Test-Path $maxonRoot) {
+        $c4dInstances = Get-ChildItem -Path $maxonRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "Maxon Cinema 4D 2026*" } |
+            Sort-Object LastWriteTime -Descending
+    }
+    if ($c4dInstances.Count -eq 0) {
+        throw "No 'Maxon Cinema 4D 2026*' instance folder found under $maxonRoot. Set BRICK_C4D_ROOT to override."
+    }
+    $c4dRoot = $c4dInstances[0].FullName
+    if ($c4dInstances.Count -gt 1) {
+        Write-Host "Multiple C4D 2026 instances detected; using most recent: $($c4dInstances[0].Name)"
+        Write-Host "  (others: $((($c4dInstances | Select-Object -Skip 1).Name) -join ', '))"
+        Write-Host "  Set BRICK_C4D_ROOT to override."
+    }
+}
 $c4dPlugins    = Join-Path $c4dRoot "plugins"
 $backupRoot    = Join-Path $c4dRoot "plugin_backups"
 $target        = Join-Path $c4dPlugins "Brick"

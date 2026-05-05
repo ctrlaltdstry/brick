@@ -14,15 +14,19 @@ This manual covers how to use both. For a quick install, see
 
 ## Install
 
-Supported package: Windows + Cinema 4D 2026.
+Supported package: Windows + Cinema 4D 2026 (any 2026.x point release —
+tested on 2026.0 and 2026.1).
 
-1. Close Cinema 4D.
-2. Unzip the release into your Cinema 4D user plugins folder so the plugin
+1. In Cinema 4D, open **Edit → Preferences** and click **Open Preferences
+   Folder...** at the bottom-left. That opens your per-instance C4D folder
+   (something like `%APPDATA%\Maxon\Maxon Cinema 4D 2026_<hash>\`).
+2. Close Cinema 4D.
+3. Inside that folder, open `plugins\` and unzip the release so the plugin
    ends up at:
    ```
-   %APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\Brick
+   ...\Maxon Cinema 4D 2026_<hash>\plugins\Brick\
    ```
-3. Start Cinema 4D. Both objects appear under the plugin menu:
+4. Start Cinema 4D. Both objects appear under the plugin menu:
    - `Brick` — single brick generator.
    - `BrickIt` — source-mesh-to-brick assembly.
 

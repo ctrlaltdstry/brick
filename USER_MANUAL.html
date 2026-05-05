@@ -217,11 +217,12 @@
 <hr>
 
 <h2 id="install">Install</h2>
-<p>Supported package: Windows + Cinema 4D 2026.</p>
+<p>Supported package: Windows + Cinema 4D 2026 (any 2026.x point release — tested on 2026.0 and 2026.1).</p>
 <ol>
+  <li>In Cinema 4D, open <strong>Edit → Preferences</strong> and click <strong>Open Preferences Folder...</strong> at the bottom-left. That opens your per-instance C4D folder (something like <code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_&lt;hash&gt;\</code>).</li>
   <li>Close Cinema 4D.</li>
-  <li>Unzip the release into your Cinema 4D user plugins folder so the plugin ends up at:
-    <pre><code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_1ABCDC12\plugins\Brick</code></pre>
+  <li>Inside that folder, open <code>plugins\</code> and unzip the release so the plugin ends up at:
+    <pre><code>...\Maxon Cinema 4D 2026_&lt;hash&gt;\plugins\Brick\</code></pre>
   </li>
   <li>Start Cinema 4D. Both objects appear under the plugin menu:
     <ul>
