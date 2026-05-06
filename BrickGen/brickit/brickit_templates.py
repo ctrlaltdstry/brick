@@ -40,15 +40,47 @@ def _get_template_mesh(
         )
         if key in self._mesh_cache:
             return self._mesh_cache[key]
-        mesh = make_proxy_collider(
-            brick_type.width,
-            brick_type.depth,
-            brick_type.height,
-            stud_size=stud_size,
-            plate_size=plate_size,
-            inset=0.0,
-            with_studs=not bool(is_smooth_visual),
-        )
+        # Try the watertight OBJ-based proxy first; it's a hand-authored
+        # single-island mesh that simulates correctly. Falls back to the
+        # procedural builder for sizes the library doesn't yet cover.
+        mesh = None
+        try:
+            from .brickit_obj_proxy import is_supported, synthesize_proxy
+            if is_supported(brick_type, smooth=bool(is_smooth_visual)):
+                mesh = synthesize_proxy(
+                    brick_type,
+                    smooth=bool(is_smooth_visual),
+                    stud_size=float(stud_size),
+                    plate_size=float(plate_size),
+                )
+        except Exception as _exc:
+            try:
+                from plugin_bootstrap import brick_log as _bl
+                _bl("[brick] OBJ proxy: synth failed: {0}".format(_exc))
+            except Exception:
+                pass
+            mesh = None
+        if mesh is None:
+            try:
+                from plugin_bootstrap import brick_log as _bl
+                _bl(
+                    "[brick] OBJ proxy: fallback to procedural for "
+                    "W={0} D={1} H={2} smooth={3}".format(
+                        brick_type.width, brick_type.depth,
+                        brick_type.height, bool(is_smooth_visual),
+                    )
+                )
+            except Exception:
+                pass
+            mesh = make_proxy_collider(
+                brick_type.width,
+                brick_type.depth,
+                brick_type.height,
+                stud_size=stud_size,
+                plate_size=plate_size,
+                inset=0.0,
+                with_studs=not bool(is_smooth_visual),
+            )
         self._mesh_cache[key] = mesh
         return mesh
 
