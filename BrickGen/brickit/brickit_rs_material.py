@@ -84,6 +84,81 @@ def _set_port_value(port, value):
         return False
 
 
+def _force_user_data_attribute(graph, log, name="RSObjectColor"):
+    """After GraphDescription builds the graph, walk it and explicitly set
+    the rsuserdatacolor node's attribute string.  GraphDescription's
+    "Attribute Name" key doesn't reliably pick the right port (Redshift
+    exposes the dropdown as "Attribute"); enforce it by port-id here so
+    we always end up with RSObjectColor instead of the default RSMGColor.
+    """
+    if maxon is None or graph is None or graph.IsNullValue():
+        return False
+    try:
+        root = graph.GetRoot()
+    except Exception:
+        return False
+    if root is None or root.IsNullValue():
+        return False
+
+    target_id = _RS_USER_DATA_NODE_ID
+    found_any = False
+    candidates = (
+        "com.redshift3d.redshift4c4d.nodes.core.rsuserdatacolor.attribute",
+        "com.redshift3d.redshift4c4d.nodes.core.rsuserdatacolor.attribute_name",
+        "com.redshift3d.redshift4c4d.nodes.core.rsuserdatacolor.attributename",
+        "com.redshift3d.redshift4c4d.nodes.core.rsuserdatacolor.name",
+        "attribute",
+        "attribute_name",
+        "Attribute Name",
+        "Name",
+    )
+
+    def _walk(node):
+        nonlocal found_any
+        try:
+            children = node.GetChildren()
+        except Exception:
+            children = []
+        try:
+            iterable = list(children) if children is not None else []
+        except Exception:
+            iterable = []
+        for child in iterable:
+            try:
+                if child is None or child.IsNullValue():
+                    continue
+            except Exception:
+                continue
+            try:
+                child_id = str(child.GetId())
+            except Exception:
+                child_id = ""
+            if child_id == target_id:
+                set_ok = False
+                for candidate in candidates:
+                    port = _find_port(child, (candidate,), output=False)
+                    if port is None:
+                        continue
+                    if _set_port_value(port, name):
+                        set_ok = True
+                        log(
+                            "[brick] RS material: forced user-data attribute '{0}' via port '{1}'".format(
+                                name, candidate
+                            )
+                        )
+                        break
+                if not set_ok:
+                    log(
+                        "[brick] RS material: could not force attribute on user-data node; "
+                        "available inputs={0}".format(_list_port_names(child, output=False))
+                    )
+                found_any = True
+            _walk(child)
+
+    _walk(root)
+    return found_any
+
+
 def _build_via_graph_description(doc, log):
     if maxon is None:
         return None
@@ -115,6 +190,15 @@ def _build_via_graph_description(doc, log):
             },
         }
         maxon.GraphDescription.ApplyDescription(graph, description)
+        # GraphDescription's key for the attribute selector isn't honored
+        # consistently — Redshift falls back to RSMGColor.  Force the
+        # correct value by port id after the description is applied.
+        try:
+            with graph.BeginTransaction() as transaction:
+                _force_user_data_attribute(graph, log, "RSObjectColor")
+                transaction.Commit()
+        except Exception as exc:
+            log("[brick] RS material: post-ApplyDescription enforce failed: {0}".format(exc))
         log(
             "[brick] RS material: built '{0}' via GraphDescription (RSObjectColor)".format(
                 _BRICKIT_RS_MATERIAL_NAME

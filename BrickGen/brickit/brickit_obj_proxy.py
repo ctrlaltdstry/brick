@@ -2153,6 +2153,38 @@ def _apply_scene_scale(mesh: Mesh, stud_size: float) -> None:
     mesh.vertices = mesh.vertices * factor
 
 
+def _trim_body_top(mesh: Mesh, H: int, fillet: float) -> None:
+    """Inset the body top by `fillet` units to match the procedural
+    builder's filleted-top silhouette.
+
+    Procedural draft/standard/hero bricks reduce their body top by
+    `body_fillet_radius` to leave room for the top-edge fillet.  V5
+    inherits its body height directly from the authored OBJ, so without
+    this pass V5 bodies look ~0.3 units taller than draft/standard.
+
+    Body verts are those at Y in (0, body_top]; stud verts (Y > body_top)
+    are shifted down by `fillet` so the stud sits flush on the new body
+    top, preserving stud height.
+    """
+    if fillet <= 1e-9:
+        return
+    mesh.flush()
+    body_top = float(H) * _PLATE_SIZE
+    if body_top <= fillet + 1e-6:
+        return
+    new_top = body_top - fillet
+    v = mesh.vertices.copy()
+    body_mask = (v[:, 1] > 1e-6) & (v[:, 1] <= body_top + 1e-6)
+    stud_mask = v[:, 1] > body_top + 1e-6
+    # Compress body Y so verts at body_top land at new_top, Y=0 stays at 0.
+    scale = new_top / body_top
+    v[body_mask, 1] = v[body_mask, 1] * scale
+    # Shift stud verts down by `fillet` so the stud bottom sits on the
+    # new body top instead of floating above it.
+    v[stud_mask, 1] = v[stud_mask, 1] - fillet
+    mesh.vertices = v
+
+
 def is_supported(brick_type, *, smooth: bool) -> bool:
     """Return True if synthesis can produce a watertight mesh for the
     requested brick.
@@ -2195,10 +2227,16 @@ def synthesize_proxy(
     D = int(brick_type.depth)
     H = int(brick_type.height)
 
+    # Match the procedural builder's body_fillet_radius=0.30 inset at
+    # the body top, so V5 bodies don't look slightly taller than draft/
+    # standard/hero bricks beside them.  Stud height is preserved.
+    body_fillet = 0.30
+
     # V5 path: 5-piece scheme — Corner, Edge, Tunnel, Endcap, Center_Fill —
     # placed per cell with rotation. Covers every (W, D) without trimming.
     try:
         mesh = _synthesize_5piece(W, D, H)
+        _trim_body_top(mesh, H, body_fillet)
         _apply_scene_scale(mesh, stud_size)
         return mesh
     except Exception as exc:
@@ -2207,6 +2245,7 @@ def synthesize_proxy(
         )
     try:
         mesh = _synthesize_by_v4_variants(W, D, H)
+        _trim_body_top(mesh, H, body_fillet)
         _apply_scene_scale(mesh, stud_size)
         return mesh
     except Exception as exc:
@@ -2214,6 +2253,7 @@ def synthesize_proxy(
             "[brick] OBJ proxy: V4 failed ({0}); falling back to V3 cell-tile".format(exc)
         )
         mesh = _synthesize_by_cell_tile(W, D, H)
+        _trim_body_top(mesh, H, body_fillet)
         _apply_scene_scale(mesh, stud_size)
         return mesh
 

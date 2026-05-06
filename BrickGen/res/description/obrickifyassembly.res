@@ -539,17 +539,37 @@ CONTAINER obrickifyassembly
                 ACCEPT { Obase; }
             }
 
-            LONG BRICKIFYASSEMBLY_LOGO_ROTATION
+            REAL BRICKIFYASSEMBLY_LOGO_ROTATION
             {
                 NAME BRICKIFYASSEMBLY_LOGO_ROTATION;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 360.0;
+                STEP 1.0;
+                DEFAULT 0.0;
+            }
+
+            BOOL BRICKIFYASSEMBLY_LOGO_MIX_FLIP
+            {
+                NAME BRICKIFYASSEMBLY_LOGO_MIX_FLIP;
                 DEFAULT 0;
-                CYCLE
-                {
-                    BRICKIFYASSEMBLY_LOGO_ROTATION_0;
-                    BRICKIFYASSEMBLY_LOGO_ROTATION_90;
-                    BRICKIFYASSEMBLY_LOGO_ROTATION_180;
-                    BRICKIFYASSEMBLY_LOGO_ROTATION_270;
-                }
+            }
+
+            REAL BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT
+            {
+                NAME BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT;
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 1.0;
+                DEFAULT 50.0;
+            }
+
+            LONG BRICKIFYASSEMBLY_LOGO_MIX_SEED
+            {
+                NAME BRICKIFYASSEMBLY_LOGO_MIX_SEED;
+                MIN 0;
+                DEFAULT 0;
             }
 
             REAL BRICKIFYASSEMBLY_LOGO_DIAMETER

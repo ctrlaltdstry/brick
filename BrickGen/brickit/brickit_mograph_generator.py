@@ -1,6 +1,5 @@
 """Integrated BrickIt MoGraph output for the live generator."""
 import math
-import os
 from types import SimpleNamespace
 
 import c4d
@@ -20,6 +19,7 @@ from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
     apply_logo_quarter_turn as _apply_logo_quarter_turn,
+    brick_logo_rotation_degrees,
 )
 from mesh_bridge import mesh_to_polygon_object
 from plugin_bootstrap import brick_log as _brick_log
@@ -536,7 +536,10 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         logo_template = self._get_logo_template_obj(
             params, op.GetDocument(), stud_size, plate_size
         )
-    logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
+    logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
+    logo_mix_flip = bool(params.get("logo_mix_flip", False))
+    logo_mix_amount = max(0.0, min(1.0, float(params.get("logo_mix_amount", 0.0) or 0.0)))
+    logo_mix_seed = int(params.get("logo_mix_seed", 0) or 0)
     logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
     logo_surface_bias = -float(plate_size) * logo_sink
 
@@ -549,7 +552,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             return False
         return True
 
-    def _bake_template_logos_into_mesh(mesh_obj, brick_type, smooth_top=False):
+    def _bake_template_logos_into_mesh(mesh_obj, brick_type, smooth_top=False, rotation_deg=None):
         """Merge per-stud logo polygon clones into the brick template mesh.
 
         Returns either a brand-new combined PolygonObject (logos baked in)
@@ -587,7 +590,10 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
                     float(top_y) - half_h,
                     float((sz + 0.5) * stud_size) - half_d,
                 )
-                _apply_logo_quarter_turn(m, logo_rotation)
+                _apply_logo_quarter_turn(
+                    m,
+                    logo_rotation if rotation_deg is None else rotation_deg,
+                )
                 try:
                     logo_obj.SetMl(m)
                 except Exception:
@@ -620,18 +626,25 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             int(brick_type.height),
         )
 
-    def _get_template_obj(brick_type, smooth_top=False):
+    def _get_template_obj(brick_type, smooth_top=False, rotation_deg=None):
+        bake_rot = float(rotation_deg if rotation_deg is not None else logo_rotation) % 360.0
+        # Round to a coarse bucket so float jitter doesn't produce many
+        # distinct cache entries — only "is this flipped?" matters here.
+        rot_key = int(round(bake_rot)) % 360
         tkey = (
             brick_type.width,
             brick_type.depth,
             brick_type.height,
             int(bool(smooth_top)),
+            rot_key,
         )
         if tkey in type_to_template:
             return type_to_template[tkey]
         name = _stable_template_name(brick_type)
         if bool(smooth_top):
             name += "_smooth"
+        if rot_key:
+            name += "_r{0:03d}".format(rot_key)
         mesh = self._get_template_mesh(
             brick_type,
             quality,
@@ -650,6 +663,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         if not is_proxy_quality:
             mesh_obj = _bake_template_logos_into_mesh(
                 mesh_obj, brick_type, smooth_top=smooth_top,
+                rotation_deg=bake_rot,
             )
         mesh_obj.InsertUnder(proto)
         proto.InsertUnder(templates_root)
@@ -870,7 +884,14 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             )
         else:
             template_brick = p.brick
-        template = _get_template_obj(template_brick, smooth_top=smooth_top)
+        per_brick_rot = brick_logo_rotation_degrees(
+            p, logo_rotation, logo_mix_flip, logo_mix_amount, logo_mix_seed,
+        )
+        template = _get_template_obj(
+            template_brick,
+            smooth_top=smooth_top,
+            rotation_deg=per_brick_rot,
+        )
 
         m = _make_animated_centered_matrix(p)
         pre_matrices.append(m)
@@ -891,130 +912,39 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     else:
         matrices, colors, effector_visible = pre_matrices, pre_colors, None
 
-    output_mode = os.environ.get("BRICKIT_MOGRAPH_INSTANCE_OUTPUT_MODE", "expanded").strip().lower()
     # Collected per-instance for the cap-subset fast path.
     fast_path_instances = []
-    if output_mode in ("expanded", "single", "one-per-brick"):
-        multi_mode = int(
-            getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
-        )
-        created_instances = 0
-        group_parent_cache = {}
-        for i, (template_brick, template) in enumerate(instance_specs):
-            try:
-                matrix = matrices[i]
-            except Exception:
-                matrix = pre_matrices[i]
-            color = colors[i] if i < len(colors) else pre_colors[i]
-            state = animation_state_by_obj.get(id(fast_path_descriptors[i][2]))
-            anim_visible = state is not None and state.local_progress > 0.0
-            eff_visible = (
-                effector_visible[i]
-                if effector_visible is not None and i < len(effector_visible)
-                else True
-            )
-            bind_vis = _bind_visible(fast_path_descriptors[i][2])
-            visible = bool(anim_visible) and bool(eff_visible) and bool(bind_vis)
-            matrix = _matrix_for_visibility(matrix, visible)
-            try:
-                child = c4d.InstanceObject()
-            except Exception:
-                child = c4d.BaseObject(c4d.Oinstance)
-            child.SetName(
-                "brick_{0}x{1}x{2}p_inst_{3:04d}".format(
-                    int(template_brick.width),
-                    int(template_brick.depth),
-                    int(template_brick.height),
-                    created_instances,
-                )
-            )
-            try:
-                child.SetReferenceObject(template)
-            except Exception:
-                child[c4d.INSTANCEOBJECT_LINK] = template
-            try:
-                child[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = multi_mode
-            except Exception:
-                pass
-            try:
-                child.SetInstanceMatrices([matrix])
-                child.SetInstanceColors([color])
-            except Exception:
-                child.SetMl(matrix)
-            _set_object_visible(child, visible)
-            _apply_object_color(child, color)
-            _update_object(child)
-            group_parent = grouped_parent_for_placement(
-                info,
-                fast_path_descriptors[i][2],
-                instances_root,
-                group_parent_cache,
-            )
-            child.InsertUnder(group_parent)
-            fast_path_instances.append(child)
-            created_instances += 1
-
-        try:
-            _brick_log(
-                "[brick] Integrated MoGraph: generated expanded one-instance-per-carrier output (multi-instance + display color), bricks={0}, library_items={1}".format(
-                    created_instances,
-                    len(type_to_template),
-                )
-            )
-        except Exception:
-            pass
-        # Stash everything the cap-subset fast path needs: per-instance
-        # template-brick descriptors, the live InstanceObject children, the
-        # template factory + its cache, and the params snapshot used to
-        # recompute caps. The structural side of the next call must match
-        # for this state to be reused.
-        self._fast_cap_state = {
-            "root": root,
-            "instances": fast_path_instances,
-            "descriptors": fast_path_descriptors,
-            "type_to_template": type_to_template,
-            "get_template_obj": _get_template_obj,
-            "fit_placements": list(self._fit_placements or []),
-            "all_placements": list(placements),
-            "params_snapshot": dict(params),
-        }
-        return root
-
-    groups = {}
+    multi_mode = int(
+        getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
+    )
+    created_instances = 0
+    group_parent_cache = {}
     for i, (template_brick, template) in enumerate(instance_specs):
-        key = id(template)
-        if key not in groups:
-            groups[key] = {
-                "template_brick": template_brick,
-                "template": template,
-                "matrices": [],
-                "colors": [],
-            }
         try:
             matrix = matrices[i]
         except Exception:
             matrix = pre_matrices[i]
         color = colors[i] if i < len(colors) else pre_colors[i]
-        groups[key]["matrices"].append(matrix)
-        groups[key]["colors"].append(color)
-
-    created_instances = 0
-    created_carriers = 0
-    for group in groups.values():
-        template_brick = group["template_brick"]
-        template = group["template"]
-        matrices_for_template = group["matrices"]
-        colors_for_template = group["colors"]
+        state = animation_state_by_obj.get(id(fast_path_descriptors[i][2]))
+        anim_visible = state is not None and state.local_progress > 0.0
+        eff_visible = (
+            effector_visible[i]
+            if effector_visible is not None and i < len(effector_visible)
+            else True
+        )
+        bind_vis = _bind_visible(fast_path_descriptors[i][2])
+        visible = bool(anim_visible) and bool(eff_visible) and bool(bind_vis)
+        matrix = _matrix_for_visibility(matrix, visible)
         try:
             child = c4d.InstanceObject()
         except Exception:
             child = c4d.BaseObject(c4d.Oinstance)
         child.SetName(
-            "brick_{0}x{1}x{2}p_multi_{3:03d}".format(
+            "brick_{0}x{1}x{2}p_inst_{3:04d}".format(
                 int(template_brick.width),
                 int(template_brick.depth),
                 int(template_brick.height),
-                created_carriers,
+                created_instances,
             )
         )
         try:
@@ -1022,36 +952,51 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         except Exception:
             child[c4d.INSTANCEOBJECT_LINK] = template
         try:
-            child[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = int(
-                getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
-            )
+            child[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = multi_mode
         except Exception:
             pass
         try:
-            child.SetInstanceMatrices(matrices_for_template)
+            child.SetInstanceMatrices([matrix])
+            child.SetInstanceColors([color])
         except Exception:
-            if matrices_for_template:
-                child.SetMl(matrices_for_template[0])
-        try:
-            child.SetInstanceColors(colors_for_template)
-        except Exception:
-            pass
-        if colors_for_template:
-            _apply_object_color(child, colors_for_template[0])
-        child.InsertUnder(instances_root)
-        created_instances += len(matrices_for_template)
-        created_carriers += 1
+            child.SetMl(matrix)
+        _set_object_visible(child, visible)
+        _apply_object_color(child, color)
+        _update_object(child)
+        group_parent = grouped_parent_for_placement(
+            info,
+            fast_path_descriptors[i][2],
+            instances_root,
+            group_parent_cache,
+        )
+        child.InsertUnder(group_parent)
+        fast_path_instances.append(child)
+        created_instances += 1
 
     try:
         _brick_log(
-            "[brick] Integrated MoGraph: generated native-evaluated multi-instance output, bricks={0}, carriers={1}, library_items={2}".format(
+            "[brick] Integrated MoGraph: generated expanded one-instance-per-carrier output (multi-instance + display color), bricks={0}, library_items={1}".format(
                 created_instances,
-                created_carriers,
                 len(type_to_template),
             )
         )
     except Exception:
         pass
+    # Stash everything the cap-subset fast path needs: per-instance
+    # template-brick descriptors, the live InstanceObject children, the
+    # template factory + its cache, and the params snapshot used to
+    # recompute caps. The structural side of the next call must match
+    # for this state to be reused.
+    self._fast_cap_state = {
+        "root": root,
+        "instances": fast_path_instances,
+        "descriptors": fast_path_descriptors,
+        "type_to_template": type_to_template,
+        "get_template_obj": _get_template_obj,
+        "fit_placements": list(self._fit_placements or []),
+        "all_placements": list(placements),
+        "params_snapshot": dict(params),
+    }
     return root
 
 
@@ -1135,12 +1080,23 @@ def _apply_cap_subset_fast_path(self, op, params=None):
 
     smooth_top_by_obj = {cap_id: True for cap_id in smooth_cap_ids}
 
+    snap = state.get("params_snapshot") or {}
+    snap_logo_rot = float(snap.get("logo_rotation", 0.0) or 0.0) % 360.0
+    snap_mix_flip = bool(snap.get("logo_mix_flip", False))
+    snap_mix_amount = max(0.0, min(1.0, float(snap.get("logo_mix_amount", 0.0) or 0.0)))
+    snap_mix_seed = int(snap.get("logo_mix_seed", 0) or 0)
+
     swapped = 0
     for inst, (template_brick, prior_smooth_top, p) in zip(instances, descriptors):
         new_smooth_top = bool(smooth_top_by_obj.get(id(p), False))
         if new_smooth_top == bool(prior_smooth_top):
             continue
-        new_template = get_template_obj(template_brick, smooth_top=new_smooth_top)
+        per_brick_rot = brick_logo_rotation_degrees(
+            p, snap_logo_rot, snap_mix_flip, snap_mix_amount, snap_mix_seed,
+        )
+        new_template = get_template_obj(
+            template_brick, smooth_top=new_smooth_top, rotation_deg=per_brick_rot,
+        )
         try:
             inst.SetReferenceObject(new_template)
         except Exception:
@@ -1460,6 +1416,10 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
     # rebuild. The cheap pure-mutation branch is kept only as a fallback when
     # the template factory isn't available.
     if get_template_obj is not None:
+        live_logo_rot = float(params.get("logo_rotation", 0) or 0) % 360.0
+        live_mix_flip = bool(params.get("logo_mix_flip", False))
+        live_mix_amount = max(0.0, min(1.0, float(params.get("logo_mix_amount", 0.0) or 0.0)))
+        live_mix_seed = int(params.get("logo_mix_seed", 0) or 0)
         new_instances = []
         for i, instance in enumerate(instances):
             matrix = matrices[i] if i < len(matrices) else pre_matrices[i]
@@ -1475,7 +1435,12 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
                 instance.Remove()
             except Exception:
                 pass
-            template = get_template_obj(template_brick, smooth_top=bool(smooth_top))
+            per_brick_rot = brick_logo_rotation_degrees(
+                _placement, live_logo_rot, live_mix_flip, live_mix_amount, live_mix_seed,
+            )
+            template = get_template_obj(
+                template_brick, smooth_top=bool(smooth_top), rotation_deg=per_brick_rot,
+            )
             try:
                 child = c4d.InstanceObject()
             except Exception:

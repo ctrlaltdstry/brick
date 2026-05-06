@@ -122,24 +122,34 @@ def _set_document_to_frame_zero(doc):
             pass
 
 
-def _configure_proxy_rigid_body(fracture):
+def _attach_proxy_rigid_body_to_fracture(fracture):
+    """Add one Rigid Body tag to the parent Fracture so the entire proxy
+    assembly simulates as a single Fracture-level rig.
+
+    The Fracture is built in Explode Segments mode from the start (so its
+    per-segment collision cache binds to each carrier individually), and
+    carriers are direct children of the Fracture (so PBD evaluates each
+    one independently).  One tag at the top is easier for the user to
+    tweak than per-carrier tags.  Tag ships disabled; the user opts in by
+    toggling Enabled on the assembly via the Select All RBD Tags button.
+    """
     if fracture is None:
         return False
     tag_type = getattr(c4d, "Trigidbody", None)
     if tag_type is None:
-        _brick_log("[brick] Proxy rig: Rigid Body tag type is unavailable")
         return False
-    tag = fracture.GetTag(tag_type)
+    try:
+        tag = fracture.GetTag(tag_type) or fracture.MakeTag(tag_type)
+    except Exception:
+        tag = None
     if tag is None:
-        tag = fracture.MakeTag(tag_type)
-    if tag is None:
-        _brick_log("[brick] Proxy rig: could not add Rigid Body tag")
         return False
-    tag.SetName("proxy_rigid_body")
+    try:
+        tag.SetName("bricks_rigid_body")
+    except Exception:
+        pass
     settings = (
-        # Tag ships disabled — user opts in by checking Enabled when ready.
         ("RIGIDBODY_USE", False),
-        ("RIGIDBODY_PBD_SYNC_MOGRAPH_MATRIX", True),
         (
             "RIGIDBODY_PBD_MASS_SELECTION",
             getattr(c4d, "RIGIDBODY_PBD_USE_CUSTOM_MASS", None),
@@ -158,11 +168,95 @@ def _configure_proxy_rigid_body(fracture):
             tag[param_id] = value
         except Exception:
             pass
+    return True
+
+
+_SELECTIONOBJECT_TYPE_ID = 5190
+_SELECTIONOBJECT_LIST_PARAM = 1000
+
+
+def _safe_island_label(value, fallback):
+    text = str(value or fallback).strip()
+    out = []
+    for ch in text:
+        if ch.isalnum() or ch in "_- ":
+            out.append(ch)
+        else:
+            out.append("_")
+    label = "".join(out).strip(" _-")
+    return label or fallback
+
+
+def _build_proxy_island_selections(root, island_carriers, island_meta):
+    """Emit one c4d.Oselection object per polygon-island group, populated
+    with that island's proxy carriers.  Lets users select all carriers in
+    an island for bulk recoloring without inserting grouping nulls between
+    the Fracture and its carriers (which breaks per-brick PBD collisions).
+    """
+    if root is None or not island_carriers:
+        return 0
+    sel_type = getattr(c4d, "Oselection", _SELECTIONOBJECT_TYPE_ID)
+    list_param = getattr(c4d, "SELECTIONOBJECT_LIST", _SELECTIONOBJECT_LIST_PARAM)
+    container = c4d.BaseObject(c4d.Onull)
+    container.SetName("Island_Selections")
+    container.InsertUnder(root)
     try:
-        fracture.Message(c4d.MSG_UPDATE)
+        container[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.OBJECT_OFF
+        container[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.OBJECT_OFF
     except Exception:
         pass
-    return True
+
+    # Count islands per source so we know whether to disambiguate names.
+    source_island_count = {}
+    for key, meta in island_meta.items():
+        source = (meta or {}).get("source_name") or "Source"
+        source_island_count[source] = source_island_count.get(source, 0) + 1
+
+    count = 0
+    for key in sorted(island_carriers.keys()):
+        carriers = island_carriers.get(key) or []
+        if not carriers:
+            continue
+        meta = island_meta.get(key) or {}
+        source_label = _safe_island_label(meta.get("source_name"), "Source")
+        same_source_count = source_island_count.get(
+            meta.get("source_name") or "Source", 1
+        )
+        if same_source_count > 1:
+            island_index = int(meta.get("island_index", 0)) + 1
+            sel_name = "{0}_{1:03d}".format(source_label, island_index)
+        else:
+            sel_name = source_label
+        try:
+            sel_obj = c4d.BaseObject(sel_type)
+        except Exception as exc:
+            _brick_log(
+                "[brick] MoGraph handoff: Selection allocation failed: {0}".format(exc)
+            )
+            continue
+        if sel_obj is None:
+            continue
+        sel_obj.SetName(sel_name)
+        try:
+            in_excl = c4d.InExcludeData()
+            for carrier in carriers:
+                if carrier is None:
+                    continue
+                in_excl.InsertObject(carrier, 1)
+            sel_obj[list_param] = in_excl
+        except Exception as exc:
+            _brick_log(
+                "[brick] MoGraph handoff: Selection populate failed for "
+                "'{0}': {1}".format(sel_name, exc)
+            )
+        sel_obj.InsertUnder(container)
+        count += 1
+    if count == 0:
+        try:
+            container.Remove()
+        except Exception:
+            pass
+    return count
 
 
 _PROXY_TEMPLATE_NAME_RE = None
@@ -300,7 +394,7 @@ def _build_render_template_proto(
         and int(getattr(brick_type, "height", 0)) >= 1
     )
     if has_logos:
-        logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
+        logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
         logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
         logo_surface_bias = -plate_size * logo_sink
         objects = _collect_polygon_objects_with_matrices_top(mesh_obj)
@@ -375,6 +469,15 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         _brick_log("[brick] MoGraph handoff: no placements to hand off")
         return False
 
+    # Per-brick plain-Instance ("Off") carriers under a Fracture. The
+    # linked template's geometry is forwarded into the scene graph so
+    # dynamics has real polys to simulate; per-carrier Rigid Body tags
+    # mean each brick is its own body. Proxy template geometry comes
+    # from the watertight OBJ-based path (brickit_obj_proxy) when the
+    # size matches the reference; falls back to the procedural builder
+    # otherwise. Per-instance color in plain-Instance mode reads the
+    # linked template's color, so all bricks render the same in RS via
+    # RSObjectColor — that limitation is separate from the dynamics fix.
     fracture_type = (
         getattr(c4d, "Omgfracture", None)
         or getattr(c4d, "Omograph_fracture", None)
@@ -407,12 +510,21 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         _hide_object_in_editor_and_render(render_templates_root)
         render_templates_root.InsertUnder(root)
 
-    fracture = c4d.BaseObject(fracture_type)
+    try:
+        fracture = c4d.BaseObject(fracture_type)
+    except Exception as exc:
+        _brick_log("[brick] MoGraph handoff: Fracture allocation failed: {0}".format(exc))
+        fracture = None
     if fracture is None:
         _brick_log("[brick] MoGraph handoff: could not create Fracture object")
         return False
     fracture.SetName("bricks_mograph_fracture")
     try:
+        # Straight mode for both proxy and live MoGraph rigs.  MoGraph
+        # effectors (random color, etc.) treat each direct child as one
+        # clone, and PBD with the V5 single-island carriers and a
+        # Fracture-level Rigid Body tag still simulates per-brick
+        # correctly without needing Explode mode.
         fracture[c4d.MGFRACTUREOBJECT_MODE] = c4d.MGFRACTUREOBJECT_MODE_NONE
     except Exception:
         pass
@@ -446,7 +558,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
     type_to_template = {}
     type_to_render_template = {}
     logo_template = self._get_logo_template_obj(params, doc, stud_size, plate_size)
-    logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
+    logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
     logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
     logo_surface_bias = -float(plate_size) * logo_sink
 
@@ -701,9 +813,16 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         created_instances = 0
         logo_count = 0
         group_parent_cache = {}
+        # Per-island carrier roster, keyed by (group_index, island_index).
+        # Populated as proxy carriers are built; emitted as Oselection
+        # objects below the Fracture once the loop finishes.
+        proxy_island_carriers = {}
+        proxy_island_meta = {}
 
         def _parent_for_placement(placement):
             if not proxy:
+                # Live (non-proxy) MoGraph carriers stay flat under the
+                # fracture; nothing to group.
                 return fracture
             return grouped_parent_for_placement(
                 info,
@@ -711,6 +830,37 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 fracture,
                 group_parent_cache,
             )
+
+        def _record_proxy_island(placement, carrier):
+            """Note which island a proxy carrier belongs to so we can
+            build a Selection object per island after the carrier loop."""
+            if not proxy or carrier is None:
+                return
+            try:
+                from .brickit_groups import (
+                    _get_lookup as _grp_get_lookup,
+                    _resolve_group_key_with_lookup as _grp_resolve,
+                )
+            except Exception:
+                return
+            try:
+                lookup = _grp_get_lookup(info, group_parent_cache)
+                group_key = _grp_resolve(lookup, placement)
+            except Exception:
+                group_key = None
+            if group_key is None:
+                row = {"group_index": 99, "island_index": 0,
+                       "source_name": "Ungrouped", "island_name": "Ungrouped"}
+                key = ("__ungrouped__",)
+            else:
+                row = (lookup.get("groups") or {}).get(group_key) or {}
+                key = (
+                    int(row.get("group_index", 0)),
+                    int(row.get("island_index", 0)),
+                )
+            proxy_island_carriers.setdefault(key, []).append(carrier)
+            if key not in proxy_island_meta:
+                proxy_island_meta[key] = row
 
         # When source-deformation binding is on, fetch the current-frame
         # deformed brick centers + orient basis from the bind. The proxy
@@ -785,17 +935,77 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 stud_size,
                 plate_size,
             )
-            if bind_center_by_obj is not None and id(p) in bind_center_by_obj:
-                cx, cy, cz = bind_center_by_obj[id(p)]
+            bound_center = (
+                bind_center_by_obj.get(id(p))
+                if bind_center_by_obj is not None
+                else None
+            )
+            ob = (
+                bind_orient_by_obj.get(id(p))
+                if bind_orient_by_obj is not None
+                else None
+            )
+            # Generated smooth caps don't have their own bind records.
+            # Inherit position+orient from the cap's support placement so
+            # the cap tilts with the brick beneath it on a deformed
+            # surface, instead of staying world-up at its source-axis
+            # local position.  Mirrors the live-preview fix in
+            # brickit_mograph_generator (commit 34dca98).
+            if bound_center is None:
+                support = getattr(p, "support", None)
+                if (
+                    support is not None
+                    and bind_center_by_obj is not None
+                ):
+                    bound_support = bind_center_by_obj.get(id(support))
+                    if bound_support is not None:
+                        sob = (
+                            bind_orient_by_obj.get(id(support))
+                            if bind_orient_by_obj is not None
+                            else None
+                        )
+                        dx_local = (
+                            (float(p.x) + float(p.w) * 0.5)
+                            - (float(support.x) + float(support.w) * 0.5)
+                        ) * float(stud_size)
+                        dz_local = (
+                            (float(p.z) + float(p.d) * 0.5)
+                            - (float(support.z) + float(support.d) * 0.5)
+                        ) * float(stud_size)
+                        dy_local = (
+                            float(support.h) * 0.5 * float(plate_size)
+                            + float(p.h) * 0.5 * float(plate_size)
+                        )
+                        if sob is not None:
+                            sv1, sv2, sv3 = sob
+                            bound_center = (
+                                float(bound_support[0]
+                                      + sv1[0] * dx_local
+                                      + sv2[0] * dy_local
+                                      + sv3[0] * dz_local),
+                                float(bound_support[1]
+                                      + sv1[1] * dx_local
+                                      + sv2[1] * dy_local
+                                      + sv3[1] * dz_local),
+                                float(bound_support[2]
+                                      + sv1[2] * dx_local
+                                      + sv2[2] * dy_local
+                                      + sv3[2] * dz_local),
+                            )
+                            if ob is None:
+                                ob = sob
+                        else:
+                            bound_center = (
+                                float(bound_support[0] + dx_local),
+                                float(bound_support[1] + dy_local),
+                                float(bound_support[2] + dz_local),
+                            )
+            if bound_center is not None:
+                cx, cy, cz = bound_center
                 hx = 0.5 * float(getattr(p, "w", 1)) * stud_size
                 hy = 0.5 * float(getattr(p, "h", 1)) * plate_size
                 hz = 0.5 * float(getattr(p, "d", 1)) * stud_size
                 m = c4d.Matrix()
-                ob = (
-                    bind_orient_by_obj.get(id(p))
-                    if bind_orient_by_obj is not None
-                    else None
-                )
                 if ob is not None:
                     v1, v2, v3 = ob
                     m.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
@@ -890,6 +1100,11 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             child = c4d.BaseObject(c4d.Oinstance)
             child.SetName(child_name)
             child[c4d.INSTANCEOBJECT_LINK] = template
+            # Plain Instance ("Off") mode for proxy so the linked template's
+            # geometry is forwarded into the scene graph for dynamics to see.
+            # MULTIINSTANCE is render-time only; PBD wouldn't see anything
+            # to simulate. Live (non-proxy) carriers stay on RENDERINSTANCE
+            # for render-time-instance speed without dynamics consequences.
             try:
                 if proxy:
                     child[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = int(
@@ -905,13 +1120,34 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 child[c4d.ID_BASEOBJECT_COLOR] = color
             except Exception:
                 pass
-            child.InsertUnder(_parent_for_placement(p))
-            if (
-                follower_records is not None
-                and bind_record_by_obj is not None
-                and id(p) in bind_record_by_obj
-            ):
-                rec = bind_record_by_obj[id(p)]
+            if proxy:
+                # Flat hierarchy under the Fracture: PBD/RBD requires the
+                # carrier to be a direct child of the Fracture for its
+                # collision shape to be evaluated independently.  Group
+                # membership is preserved via Selection objects below.
+                child.InsertUnder(fracture)
+                _record_proxy_island(p, child)
+            else:
+                child.InsertUnder(_parent_for_placement(p))
+            rec = None
+            extra_normal_offset = 0.0
+            if bind_record_by_obj is not None:
+                rec = bind_record_by_obj.get(id(p))
+                if rec is None:
+                    # Generated smooth cap: borrow its support's bind
+                    # record so the cap rides on the same triangle as
+                    # the brick beneath it, then push the cap up along
+                    # the surface normal by half the support height +
+                    # half the cap height so it sits flush on top.
+                    support = getattr(p, "support", None)
+                    if support is not None:
+                        rec = bind_record_by_obj.get(id(support))
+                        if rec is not None:
+                            extra_normal_offset = (
+                                float(getattr(support, "h", 1)) * 0.5 * plate_size
+                                + float(getattr(p, "h", 1)) * 0.5 * plate_size
+                            )
+            if follower_records is not None and rec is not None:
                 hx = 0.5 * float(getattr(p, "w", 1)) * stud_size
                 hy = 0.5 * float(getattr(p, "h", 1)) * plate_size
                 hz = 0.5 * float(getattr(p, "d", 1)) * stud_size
@@ -924,7 +1160,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                             float(rec["bary"][1]),
                             float(rec["bary"][2]),
                         ],
-                        "normal_offset": float(rec["normal_offset"]),
+                        "normal_offset": float(rec["normal_offset"]) + extra_normal_offset,
                         "half_size": [hx, hy, hz],
                     }
                 )
@@ -947,12 +1183,15 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
 
         _t_finalize0 = time.perf_counter()
         if proxy:
+            _build_proxy_island_selections(
+                root, proxy_island_carriers, proxy_island_meta
+            )
+            _attach_proxy_rigid_body_to_fracture(fracture)
             # Skip the frame-zero reset when binding is on; the follower
             # tag drives carrier transforms each frame and the user
             # explicitly chose the click-time pose as the dynamics start.
             if not bind_active:
                 _set_document_to_frame_zero(doc)
-            _configure_proxy_rigid_body(fracture)
             try:
                 fracture.Message(c4d.MSG_UPDATE)
             except Exception:

@@ -508,7 +508,7 @@ def _plate_footprints_from_library(library):
     return tuple(sorted(fps, key=lambda wd: (-wd[0] * wd[1], -max(wd), wd)))
 
 
-def _build_top_layer_state(placements):
+def _build_top_layer_state(placements, target_top_cells=None):
     """Group h>1 brick exposed top cells per y-layer with anchor color map.
 
     Returns (layers, color_at):
@@ -516,14 +516,21 @@ def _build_top_layer_state(placements):
         color_at[top_y][(x, z)] -> (rgb, color_idx) of the source brick whose
             top contains the cell (first writer wins, mirroring placement
             iteration order — caps colored by the first brick claiming a cell).
+
+    When `target_top_cells` is provided (set of (x, top_y, z) tuples), cells
+    not in that set are skipped — used by surface-only-plate mode to restrict
+    caps to the silhouette top-shell.
     """
     placements = list(placements or [])
     occupied = _occupied_cells(placements)
+    target_top_cells = None if target_top_cells is None else set(target_top_cells)
     layers = {}
     color_at = {}
+    # Include h=1 placements (plates) so their studded tops also get smooth
+    # caps under Largest Merged Plates / Random Mix at full coverage. The
+    # match-below path used _all_exposed_top_visual_caps which included
+    # plates too; skipping them here was an unintentional asymmetry.
     for p in placements:
-        if int(getattr(p, "h", 1)) <= 1:
-            continue
         x0 = int(getattr(p, "x", 0))
         z0 = int(getattr(p, "z", 0))
         w = int(getattr(p, "w", 1))
@@ -535,7 +542,10 @@ def _build_top_layer_state(placements):
         layer_colors = color_at.setdefault(top_y, {})
         for x in range(x0, x0 + w):
             for z in range(z0, z0 + d):
-                if (x, top_y, z) in occupied:
+                key = (x, top_y, z)
+                if target_top_cells is not None and key not in target_top_cells:
+                    continue
+                if key in occupied:
                     continue
                 cell = (x, z)
                 if cell in layer_cells:
@@ -564,14 +574,14 @@ def _emit_cap(caps_out, ax, az, top_y, w, d, rgb, color_idx, support=None):
     )
 
 
-def _merged_cover_caps(placements, library):
+def _merged_cover_caps(placements, library, target_top_cells=None):
     """Tile every exposed top of h>1 bricks with the largest library plates
     that fit. Cells are unioned per y-layer (so a cap may span across two
     adjacent same-height bricks). Deterministic — no seed required.
 
     Color of each cap is taken from the source brick under its anchor cell.
     """
-    layers, color_at = _build_top_layer_state(placements)
+    layers, color_at = _build_top_layer_state(placements, target_top_cells=target_top_cells)
     plate_pool = list(_plate_footprints_from_library(library))
     if not plate_pool:
         plate_pool = [(1, 1)]
@@ -605,7 +615,7 @@ def _merged_cover_caps(placements, library):
     return caps
 
 
-def _random_mix_caps(placements, library, seed):
+def _random_mix_caps(placements, library, seed, target_top_cells=None):
     """Tile every exposed top of h>1 bricks with random library plates.
 
     Cells are grouped by their y-layer (no plate spans heights). Within each
@@ -616,37 +626,10 @@ def _random_mix_caps(placements, library, seed):
     Color of each emitted cap is taken from the source brick whose top
     contains the cap's anchor (origin) cell.
     """
-    placements = list(placements or [])
-    occupied = _occupied_cells(placements)
+    layers, color_at = _build_top_layer_state(placements, target_top_cells=target_top_cells)
     plate_pool = list(_plate_footprints_from_library(library))
     if not plate_pool:
         plate_pool = [(1, 1)]
-
-    # layer_y -> set of available cells; layer_y -> {(x, z): (rgb, color_idx)}
-    layers = {}
-    color_at = {}
-    for p in placements:
-        if int(getattr(p, "h", 1)) <= 1:
-            continue
-        x0 = int(getattr(p, "x", 0))
-        z0 = int(getattr(p, "z", 0))
-        w = int(getattr(p, "w", 1))
-        d = int(getattr(p, "d", 1))
-        top_y = int(getattr(p, "y", 0) + getattr(p, "h", 1))
-        rgb = tuple(getattr(p, "rgb", (180, 180, 180)))
-        color_idx = int(getattr(p, "color_idx", -1))
-        layer_cells = layers.setdefault(top_y, set())
-        layer_colors = color_at.setdefault(top_y, {})
-        for x in range(x0, x0 + w):
-            for z in range(z0, z0 + d):
-                if (x, top_y, z) in occupied:
-                    continue
-                cell = (x, z)
-                if cell in layer_cells:
-                    # Already claimed by an earlier brick at the same y.
-                    continue
-                layer_cells.add(cell)
-                layer_colors[cell] = (rgb, color_idx)
 
     caps = []
     base_seed = int(seed) & 0xFFFFFFFF
@@ -796,13 +779,20 @@ def missing_smooth_top_cap_placements(
       reproducible. Plates never overhang the model silhouette because
       placements are restricted to cells that exist in the available set.
     """
+    style = int(cap_style)
     if target_top_cells is not None:
+        # Surface-only-plates path: caps must stay inside the silhouette
+        # top-shell. Honor cap_style — earlier this branch hard-coded the
+        # match-below tiler regardless of user choice.
+        if style == CAP_STYLE_RANDOM_MIX:
+            return _random_mix_caps(placements, library, seed, target_top_cells=target_top_cells)
+        if style == CAP_STYLE_MERGED_COVER:
+            return _merged_cover_caps(placements, library, target_top_cells=target_top_cells)
         return _all_exposed_top_visual_caps(
             placements,
             library=library,
             target_top_cells=target_top_cells,
         )
-    style = int(cap_style)
     if style == CAP_STYLE_RANDOM_MIX:
         return _random_mix_caps(placements, library, seed)
     if style == CAP_STYLE_MERGED_COVER:
@@ -935,6 +925,55 @@ def _placement_random_key(placement, coverage_seed):
     )
 
 
+def _attach_supports_by_position(generated_caps, structural_placements):
+    """For any cap whose `support` is None, pick the structural placement
+    whose footprint contains the cap's anchor cell at the layer below.
+
+    Caps emitted by `_random_mix_caps` and `_merged_cover_caps` (and a
+    couple of fallback paths in the per-brick tilers) don't carry a
+    support reference, which breaks bind-to-source-deformation: the cap
+    has nothing to inherit deformed position/orient from and stays
+    axis-aligned at its source-axis-local position.  Walk those caps
+    once after generation and pin each to the brick directly under its
+    anchor cell.  When a cap spans multiple bricks (rare) the anchor's
+    brick is chosen — slight artifact under extreme deformation but
+    correct in the common case.
+    """
+    if not generated_caps:
+        return
+    structural_list = list(structural_placements or [])
+    if not structural_list:
+        return
+    # Index structural placements by every (x, top_y, z) cell they
+    # contribute as a top surface, so cap lookup is O(1) per cap.
+    top_cell_to_placement = {}
+    for p in structural_list:
+        x0 = int(getattr(p, "x", 0))
+        y0 = int(getattr(p, "y", 0))
+        z0 = int(getattr(p, "z", 0))
+        w = int(getattr(p, "w", 1))
+        h = int(getattr(p, "h", 1))
+        d = int(getattr(p, "d", 1))
+        top_y = y0 + h
+        for ix in range(w):
+            for iz in range(d):
+                top_cell_to_placement.setdefault(
+                    (x0 + ix, top_y, z0 + iz), p
+                )
+    for cap in generated_caps:
+        if getattr(cap, "support", None) is not None:
+            continue
+        cx = int(getattr(cap, "x", 0))
+        cy = int(getattr(cap, "y", 0))
+        cz = int(getattr(cap, "z", 0))
+        sup = top_cell_to_placement.get((cx, cy, cz))
+        if sup is not None:
+            try:
+                cap.support = sup
+            except Exception:
+                pass
+
+
 def smooth_top_cap_selection_for_coverage(
     placements,
     coverage,
@@ -950,11 +989,30 @@ def smooth_top_cap_selection_for_coverage(
     target_top_cells = None if target_top_cells is None else set(target_top_cells)
     amount = _clamp01(coverage)
     if amount >= SMOOTH_TOP_FULL_COVERAGE_THRESHOLD:
-        return set(), _all_exposed_top_visual_caps(
+        # Full coverage: cap every exposed top. For MATCH_BELOW we keep
+        # _all_exposed_top_visual_caps (it also covers h=1 plate tops via
+        # the per-placement loop). For Random Mix and Largest Merged
+        # Plates the user-visible behavior is the style-specific tiling
+        # of h>1 exposed tops — earlier versions silently fell through to
+        # match-below regardless of style.
+        style = int(cap_style)
+        if style in (CAP_STYLE_RANDOM_MIX, CAP_STYLE_MERGED_COVER):
+            generated = missing_smooth_top_cap_placements(
+                placements,
+                cap_style=style,
+                library=library,
+                seed=seed,
+                target_top_cells=target_top_cells,
+            )
+            _attach_supports_by_position(generated, placements)
+            return set(), generated
+        generated = _all_exposed_top_visual_caps(
             placements,
             library=library,
             target_top_cells=target_top_cells,
         )
+        _attach_supports_by_position(generated, placements)
+        return set(), generated
     existing_ids = exposed_top_cap_ids(
         placements,
         target_top_cells=target_top_cells,
@@ -966,6 +1024,7 @@ def smooth_top_cap_selection_for_coverage(
         seed=seed,
         target_top_cells=target_top_cells,
     )
+    _attach_supports_by_position(generated_caps, placements)
     candidates = [
         ("existing", p)
         for p in ordered_placements(placements)

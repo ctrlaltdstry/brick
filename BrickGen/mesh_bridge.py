@@ -78,15 +78,43 @@ def build_brick(
     quality,
     piece_type=0,
 ):
-    """Return a brick/plate Mesh built by make_brick_hires."""
+    """Return a brick/plate Mesh.
+
+    Proxy quality routes to the watertight OBJ-based synthesizer (single-
+    island, sim-ready). Falls back to the procedural builder when the
+    synthesizer doesn't yet cover the requested size. All other quality
+    levels go through `make_brick_hires` directly.
+    """
     from brick.brick_geom_hires import make_brick_hires
+    from quality_presets import QUALITY_PROXY
 
     h = max(1, int(height_plates))
     if int(piece_type) == BRICKGENERATOR_TYPE_PLATE:
         h = 1
 
+    smooth = int(piece_type) == BRICKGENERATOR_TYPE_PLATE
+
+    if int(quality) == QUALITY_PROXY:
+        # Try the watertight OBJ-based synthesizer first.
+        try:
+            from brickit.brickit_obj_proxy import is_supported, synthesize_proxy
+            from types import SimpleNamespace
+            bt = SimpleNamespace(width=int(width), depth=int(depth), height=int(h))
+            if is_supported(bt, smooth=smooth):
+                return synthesize_proxy(bt, smooth=smooth)
+        except Exception:
+            pass
+        # Fallback: simplified proxy collider (no tubes, no ribs, no
+        # stud indents, no fillets) — matches BrickIt's proxy style for
+        # sizes the synthesizer doesn't yet cover.
+        from brick.brick_geom_hires import make_proxy_collider
+        return make_proxy_collider(
+            int(width), int(depth), h,
+            with_studs=not smooth,
+        )
+
     kwargs = dict(QUALITY_PRESETS.get(quality, QUALITY_PRESETS[QUALITY_HERO]))
-    if int(piece_type) == BRICKGENERATOR_TYPE_PLATE:
+    if smooth:
         # Plate mode should be the smooth plate variant by default.
         kwargs["with_studs"] = False
     return make_brick_hires(int(width), int(depth), h, **kwargs)

@@ -57,6 +57,7 @@ CONTAINER obrickgenerator
             DEFAULT 1;
             CYCLE
             {
+                BRICKGENERATOR_QUALITY_PROXY;
                 BRICKGENERATOR_QUALITY_DRAFT;
                 BRICKGENERATOR_QUALITY_STANDARD;
                 BRICKGENERATOR_QUALITY_HERO;
@@ -80,17 +81,14 @@ CONTAINER obrickgenerator
                 ACCEPT { Obase; }
             }
 
-            LONG BRICKGENERATOR_LOGO_ROTATION
+            REAL BRICKGENERATOR_LOGO_ROTATION
             {
                 NAME BRICKGENERATOR_LOGO_ROTATION;
-                DEFAULT 0;
-                CYCLE
-                {
-                    BRICKGENERATOR_LOGO_ROTATION_0;
-                    BRICKGENERATOR_LOGO_ROTATION_90;
-                    BRICKGENERATOR_LOGO_ROTATION_180;
-                    BRICKGENERATOR_LOGO_ROTATION_270;
-                }
+                CUSTOMGUI REALSLIDER;
+                MIN 0.0;
+                MAX 360.0;
+                STEP 1.0;
+                DEFAULT 0.0;
             }
 
             REAL BRICKGENERATOR_LOGO_DIAMETER

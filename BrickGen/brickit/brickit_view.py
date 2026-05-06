@@ -686,24 +686,18 @@ def _build_hierarchy(self, op):
             + (matrix.v3 * float(z))
         )
 
-    def _apply_logo_quarter_turn_local(matrix, quarter_turns):
-        q = int(quarter_turns or 0) % 4
+    def _apply_logo_quarter_turn_local(matrix, degrees):
+        """Rotate a logo's local matrix around its v2 axis by `degrees`."""
+        import math
+        angle_deg = float(degrees or 0.0) % 360.0
+        rad = math.radians(angle_deg)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
         base_v1 = matrix.v1
-        base_v2 = matrix.v2
         base_v3 = matrix.v3
-        matrix.v2 = base_v2
-        if q == 1:
-            matrix.v1 = base_v3 * -1.0
-            matrix.v3 = base_v1
-        elif q == 2:
-            matrix.v1 = base_v1 * -1.0
-            matrix.v3 = base_v3 * -1.0
-        elif q == 3:
-            matrix.v1 = base_v3
-            matrix.v3 = base_v1 * -1.0
-        else:
-            matrix.v1 = base_v1
-            matrix.v3 = base_v3
+        # New v1 = base_v1*cos - base_v3*sin; new v3 = base_v1*sin + base_v3*cos.
+        matrix.v1 = base_v1 * cos_a + base_v3 * (-sin_a)
+        matrix.v3 = base_v1 * sin_a + base_v3 * cos_a
         return matrix
 
     def _make_centered_brick_matrix(p, state):
@@ -1114,9 +1108,13 @@ def _build_hierarchy(self, op):
             inst.InsertUnder(instances_root)
 
     if logo_template is not None:
+        from logo_helpers import brick_logo_rotation_degrees as _brick_logo_rotation_degrees
         logo_matrices = []
         stud_h = float(plate_size) * 0.55
-        logo_rotation = int(params.get("logo_rotation", 0) or 0) % 4
+        logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
+        logo_mix_flip = bool(params.get("logo_mix_flip", False))
+        logo_mix_amount = max(0.0, min(1.0, float(params.get("logo_mix_amount", 0.0) or 0.0)))
+        logo_mix_seed = int(params.get("logo_mix_seed", 0) or 0)
         logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
         logo_surface_bias = -float(plate_size) * logo_sink
         for p in visible_placements:
@@ -1130,6 +1128,9 @@ def _build_hierarchy(self, op):
             half_w = float(p.w) * float(stud_size) * 0.5
             half_h = float(p.h) * float(plate_size) * 0.5
             half_d = float(p.d) * float(stud_size) * 0.5
+            per_brick_rot = _brick_logo_rotation_degrees(
+                p, logo_rotation, logo_mix_flip, logo_mix_amount, logo_mix_seed,
+            )
             for sx in range(int(p.w)):
                 for sz in range(int(p.d)):
                     m = c4d.Matrix()
@@ -1143,7 +1144,7 @@ def _build_hierarchy(self, op):
                         ((float(sz) + 0.5) * float(stud_size)) - half_d,
                     )
                     m.off = brick_m.off + local
-                    _apply_logo_quarter_turn_local(m, logo_rotation)
+                    _apply_logo_quarter_turn_local(m, per_brick_rot)
                     logo_matrices.append(m)
         if logo_matrices:
             logo_inst = c4d.BaseObject(c4d.Oinstance)

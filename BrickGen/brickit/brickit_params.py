@@ -323,11 +323,23 @@ def _resolve_params(self, op, source_obj):
         visualization_mode = raw_visualization_mode
     logo_enabled = bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
     logo_source = _resolve_logo_source_link(op, BRICKIFYASSEMBLY_LOGO_SOURCE)
-    logo_rotation = int(op[BRICKIFYASSEMBLY_LOGO_ROTATION] or 0) % 4
+    logo_rotation = float(op[BRICKIFYASSEMBLY_LOGO_ROTATION] or 0.0) % 360.0
     logo_diameter = _logo_fill_to_diameter_ratio(op[BRICKIFYASSEMBLY_LOGO_DIAMETER])
     logo_height = max(0.02, min(0.25, float(op[BRICKIFYASSEMBLY_LOGO_HEIGHT] or 0.06)))
     logo_blend = max(0.0, min(1.0, float(op[BRICKIFYASSEMBLY_LOGO_BLEND] or 0.0)))
     logo_sink = max(0.0, min(0.05, float(op[BRICKIFYASSEMBLY_LOGO_SINK] or 0.0)))
+    try:
+        logo_mix_flip = bool(op[BRICKIFYASSEMBLY_LOGO_MIX_FLIP])
+    except Exception:
+        logo_mix_flip = False
+    try:
+        logo_mix_amount = max(0.0, min(1.0, float(op[BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT] or 0.0) / 100.0))
+    except Exception:
+        logo_mix_amount = 0.5
+    try:
+        logo_mix_seed = max(0, int(op[BRICKIFYASSEMBLY_LOGO_MIX_SEED] or 0))
+    except Exception:
+        logo_mix_seed = 0
     build_progress_raw = op[BRICKIFYASSEMBLY_BUILD_PROGRESS]
     if build_progress_raw is None:
         build_progress_raw = 100.0
@@ -397,6 +409,19 @@ def _resolve_params(self, op, source_obj):
         BRICKIFYASSEMBLY_CAP_STYLE_RANDOM_MIX,
     ):
         cap_style = BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+    # Bind-to-Source-Deformation force: only Match Below produces caps with
+    # one support per cap, which is what the bind path needs to inherit
+    # deformed position+orient.  Merged/Random cap styles span multiple
+    # bricks per cap, so caps lose track of which brick they should follow
+    # under deformation.  Quietly downgrade to Match Below when bind is on.
+    try:
+        if (
+            bool(op[BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION])
+            and cap_style != BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+        ):
+            cap_style = BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
+    except Exception:
+        pass
     cap_random_seed_raw = op[BRICKIFYASSEMBLY_CAP_RANDOM_SEED]
     cap_random_seed = max(0, int(cap_random_seed_raw)) if cap_random_seed_raw is not None else 0
     brick_separation_raw = op[BRICKIFYASSEMBLY_BRICK_SEPARATION]
@@ -492,6 +517,9 @@ def _resolve_params(self, op, source_obj):
         "logo_height": logo_height,
         "logo_blend": logo_blend,
         "logo_sink": logo_sink,
+        "logo_mix_flip": logo_mix_flip,
+        "logo_mix_amount": logo_mix_amount,
+        "logo_mix_seed": logo_mix_seed,
         "build_progress": build_progress,
         "build_progress_time": build_progress_time,
         "smooth_top_progress": smooth_top_progress,

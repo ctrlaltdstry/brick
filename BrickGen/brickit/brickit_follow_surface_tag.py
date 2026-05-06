@@ -376,9 +376,14 @@ def _flatten_bricks(host, carriers):
     bricks_null = c4d.BaseObject(c4d.Onull)
     bricks_null.SetName("bricks")
     bricks_null.InsertUnder(host)
-    fracture_type = (
-        getattr(c4d, "Omgfracture", None)
-        or getattr(c4d, "Omograph_fracture", None)
+    fracture_types = tuple(
+        t for t in (
+            getattr(c4d, "Omgfracture", None),
+            getattr(c4d, "Omograph_fracture", None),
+            getattr(c4d, "Ovoronoifracture", None),
+            getattr(c4d, "Ovoronoi_fracture", None),
+        )
+        if t is not None
     )
     parents_to_check = set()
     flat_list = []
@@ -406,8 +411,12 @@ def _flatten_bricks(host, carriers):
             return False
         if node.CheckType(c4d.Onull):
             return True
-        if fracture_type is not None and node.CheckType(fracture_type):
-            return True
+        for t in fracture_types:
+            try:
+                if node.CheckType(t):
+                    return True
+            except Exception:
+                pass
         return False
 
     for _ in range(8):  # ample iterations for nested empties

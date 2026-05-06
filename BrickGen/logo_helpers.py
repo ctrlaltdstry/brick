@@ -99,23 +99,71 @@ def logo_fill_to_diameter_ratio(value):
     )
 
 
-def apply_logo_quarter_turn(matrix, quarter_turns):
-    """Rotate a logo transform around Y in 90-degree steps."""
-    q = int(quarter_turns or 0) % 4
+def apply_logo_y_rotation(matrix, degrees):
+    """Rotate a logo transform around Y by an arbitrary number of degrees.
+
+    Pure Y-axis rotation: v2 stays (0,1,0); v1 and v3 spin in the XZ plane.
+    Accepts any float; the value is taken modulo 360.
+    """
+    import math
+    angle_deg = float(degrees or 0.0) % 360.0
+    rad = math.radians(angle_deg)
+    cos_a = math.cos(rad)
+    sin_a = math.sin(rad)
+    matrix.v1 = c4d.Vector(cos_a, 0.0, -sin_a)
     matrix.v2 = c4d.Vector(0.0, 1.0, 0.0)
-    if q == 1:
-        matrix.v1 = c4d.Vector(0.0, 0.0, -1.0)
-        matrix.v3 = c4d.Vector(1.0, 0.0, 0.0)
-    elif q == 2:
-        matrix.v1 = c4d.Vector(-1.0, 0.0, 0.0)
-        matrix.v3 = c4d.Vector(0.0, 0.0, -1.0)
-    elif q == 3:
-        matrix.v1 = c4d.Vector(0.0, 0.0, 1.0)
-        matrix.v3 = c4d.Vector(-1.0, 0.0, 0.0)
-    else:
-        matrix.v1 = c4d.Vector(1.0, 0.0, 0.0)
-        matrix.v3 = c4d.Vector(0.0, 0.0, 1.0)
+    matrix.v3 = c4d.Vector(sin_a, 0.0, cos_a)
     return matrix
+
+
+# Backward-compat shim — old call sites passed quarter-turn integers.  We
+# now take degrees, but keep the old name working as `apply_logo_quarter_turn`
+# so any external code or saved scripts still find it.  The argument is now
+# interpreted as DEGREES, not quarter-turns.
+def apply_logo_quarter_turn(matrix, degrees):
+    return apply_logo_y_rotation(matrix, degrees)
+
+
+def brick_logo_rotation_degrees(placement, base_rotation_deg, mix_flip, mix_amount, mix_seed):
+    """Per-brick logo Y-rotation in degrees.
+
+    When `mix_flip` is on, a stable hash of the brick's grid position decides
+    whether to flip this brick's logos by 180 degrees.  All studs on the
+    same brick share the same flip decision (the hash uses the placement
+    origin, not per-stud coordinates), so a brick reads as one consistently-
+    oriented LEGO piece.  `mix_amount` is the fraction (0..1) of bricks
+    that get flipped.  `mix_seed` makes the choice reproducible.
+    """
+    base = float(base_rotation_deg or 0.0) % 360.0
+    if not mix_flip:
+        return base
+    amount = max(0.0, min(1.0, float(mix_amount or 0.0)))
+    if amount <= 0.0:
+        return base
+    if amount >= 1.0:
+        return (base + 180.0) % 360.0
+    if placement is None:
+        return base
+    # Hash the brick's grid origin + footprint into a stable integer in [0, 2^32).
+    px = int(getattr(placement, "x", 0))
+    py = int(getattr(placement, "y", 0))
+    pz = int(getattr(placement, "z", 0))
+    pw = int(getattr(placement, "w", 1))
+    pd = int(getattr(placement, "d", 1))
+    seed = int(mix_seed or 0)
+    h = (
+        (px * 0x1f1f1f1f)
+        ^ (py * 0x9e3779b1)
+        ^ (pz * 0x85ebca6b)
+        ^ (pw * 0xc2b2ae35)
+        ^ (pd * 0x27d4eb2f)
+        ^ (seed * 0x165667b1)
+    ) & 0xFFFFFFFF
+    # Map hash to [0, 1) and compare against amount.
+    bucket = (h * 2.3283064365386963e-10)  # 1/2^32
+    if bucket < amount:
+        return (base + 180.0) % 360.0
+    return base
 
 
 def soften_raised_logo_contact(poly_obj, stud_size, plate_size, blend=1.0):

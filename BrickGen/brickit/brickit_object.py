@@ -333,9 +333,21 @@ class BrickAssembly(plugins.ObjectData):
             BRICKIFYASSEMBLY_LOGO_HEIGHT,
             BRICKIFYASSEMBLY_LOGO_BLEND,
             BRICKIFYASSEMBLY_LOGO_SINK,
+            BRICKIFYASSEMBLY_LOGO_MIX_FLIP,
         ):
             try:
                 return bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
+            except Exception:
+                return True
+        if pid in (
+            BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT,
+            BRICKIFYASSEMBLY_LOGO_MIX_SEED,
+        ):
+            try:
+                return (
+                    bool(op[BRICKIFYASSEMBLY_ENABLE_LOGO])
+                    and bool(op[BRICKIFYASSEMBLY_LOGO_MIX_FLIP])
+                )
             except Exception:
                 return True
         if pid == BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE:
@@ -414,11 +426,14 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_AUTO_REBUILD] = True
         op[BRICKIFYASSEMBLY_ENABLE_LOGO] = False
         op[BRICKIFYASSEMBLY_LOGO_SOURCE] = None
-        op[BRICKIFYASSEMBLY_LOGO_ROTATION] = BRICKIFYASSEMBLY_LOGO_ROTATION_0
+        op[BRICKIFYASSEMBLY_LOGO_ROTATION] = 0.0
         op[BRICKIFYASSEMBLY_LOGO_DIAMETER] = BRICKGEN_LOGO_FILL_UI_DEFAULT
         op[BRICKIFYASSEMBLY_LOGO_HEIGHT] = 0.06
         op[BRICKIFYASSEMBLY_LOGO_BLEND] = 1.0
         op[BRICKIFYASSEMBLY_LOGO_SINK] = BRICKGEN_LOGO_DEFAULT_SINK
+        op[BRICKIFYASSEMBLY_LOGO_MIX_FLIP] = False
+        op[BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT] = 50.0
+        op[BRICKIFYASSEMBLY_LOGO_MIX_SEED] = 0
         op[BRICKIFYASSEMBLY_BUILD_PROGRESS] = 100.0
         op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS] = 100.0
         op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0

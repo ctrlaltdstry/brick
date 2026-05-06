@@ -42,7 +42,7 @@ class BrickGen(plugins.ObjectData):
         op[BRICKGENERATOR_LOGO_SOURCE] = None
         op[BRICKGENERATOR_LOGO_DIAMETER] = BRICKGEN_LOGO_FILL_UI_DEFAULT
         op[BRICKGENERATOR_LOGO_HEIGHT] = 0.06
-        op[BRICKGENERATOR_LOGO_ROTATION] = 0
+        op[BRICKGENERATOR_LOGO_ROTATION] = 0.0
         op[BRICKGENERATOR_LOGO_BLEND] = 1.0
         op[BRICKGENERATOR_LOGO_SINK] = BRICKGEN_LOGO_DEFAULT_SINK
         self._cache_key = None
@@ -152,7 +152,7 @@ class BrickGen(plugins.ObjectData):
 
         logo_enabled = False
         logo_source = None
-        logo_rotation = 0
+        logo_rotation = 0.0
         logo_diameter = logo_fill_to_diameter_ratio(BRICKGEN_LOGO_FILL_UI_DEFAULT)
         logo_height = 0.06
         logo_blend = 1.0
@@ -160,7 +160,7 @@ class BrickGen(plugins.ObjectData):
         try:
             logo_enabled = bool(op[BRICKGENERATOR_ENABLE_LOGO])
             logo_source = resolve_logo_source_link(op, BRICKGENERATOR_LOGO_SOURCE)
-            logo_rotation = int(op[BRICKGENERATOR_LOGO_ROTATION] or 0) % 4
+            logo_rotation = float(op[BRICKGENERATOR_LOGO_ROTATION] or 0.0) % 360.0
             logo_diameter = logo_fill_to_diameter_ratio(op[BRICKGENERATOR_LOGO_DIAMETER])
             logo_height = max(0.02, min(0.25, float(op[BRICKGENERATOR_LOGO_HEIGHT] or 0.06)))
             logo_blend = max(0.0, min(1.0, float(op[BRICKGENERATOR_LOGO_BLEND] or 0.0)))

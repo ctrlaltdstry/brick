@@ -7,6 +7,21 @@ QUALITY_PROXY = 3
 
 
 QUALITY_PRESETS = {
+    QUALITY_PROXY: dict(
+        # Proxy quality is served by the OBJ-based synthesizer in
+        # mesh_bridge; the dict is here so `quality in QUALITY_PRESETS`
+        # checks pass. If synthesis falls back to procedural for an
+        # unsupported size, the procedural path uses these (Draft-like)
+        # parameters with no fillets.
+        body_corner_segments=4,
+        stud_segments=6, stud_fillet_segments=0,
+        tube_segments=6, tube_fillet_segments=0,
+        rib_segments=2,
+        body_fillet_radius=0.0,
+        stud_fillet_radius=0.0,
+        tube_fillet_radius=0.0,
+        rib_fillet_radius=0.0,
+    ),
     QUALITY_DRAFT: dict(
         body_corner_segments=4,
         stud_segments=16, stud_fillet_segments=2,

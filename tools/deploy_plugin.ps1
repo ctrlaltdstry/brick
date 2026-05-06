@@ -1,5 +1,13 @@
 # Deploy the Brick plugin to Cinema 4D's user plugins folder.
 # Run from anywhere:  powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1
+#
+# By default this also restarts Cinema 4D and reopens the test scene so
+# the deploy/test loop is one command. Pass -NoRestart to skip the
+# restart step. Override the test scene with $env:BRICK_TEST_SCENE.
+
+param(
+    [switch]$NoRestart
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -154,4 +162,24 @@ Get-ChildItem -Path $c4dPlugins -Directory |
     Select-Object -ExpandProperty FullName |
     ForEach-Object { Write-Host "  $_" }
 
-Write-Host "Deployed. Restart Cinema 4D to pick up changes."
+if ($NoRestart) {
+    Write-Host "Deployed. Restart Cinema 4D to pick up changes."
+} else {
+    $testScene = $env:BRICK_TEST_SCENE
+    if (-not $testScene) {
+        $testScene = "Z:\02_MKE\2026\BRICK\TEST FILE.c4d"
+    }
+    $running = Get-Process -Name 'Cinema 4D*' -ErrorAction SilentlyContinue
+    if ($running) {
+        Write-Host "Stopping Cinema 4D..."
+        $running | Stop-Process -Force
+        Start-Sleep -Milliseconds 700
+    }
+    if (Test-Path $testScene) {
+        Write-Host "Launching Cinema 4D with: $testScene"
+        Start-Process -FilePath $testScene
+    } else {
+        Write-Host "Test scene not found at $testScene; skipping launch."
+        Write-Host "  Set `$env:BRICK_TEST_SCENE to override, or pass -NoRestart."
+    }
+}

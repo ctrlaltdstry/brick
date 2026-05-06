@@ -1880,6 +1880,61 @@ def test_merged_cover_is_deterministic_and_silhouette_safe():
     assert covered == silhouette  # full coverage
 
 
+def test_cap_style_honored_with_target_top_cells():
+    # Surface-only-plates mode passes target_top_cells. The dispatch must
+    # honor cap_style for Random Mix and Largest Merged Plates instead of
+    # silently falling back to match-below tiling.
+    a = _p("a", 0, 0, 0, w=1, h=3, d=1)
+    b = _p("b", 1, 0, 0, w=1, h=3, d=1)
+    placements = [a, b]
+    target = {(0, 3, 0), (1, 3, 0)}
+
+    match = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_MATCH_BELOW, target_top_cells=target
+    )
+    merged = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_MERGED_COVER, target_top_cells=target
+    )
+    random_mix = missing_smooth_top_cap_placements(
+        placements, cap_style=CAP_STYLE_RANDOM_MIX, seed=1, target_top_cells=target
+    )
+
+    # Match-below: two adjacent 1x1 tall bricks each get their own 1x1 cap.
+    assert len(match) == 2
+    # Merged Cover: the two adjacent tops union into a single 1x2 (or 2x1)
+    # plate. This is the user-visible distinction that earlier regressed.
+    assert len(merged) == 1
+    assert merged[0].w * merged[0].d == 2
+    # Random Mix uses a 1x1 fallback when no library is provided, so its
+    # output is at least different in count or layout from match-below in
+    # general — here a 2-cell silhouette with no library ends up as two
+    # 1x1 caps. The key assertion is no overhang outside `target`.
+    for c in random_mix:
+        for ix in range(c.w):
+            for iz in range(c.d):
+                assert (c.x + ix, c.y, c.z + iz) in target
+
+
+def test_full_coverage_honors_cap_style():
+    # smooth_top_cap_selection_for_coverage at full coverage previously
+    # always fell through to the match-below tiler regardless of cap_style.
+    a = _p("a", 0, 0, 0, w=1, h=3, d=1)
+    b = _p("b", 1, 0, 0, w=1, h=3, d=1)
+    placements = [a, b]
+
+    _, match_caps = smooth_top_cap_selection_for_coverage(
+        placements, 1.0, cap_style=CAP_STYLE_MATCH_BELOW
+    )
+    _, merged_caps = smooth_top_cap_selection_for_coverage(
+        placements, 1.0, cap_style=CAP_STYLE_MERGED_COVER
+    )
+
+    # Same setup as above: match-below emits 2 caps, merged_cover unions to 1.
+    assert len(match_caps) == 2
+    assert len(merged_caps) == 1
+    assert merged_caps[0].w * merged_caps[0].d == 2
+
+
 def test_random_mix_default_match_below_unchanged():
     # When cap_style isn't passed, behavior must match the legacy match-below
     # path (the existing test suite covers the exact expected output).
@@ -1963,6 +2018,8 @@ def main():
     test_random_mix_default_match_below_unchanged()
     test_merged_cover_unions_adjacent_brick_tops()
     test_merged_cover_is_deterministic_and_silhouette_safe()
+    test_cap_style_honored_with_target_top_cells()
+    test_full_coverage_honors_cap_style()
     print("brickit animation regressions passed")
 
 
