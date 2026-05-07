@@ -27,6 +27,22 @@ def _logo_log(message):
             pass
 
 
+# Last-known-good cache for transiently-failing LINK resolution. Keyed by
+# (op GUID, param id); value is the C4D object we last successfully resolved.
+# When both op[LINK_ID] and GetParameter+GetLink return None — which happens
+# during nested message dispatch in C4D 2026 even though the link is set —
+# we hand back the cached object so the rebuild doesn't drop the logo. The
+# next clean rebuild repopulates the cache with a freshly-resolved value.
+_logo_link_cache = {}
+
+
+def _logo_link_cache_key(op, link_param_id):
+    try:
+        return (int(op.GetGUID()), int(link_param_id))
+    except Exception:
+        return None
+
+
 def resolve_logo_source_link(op, link_param_id):
     """Resolve a LINK parameter's target with a doc-context fallback chain.
 
@@ -34,17 +50,22 @@ def resolve_logo_source_link(op, link_param_id):
     which can transiently return None during nested message dispatch in some
     C4D 2026 configurations. When that happens, the logo silently disappears.
     Falling back to GetParameter + an explicit GetLink(doc) with the active
-    document recovers the link in those cases. Returns None when no link is
-    set or when the link target genuinely does not exist.
+    document recovers the link in those cases. As a final safety net, when
+    both resolution paths fail we return the most recent successful result so
+    a transient hiccup doesn't drop the logo for a whole rebuild cycle.
+    Returns None only when no link has ever been resolved for this op/param.
     """
     if op is None:
         return None
+    cache_key = _logo_link_cache_key(op, link_param_id)
     target = None
     try:
         target = op[link_param_id]
     except Exception:
         target = None
     if target is not None:
+        if cache_key is not None:
+            _logo_link_cache[cache_key] = target
         return target
 
     doc = None
@@ -62,27 +83,42 @@ def resolve_logo_source_link(op, link_param_id):
         link = op.GetParameter(c4d.DescID(link_param_id), c4d.DESCFLAGS_GET_NONE)
     except Exception:
         link = None
-    if link is None:
-        return None
-
-    for resolver in ("GetLink", "GetLinkAtom", "GetObject"):
-        getter = getattr(link, resolver, None)
-        if getter is None:
-            continue
-        try:
-            resolved = getter(doc) if doc is not None else getter()
-        except TypeError:
+    if link is not None:
+        for resolver in ("GetLink", "GetLinkAtom", "GetObject"):
+            getter = getattr(link, resolver, None)
+            if getter is None:
+                continue
             try:
-                resolved = getter()
+                resolved = getter(doc) if doc is not None else getter()
+            except TypeError:
+                try:
+                    resolved = getter()
+                except Exception:
+                    resolved = None
             except Exception:
                 resolved = None
-        except Exception:
-            resolved = None
-        if resolved is not None:
-            _logo_log(
-                "Logo link recovered via {0} for param id={1}".format(resolver, link_param_id)
-            )
-            return resolved
+            if resolved is not None:
+                _logo_log(
+                    "Logo link recovered via {0} for param id={1}".format(resolver, link_param_id)
+                )
+                if cache_key is not None:
+                    _logo_link_cache[cache_key] = resolved
+                return resolved
+
+    if cache_key is not None:
+        cached = _logo_link_cache.get(cache_key)
+        if cached is not None:
+            try:
+                if cached.IsAlive():
+                    _logo_log(
+                        "Logo link transient resolution failed; reusing cached source for param id={0}".format(
+                            link_param_id
+                        )
+                    )
+                    return cached
+            except Exception:
+                pass
+            _logo_link_cache.pop(cache_key, None)
     return None
 
 
