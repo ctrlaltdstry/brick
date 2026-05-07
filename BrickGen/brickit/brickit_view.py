@@ -23,8 +23,10 @@ from source_geometry import source_axis_local_matrix
 
 
 def _build_hierarchy(self, op):
+    from .brickit_sources import primary_source_child as _primary_source_child
+
     info = self._fit_info or {}
-    params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+    params = self._resolve_params(op, _primary_source_child(op))
     visualization_mode = params["visualization_mode"]
 
     # Voxel Debug must work even when there are no placements yet (e.g.
@@ -50,8 +52,14 @@ def _build_hierarchy(self, op):
     quality = params["quality"]
 
     result = c4d.BaseObject(c4d.Onull)
-    source_obj = op[BRICKIFYASSEMBLY_SOURCE]
-    src_name = source_obj.GetName() if source_obj is not None else "mesh"
+    source_obj = _primary_source_child(op)
+    if source_obj is not None:
+        src_name = source_obj.GetName()
+    else:
+        try:
+            src_name = op.GetName() or "mesh"
+        except Exception:
+            src_name = "mesh"
     result.SetName("Brickified_{0}".format(src_name))
     result.SetMl(source_axis_local_matrix(op, source_obj))
     doc = op.GetDocument()

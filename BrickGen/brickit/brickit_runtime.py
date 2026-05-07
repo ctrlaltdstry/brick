@@ -21,6 +21,202 @@ def _has_mograph_effectors_for_runtime(effectors):
     return bool(effectors)
 
 
+def _sweep_orphaned_auto_added(op):
+    """Drop list entries flagged AUTO_ADDED whose object is no longer a
+    direct child of the host BrickIt. Drag-dropped entries (AUTO_ADDED bit
+    cleared) survive un-parenting — only auto-added rows track the parent
+    relationship as a "live connection."
+
+    Returns True iff the InExcludeData was rewritten so the caller can
+    invalidate caches.
+    """
+    from .brickit_sources import (
+        is_auto_added as _is_auto_added,
+        BRICKIFYASSEMBLY_SOURCES as _BR_SOURCES,
+    )
+
+    try:
+        data = op[_BR_SOURCES]
+    except Exception:
+        return False
+    if data is None:
+        return False
+    doc = op.GetDocument()
+    if doc is None:
+        return False
+
+    # Build a GUID set of the host's current direct children so we can test
+    # "is this object still a child" without per-entry parent-walks.
+    child_guids = set()
+    ch = op.GetDown()
+    while ch is not None:
+        try:
+            child_guids.add(int(ch.GetGUID()))
+        except Exception:
+            pass
+        ch = ch.GetNext()
+
+    try:
+        count = int(data.GetObjectCount())
+    except Exception:
+        return False
+
+    keepers = []  # (BaseObject, flags) for entries that survive the sweep
+    dropped = False
+    for i in range(count):
+        try:
+            obj = data.ObjectFromIndex(doc, i)
+        except Exception:
+            obj = None
+        if obj is None:
+            continue
+        try:
+            flags = int(data.GetFlags(i))
+        except Exception:
+            flags = 0
+        if _is_auto_added(flags):
+            try:
+                guid = int(obj.GetGUID())
+            except Exception:
+                guid = None
+            if guid is None or guid not in child_guids:
+                # Auto-added entry whose object was un-parented from the
+                # host — drop it so the visibility diff below restores it.
+                dropped = True
+                continue
+        keepers.append((obj, flags))
+
+    if not dropped:
+        return False
+
+    new_data = c4d.InExcludeData()
+    for obj, flags in keepers:
+        new_data.InsertObject(obj, int(flags))
+    try:
+        op[_BR_SOURCES] = new_data
+    except Exception:
+        return False
+    return True
+
+
+def _sync_source_visibility(self, op):
+    """Hide source meshes that fed this BrickIt's bake; restore the rest.
+
+    Runs every GVO (cheap — just walks the source list and toggles flags
+    for objects whose state changed). Tracked via `self._auto_hidden_guids`
+    so we only restore objects we hid ourselves — manual hides on other
+    objects in the scene aren't disturbed.
+
+    Volume Builder's convention: a mesh that's a source becomes "owned"
+    by the generator and disappears from the viewport, since the bricked
+    output represents it. Removing the mesh from the source list (or
+    deleting it from the OM) auto-restores its default visibility.
+
+    Auto-added entries (children that auto-appended) form a "live
+    connection": un-parenting them from the host BrickIt drops the row
+    here, which then triggers the restore. Drag-dropped entries survive
+    un-parenting and stay as independent references.
+    """
+    from .brickit_sources import enumerate_brickit_sources
+
+    if op is None:
+        return
+    doc = op.GetDocument()
+    if doc is None:
+        return
+
+    # Phase 1: prune auto-added entries whose objects left the host's
+    # subtree. This rewrites BRICKIFYASSEMBLY_SOURCES, so we have to do
+    # it BEFORE enumerating sources for the visibility diff.
+    if _sweep_orphaned_auto_added(op):
+        # The pruned entries' objects are now eligible for restore in
+        # Phase 2 because they no longer appear in enumerate_brickit_sources.
+        try:
+            self._fit_cache_key = None
+            self._hierarchy_cache_key = None
+            self._force_rebuild = True
+        except Exception:
+            pass
+
+    # Phase 2: snapshot current sources by GUID so we can diff against
+    # the previously-hidden set.
+    pairs = enumerate_brickit_sources(op)
+    current_by_guid = {}
+    for child, _mode in pairs:
+        if child is None:
+            continue
+        try:
+            guid = int(child.GetGUID())
+        except Exception:
+            continue
+        current_by_guid[guid] = child
+
+    prev_set = getattr(self, "_auto_hidden_guids", None)
+    if prev_set is None:
+        prev_set = set()
+        self._auto_hidden_guids = prev_set
+
+    new_set = set(current_by_guid.keys())
+
+    to_hide_guids = new_set - prev_set
+    to_restore_guids = prev_set - new_set
+
+    if not to_hide_guids and not to_restore_guids:
+        return
+
+    # Walk doc to resolve restore targets — they might no longer be in
+    # `current_by_guid` because they were just removed from the source list.
+    def _find_by_guid(guid):
+        # Document scan — small docs are cheap; if this becomes a bottleneck
+        # we can keep a doc-wide GUID -> BaseObject cache, but at typical
+        # source counts (<20) and scene sizes (<1000 objects) it's fine.
+        node = doc.GetFirstObject()
+        stack = []
+        while node is not None or stack:
+            if node is not None:
+                try:
+                    if int(node.GetGUID()) == guid:
+                        return node
+                except Exception:
+                    pass
+                child = node.GetDown()
+                nxt = node.GetNext()
+                if nxt is not None:
+                    stack.append(nxt)
+                node = child
+            else:
+                node = stack.pop()
+        return None
+
+    try:
+        doc.StartUndo()
+        for guid in to_hide_guids:
+            obj = current_by_guid.get(guid)
+            if obj is None:
+                continue
+            try:
+                doc.AddUndo(c4d.UNDOTYPE_BITS, obj)
+                obj.SetEditorMode(c4d.MODE_OFF)
+                obj.SetRenderMode(c4d.MODE_OFF)
+            except Exception:
+                pass
+        for guid in to_restore_guids:
+            obj = _find_by_guid(guid)
+            if obj is None:
+                continue
+            try:
+                doc.AddUndo(c4d.UNDOTYPE_BITS, obj)
+                obj.SetEditorMode(c4d.MODE_UNDEF)
+                obj.SetRenderMode(c4d.MODE_UNDEF)
+            except Exception:
+                pass
+        doc.EndUndo()
+    except Exception:
+        pass
+
+    self._auto_hidden_guids = new_set
+
+
 def _maybe_rebind(self, params):
     """Run the source-deformation bind step when needed."""
     from .brickit_bind import bind_placements_to_source, make_bind_cache_key
@@ -60,9 +256,23 @@ def GetVirtualObjects(self, op, hh):
         ) from exc
     import_seconds = (time.perf_counter() - t_imp0) if log_first_eval else 0.0
 
-    if op[BRICKIFYASSEMBLY_SOURCE] is None:
-        self._restore_managed_source()
+    from .brickit_sources import (
+        has_any_source as _has_any_source,
+        primary_source_child as _primary_source_child,
+        sources_state_key as _sources_state_key,
+    )
+
+    if not _has_any_source(op):
+        # Even with no sources, run the visibility sync so any prior
+        # auto-hidden objects (the user just emptied the list) get
+        # restored to default visibility on the next eval.
+        _sync_source_visibility(self, op)
         return None
+
+    # Auto-hide source meshes (Volume Builder convention). Runs every GVO
+    # so it stays in sync with whatever made the source list change —
+    # drag-drop, OM reparent, list-delete, scene-delete, etc.
+    _sync_source_visibility(self, op)
 
     # Defer the first heavy GVO eval after this Python instance was
     # constructed (i.e. after scene-load deserialization). Returning a
@@ -86,8 +296,7 @@ def GetVirtualObjects(self, op, hh):
         except Exception:
             return None
 
-    source_obj = op[BRICKIFYASSEMBLY_SOURCE]
-    self._sync_source_visibility(op)
+    source_obj = _primary_source_child(op)
     params = self._resolve_params(op, source_obj)
     actual_res_key = self._resolution_key(params)
     # Startup responsiveness: first scene-open evaluation runs in proxy.
@@ -129,7 +338,7 @@ def GetVirtualObjects(self, op, hh):
         int(params.get("cap_random_seed", 0)),
     )
     topology_hierarchy_key = (
-        self._source_state_key(source_obj),
+        _sources_state_key(op),
         params["studs_across"],
         params["use_manual_stud_size"],
         params["stud_size"],
