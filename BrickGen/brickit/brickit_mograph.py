@@ -23,6 +23,7 @@ from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
     apply_logo_quarter_turn as _apply_logo_quarter_turn,
+    brick_logo_rotation_degrees as _brick_logo_rotation_degrees,
 )
 from mesh_bridge import mesh_to_polygon_object
 from plugin_bootstrap import (
@@ -283,6 +284,15 @@ def _parse_proxy_template_name(name):
     )
 
 
+# Custom BaseContainer ID stashed on every proxy/render Instance object so
+# the proxy→render swap can pick the right per-brick rotation variant of the
+# render template. Value is the per-brick logo rotation in degrees, computed
+# once at Create Proxies time via brick_logo_rotation_degrees(placement, ...).
+# Falls back to the user's base logo_rotation if missing (for scenes built
+# before this field existed).
+ID_BRICKIT_INSTANCE_LOGO_ROT = 1071100
+
+
 def _collect_polygon_objects_with_matrices_top(obj, parent_m=None):
     """Module-level walker — duplicate of the nested closure for the swap path."""
     if obj is None:
@@ -352,7 +362,8 @@ def _merge_polygon_objects_local_top(objects_with_matrices, name):
 
 
 def _build_render_template_proto(
-    self, brick_type, smooth_top, render_root, params, info, doc, target_name
+    self, brick_type, smooth_top, render_root, params, info, doc, target_name,
+    *, rotation_deg=None,
 ):
     """Build one render template Null + baked mesh under render_root.
 
@@ -362,6 +373,12 @@ def _build_render_template_proto(
     swapping respects the user's chosen render fidelity rather than always
     forcing Hero. Stud logos are baked into a single merged polygon to keep
     the Redshift `Oinstance` reference shape `Null { merged_polygon }`.
+
+    `rotation_deg` is the absolute logo Y-rotation for THIS variant
+    (default = params["logo_rotation"]). The swap path stashes a per-brick
+    rotation on each Instance via ID_BRICKIT_INSTANCE_LOGO_ROT and passes
+    it here, so 1x1 quarter-turn variety and the mix-flip both survive
+    proxy→render swap.
     """
     from quality_presets import QUALITY_PROXY
 
@@ -394,7 +411,13 @@ def _build_render_template_proto(
         and int(getattr(brick_type, "height", 0)) >= 1
     )
     if has_logos:
-        logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
+        # Use the variant-specific rotation if provided; otherwise default
+        # to the user's base logo_rotation (matches old behavior for
+        # already-rigged scenes that haven't stashed per-brick rotations).
+        if rotation_deg is None:
+            logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
+        else:
+            logo_rotation = float(rotation_deg) % 360.0
         logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
         logo_surface_bias = -plate_size * logo_sink
         objects = _collect_polygon_objects_with_matrices_top(mesh_obj)
@@ -439,10 +462,12 @@ def _create_proxy_mograph_handoff(self, op):
 
 def _create_mograph_handoff_impl(self, op, *, proxy=False):
     """Create a real scene-level MoGraph rig from the current BrickIt fit."""
+    from .brickit_sources import primary_source_child as _primary_source_child
+
     _t_total0 = time.perf_counter()
     _ensure_brick_on_path()
     doc = op.GetDocument()
-    source_obj = op[BRICKIFYASSEMBLY_SOURCE]
+    source_obj = _primary_source_child(op)
     if doc is None or source_obj is None:
         _brick_log("[brick] MoGraph handoff: no document/source object")
         return False
@@ -561,6 +586,13 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
     logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
     logo_sink = max(0.0, min(0.05, float(params.get("logo_sink", BRICKGEN_LOGO_DEFAULT_SINK))))
     logo_surface_bias = -float(plate_size) * logo_sink
+    # Per-brick logo-rotation mix (1x1 quarter-turns + n-x-N flips). Each
+    # placement's rotation is computed from a stable hash of its grid coord;
+    # we stash it on the proxy Instance at Create Proxies time so the swap
+    # can pick the right render-template variant later.
+    logo_mix_flip = bool(params.get("logo_mix_flip", False))
+    logo_mix_amount = max(0.0, min(1.0, float(params.get("logo_mix_amount", 0.0) or 0.0)))
+    logo_mix_seed = int(params.get("logo_mix_seed", 0) or 0)
 
     def _brick_has_template_logos(brick_type, smooth_top=False):
         if logo_template is None:
@@ -1100,6 +1132,21 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             child = c4d.BaseObject(c4d.Oinstance)
             child.SetName(child_name)
             child[c4d.INSTANCEOBJECT_LINK] = template
+            # Stash this placement's per-brick logo rotation on the
+            # Instance so the proxy→render swap can pick the matching
+            # render-template variant. Mix-flip + 1x1 quarter-turns are
+            # both encoded here. Stored as int degrees (0/90/180/270).
+            try:
+                per_brick_rot = _brick_logo_rotation_degrees(
+                    p, logo_rotation, logo_mix_flip,
+                    logo_mix_amount, logo_mix_seed,
+                )
+                child.GetDataInstance().SetInt32(
+                    ID_BRICKIT_INSTANCE_LOGO_ROT,
+                    int(round(float(per_brick_rot))) % 360,
+                )
+            except Exception:
+                pass
             # Plain Instance ("Off") mode for proxy so the linked template's
             # geometry is forwarded into the scene graph for dynamics to see.
             # MULTIINSTANCE is render-time only; PBD wouldn't see anything
@@ -1279,7 +1326,8 @@ def _swap_proxy_to_render_handoff(self, op):
     swap_t_lazy_total = 0.0
     swap_lazy_built = 0
     try:
-        source_obj = op[BRICKIFYASSEMBLY_SOURCE]
+        from .brickit_sources import primary_source_child as _primary_source_child
+        source_obj = _primary_source_child(op)
     except Exception:
         source_obj = None
     if source_obj is not None:
@@ -1321,11 +1369,35 @@ def _swap_proxy_to_render_handoff(self, op):
             if target_mode is None:
                 continue
             rig_swaps = 0
+            # Default per-brick rotation when the instance was created before
+            # ID_BRICKIT_INSTANCE_LOGO_ROT existed: fall back to the user's
+            # current base logo_rotation (matches old behavior).
+            default_rot = (
+                int(round(float(swap_params.get("logo_rotation", 0) or 0))) % 360
+                if swap_params is not None else 0
+            )
             for obj, linked_name, available_target in rig_instances:
                 if available_target != target_mode:
                     continue
                 if target_mode == "render":
-                    target_name = "render_" + linked_name[len("proxy_"):]
+                    # Read per-brick rotation stashed at Create Proxies time.
+                    # Each instance can map to a different render-template
+                    # variant so the logo rotation mix is preserved across
+                    # the swap.
+                    try:
+                        per_brick_rot = int(
+                            obj.GetDataInstance().GetInt32(
+                                ID_BRICKIT_INSTANCE_LOGO_ROT, default_rot
+                            )
+                        ) % 360
+                    except Exception:
+                        per_brick_rot = default_rot
+                    base_render_name = "render_" + linked_name[len("proxy_"):]
+                    target_name = (
+                        "{0}_r{1:03d}".format(base_render_name, per_brick_rot)
+                        if per_brick_rot
+                        else base_render_name
+                    )
                     target_template = render_templates.get(target_name)
                     # Lazy-build the render template using the current
                     # Brick Mesh Detail. The proxy template name encodes the
@@ -1353,6 +1425,7 @@ def _swap_proxy_to_render_handoff(self, op):
                                     swap_info,
                                     doc,
                                     target_name,
+                                    rotation_deg=float(per_brick_rot),
                                 )
                                 swap_t_lazy_total += (time.perf_counter() - _t_lazy0)
                                 swap_lazy_built += 1
@@ -1369,7 +1442,15 @@ def _swap_proxy_to_render_handoff(self, op):
                                 )
                                 target_template = None
                 else:
-                    target_name = "proxy_" + linked_name[len("render_"):]
+                    # Going render→proxy: strip the rotation suffix (and
+                    # underscore) before mapping back to the proxy name,
+                    # since proxy templates don't carry rotation.
+                    base_linked = linked_name[len("render_"):]
+                    import re as _re_strip
+                    base_linked = _re_strip.sub(
+                        r"_r\d{3}$", "", base_linked
+                    )
+                    target_name = "proxy_" + base_linked
                     target_template = proxy_templates.get(target_name)
                 if target_template is None:
                     continue

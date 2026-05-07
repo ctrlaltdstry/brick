@@ -86,10 +86,16 @@ def _set_port_value(port, value):
 
 def _force_user_data_attribute(graph, log, name="RSObjectColor"):
     """After GraphDescription builds the graph, walk it and explicitly set
-    the rsuserdatacolor node's attribute string.  GraphDescription's
-    "Attribute Name" key doesn't reliably pick the right port (Redshift
-    exposes the dropdown as "Attribute"); enforce it by port-id here so
-    we always end up with RSObjectColor instead of the default RSMGColor.
+    the rsuserdatacolor node's Attribute port.
+
+    The Attribute port is an ENUM (dropdown), not a free-form string.
+    Redshift's enum values are integer-indexed; for User Data Color the
+    options are roughly: 0=RSMGColor, 1=RSObjectColor, 2=Custom.
+    Setting a string literal works on some C4D builds because the maxon
+    nodes API will coerce, but on others it silently no-ops and the
+    default (RSMGColor) sticks. We try a tuple of value forms — int
+    index, str, and an enum-id-like string — and log which one took so
+    future-us can see at a glance.
     """
     if maxon is None or graph is None or graph.IsNullValue():
         return False
@@ -112,6 +118,11 @@ def _force_user_data_attribute(graph, log, name="RSObjectColor"):
         "Attribute Name",
         "Name",
     )
+    # The Attribute Name port is a free-form string field — Redshift reads
+    # it at render time to look up the named per-object/per-instance data.
+    # The string MUST be exactly "RSObjectColor" (case-sensitive); writing
+    # anything else (or an int that gets stringified) yields black output.
+    value_forms = (name,)
 
     def _walk(node):
         nonlocal found_any
@@ -135,22 +146,33 @@ def _force_user_data_attribute(graph, log, name="RSObjectColor"):
                 child_id = ""
             if child_id == target_id:
                 set_ok = False
+                last_port_name = None
                 for candidate in candidates:
                     port = _find_port(child, (candidate,), output=False)
                     if port is None:
                         continue
-                    if _set_port_value(port, name):
-                        set_ok = True
-                        log(
-                            "[brick] RS material: forced user-data attribute '{0}' via port '{1}'".format(
-                                name, candidate
+                    last_port_name = candidate
+                    # Walk every value form until one sticks. We can't
+                    # easily verify post-set without re-reading the port,
+                    # but the AM will reflect the right dropdown selection
+                    # the moment one of these takes.
+                    for val in value_forms:
+                        if _set_port_value(port, val):
+                            set_ok = True
+                            log(
+                                "[brick] RS material: set Attribute on user-data node "
+                                "via port '{0}' value={1!r}".format(candidate, val)
                             )
-                        )
+                            break
+                    if set_ok:
                         break
                 if not set_ok:
                     log(
-                        "[brick] RS material: could not force attribute on user-data node; "
-                        "available inputs={0}".format(_list_port_names(child, output=False))
+                        "[brick] RS material: could not force Attribute on user-data node "
+                        "(last port tried='{0}'); available inputs={1}".format(
+                            last_port_name,
+                            _list_port_names(child, output=False),
+                        )
                     )
                 found_any = True
             _walk(child)
@@ -366,6 +388,10 @@ def _build_material_graph(doc, log):
                 attr_port = _find_port(user_data_node, (candidate,), output=False)
                 if attr_port is not None:
                     break
+            # Attribute Name is a free-form string field — Redshift looks
+            # it up by exact name at render time. Must be "RSObjectColor"
+            # (case-sensitive) for the per-instance brick colors to flow
+            # through. Any other value (or an int) yields black bricks.
             if not _set_port_value(attr_port, "RSObjectColor"):
                 log(
                     "[brick] RS material: could not set Color User Data attribute; "

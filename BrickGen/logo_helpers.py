@@ -128,11 +128,19 @@ def brick_logo_rotation_degrees(placement, base_rotation_deg, mix_flip, mix_amou
     """Per-brick logo Y-rotation in degrees.
 
     When `mix_flip` is on, a stable hash of the brick's grid position decides
-    whether to flip this brick's logos by 180 degrees.  All studs on the
-    same brick share the same flip decision (the hash uses the placement
-    origin, not per-stud coordinates), so a brick reads as one consistently-
-    oriented LEGO piece.  `mix_amount` is the fraction (0..1) of bricks
-    that get flipped.  `mix_seed` makes the choice reproducible.
+    whether to rotate this brick's logos. All studs on the same brick share
+    the same rotation decision (the hash uses the placement origin, not
+    per-stud coordinates), so a brick reads as one consistently-oriented
+    LEGO piece. `mix_amount` is the fraction (0..1) of bricks that get a
+    non-base rotation. `mix_seed` makes the choice reproducible.
+
+    Rotation choices depend on brick footprint:
+      - 1x1 bricks have four valid orientations (0/90/180/270), since the
+        footprint is square; we split the rotated-bucket evenly across the
+        three non-zero quarter-turns to get more variety.
+      - Non-1x1 bricks (1xN, NxN where N>1, etc.) only have two valid
+        orientations because rotating 90 degrees changes the footprint
+        and would collide with neighbors. We keep the original 0/180 flip.
     """
     base = float(base_rotation_deg or 0.0) % 360.0
     if not mix_flip:
@@ -140,16 +148,23 @@ def brick_logo_rotation_degrees(placement, base_rotation_deg, mix_flip, mix_amou
     amount = max(0.0, min(1.0, float(mix_amount or 0.0)))
     if amount <= 0.0:
         return base
-    if amount >= 1.0:
-        return (base + 180.0) % 360.0
     if placement is None:
         return base
+
+    pw = int(getattr(placement, "w", 1))
+    pd = int(getattr(placement, "d", 1))
+    is_one_by_one = (pw == 1 and pd == 1)
+
+    if amount >= 1.0:
+        # All-bricks-rotated case. For 1x1, hash picks among the three
+        # non-zero quarter turns; for the rest, just the 180 flip.
+        if not is_one_by_one:
+            return (base + 180.0) % 360.0
+
     # Hash the brick's grid origin + footprint into a stable integer in [0, 2^32).
     px = int(getattr(placement, "x", 0))
     py = int(getattr(placement, "y", 0))
     pz = int(getattr(placement, "z", 0))
-    pw = int(getattr(placement, "w", 1))
-    pd = int(getattr(placement, "d", 1))
     seed = int(mix_seed or 0)
     h = (
         (px * 0x1f1f1f1f)
@@ -161,9 +176,18 @@ def brick_logo_rotation_degrees(placement, base_rotation_deg, mix_flip, mix_amou
     ) & 0xFFFFFFFF
     # Map hash to [0, 1) and compare against amount.
     bucket = (h * 2.3283064365386963e-10)  # 1/2^32
-    if bucket < amount:
-        return (base + 180.0) % 360.0
-    return base
+
+    if bucket >= amount:
+        return base
+
+    if is_one_by_one:
+        # Pick from {90, 180, 270} via a second hash derived from the
+        # first so the three options are reproducible per brick.
+        sub = ((h >> 16) ^ (h * 0x45d9f3b)) & 0xFFFF
+        idx = sub % 3
+        delta = (idx + 1) * 90.0  # 90, 180, or 270
+        return (base + delta) % 360.0
+    return (base + 180.0) % 360.0
 
 
 def soften_raised_logo_contact(poly_obj, stud_size, plate_size, blend=1.0):
@@ -333,6 +357,88 @@ def baked_polygon_object_with_metadata(source_obj, doc):
                 merged.InsertTag(merged_uvw)
             except Exception:
                 pass
+        merged.Message(c4d.MSG_UPDATE)
+        return merged, {"groups": groups}
+
+    # Multi-input: when caller passes a list of scene objects, bake each
+    # individually using the per-child path (which already handles
+    # generators via cache walks and falls back to CSTO), then explicitly
+    # apply each ORIGINAL child's GetMg() to lift its baked verts from
+    # local space to world space. The orphaned-clone GetMg() is unreliable,
+    # so we never trust it — we always use the live source's matrix.
+    if isinstance(source_obj, list):
+        sources = [s for s in source_obj if s is not None]
+        if not sources:
+            return None, {"groups": []}
+
+        per_child_world = []  # list of (world_pts, polys, original_obj)
+        total_v = 0
+        total_f = 0
+        for s in sources:
+            try:
+                src_mg = s.GetMg()
+            except Exception:
+                src_mg = c4d.Matrix()
+            baked_one, _meta = baked_polygon_object_with_metadata(s, doc)
+            if baked_one is None:
+                continue
+            try:
+                pts = baked_one.GetAllPoints()
+                polys = baked_one.GetAllPolygons()
+            except Exception:
+                continue
+            if not polys or not pts:
+                continue
+            # The baked clone's points are in the ORIGINAL child's local
+            # space (GetClone preserves the .GetMl() which holds the local
+            # offset). Apply the original child's world matrix to lift to
+            # world. We deliberately do NOT touch baked_one.GetMg() since
+            # an orphan returns identity from GetMg().
+            world_pts = [src_mg * p for p in pts]
+            per_child_world.append((world_pts, polys, s))
+            total_v += len(world_pts)
+            total_f += len(polys)
+
+        if not per_child_world or total_v == 0 or total_f == 0:
+            return None, {"groups": []}
+
+        merged = c4d.PolygonObject(total_v, total_f)
+        groups = []
+        v_off = 0
+        f_off = 0
+        seen_originals = []
+        for world_pts, polys, original in per_child_world:
+            for i, wp in enumerate(world_pts):
+                merged.SetPoint(v_off + i, wp)
+            for j, fp in enumerate(polys):
+                merged.SetPolygon(
+                    f_off + j,
+                    c4d.CPolygon(
+                        fp.a + v_off, fp.b + v_off, fp.c + v_off, fp.d + v_off
+                    ),
+                )
+            # One group per original child (collapse multiple polygon
+            # shards from the same original into a single contiguous
+            # range when possible).
+            if seen_originals and seen_originals[-1] is original:
+                # Extend the previous group's range.
+                last = groups[-1]
+                last["point_end"] = v_off + len(world_pts)
+                last["poly_end"] = f_off + len(polys)
+            else:
+                groups.append(
+                    _polygon_group_meta(
+                        original,
+                        v_off,
+                        len(world_pts),
+                        f_off,
+                        len(polys),
+                        "source_{0:03d}".format(len(groups) + 1),
+                    )
+                )
+                seen_originals.append(original)
+            v_off += len(world_pts)
+            f_off += len(polys)
         merged.Message(c4d.MSG_UPDATE)
         return merged, {"groups": groups}
 

@@ -2227,10 +2227,14 @@ def synthesize_proxy(
     D = int(brick_type.depth)
     H = int(brick_type.height)
 
-    # Match the procedural builder's body_fillet_radius=0.30 inset at
-    # the body top, so V5 bodies don't look slightly taller than draft/
-    # standard/hero bricks beside them.  Stud height is preserved.
-    body_fillet = 0.30
+    # Body height: H * plate_size, no inset. The original code trimmed
+    # body_fillet=0.30 off the top here under the theory that it would
+    # match the procedural builder, but the procedural builder's
+    # body_fillet_radius rounds the top EDGE without reducing height —
+    # bricks still stack at exactly H * plate_size. Trimming created a
+    # visible vertical gap between proxy bricks (one brick's body top
+    # ended ~0.30 units below the next brick's body bottom). Removed.
+    body_fillet = 0.0
 
     # V5 path: 5-piece scheme — Corner, Edge, Tunnel, Endcap, Center_Fill —
     # placed per cell with rotation. Covers every (W, D) without trimming.

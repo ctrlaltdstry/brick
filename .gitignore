@@ -30,6 +30,7 @@ HANDOFF_*.md
 backup/
 BrickGen/res/icons/atlas/
 tools/__pycache__/
+/Icons/
 
 # Optional local exports/tests
 *.log

@@ -20,7 +20,6 @@ import c4d
 from c4d import plugins
 
 from c4d_symbols import (
-    BRICKIFYASSEMBLY_SOURCE,
     ID_BRICKIFYASSEMBLY,
     ID_BRICKIT_FOLLOW_SURFACE_TAG,
     IDS_BRICKIT_FOLLOW_SURFACE_TAG,
@@ -633,7 +632,8 @@ def _swap_baked_to_hero(tag):
     # mask, logo settings, stud/plate sizes, and fit info to drive the
     # render-template builder.
     try:
-        source_obj = brickit_op[BRICKIFYASSEMBLY_SOURCE]
+        from .brickit_sources import primary_source_child as _primary_source_child
+        source_obj = _primary_source_child(brickit_op)
     except Exception:
         source_obj = None
     if source_obj is None:

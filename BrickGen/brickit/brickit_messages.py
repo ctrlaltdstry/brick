@@ -68,8 +68,7 @@ def _set_height_preset(op, max_brick_height):
 def _is_interactive_preview_param(self, desc_id):
     if desc_id in (
         BRICKIFYASSEMBLY_VOXEL_RESOLUTION,
-        BRICKIFYASSEMBLY_SOURCE,
-        BRICKIFYASSEMBLY_HIDE_SOURCE_MESH,
+        BRICKIFYASSEMBLY_SOURCES,
         BRICKIFYASSEMBLY_AUTO_REBUILD,
         BRICKIFYASSEMBLY_REBUILD,
         BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER,
@@ -265,8 +264,11 @@ def Message(self, op, msg_type, data):
                 self._hierarchy_cache_key = None
                 self._force_rebuild = True
                 _dirty(op)
-            if desc_id in (BRICKIFYASSEMBLY_SOURCE, BRICKIFYASSEMBLY_HIDE_SOURCE_MESH):
-                self._sync_source_visibility(op)
+            if desc_id == BRICKIFYASSEMBLY_SOURCES:
+                # Sources list edited: invalidate caches and rebuild.
+                self._fit_cache_key = None
+                self._hierarchy_cache_key = None
+                self._force_rebuild = True
                 c4d.EventAdd()
         except Exception:
             pass

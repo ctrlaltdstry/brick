@@ -15,6 +15,7 @@ from .brickit_animation import (
 )
 from .brickit_humanize import apply_humanize_to_center_matrix
 from .brickit_groups import grouped_parent_for_placement
+from .brickit_sources import primary_source_child as _primary_source_child
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
     BRICKGEN_LOGO_DEFAULT_SINK,
@@ -426,7 +427,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     if not self._fit_placements or not info:
         return None
     if params is None:
-        params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+        params = self._resolve_params(op, _primary_source_child(op))
 
     stud_size = info.get("stud_size", 8.0)
     plate_size = info.get("plate_size", 3.2)
@@ -436,7 +437,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     quality = params["quality"]
     is_proxy_quality = int(quality) == int(QUALITY_PROXY)
 
-    source_obj = op[BRICKIFYASSEMBLY_SOURCE]
+    source_obj = _primary_source_child(op)
     src_name = source_obj.GetName() if source_obj is not None else "mesh"
 
     root = c4d.BaseObject(c4d.Onull)
@@ -1030,7 +1031,7 @@ def _apply_cap_subset_fast_path(self, op, params=None):
         return None
 
     if params is None:
-        params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+        params = self._resolve_params(op, _primary_source_child(op))
 
     # Recompute the cap selection with the new cap-subset params. We use
     # the captured fit_placements (same input the prior full build saw)
@@ -1139,7 +1140,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
     if origin is None:
         return None
     if params is None:
-        params = self._resolve_params(op, op[BRICKIFYASSEMBLY_SOURCE])
+        params = self._resolve_params(op, _primary_source_child(op))
 
     multi_mode = int(
         getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", 1)
@@ -1188,7 +1189,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
     tilt_amount = float(params.get("build_tilt_amount", 5.0))
 
     bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj = _resolve_bind_state(
-        self, op, op[BRICKIFYASSEMBLY_SOURCE], op.GetDocument(), params
+        self, op, _primary_source_child(op), op.GetDocument(), params
     )
 
     def _placement_scene_center(p):
@@ -1387,7 +1388,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
             params.get("mograph_effectors"),
             skip_field_override=True,
             label="effector",
-            frame_matrix=source_axis_local_matrix(op, op[BRICKIFYASSEMBLY_SOURCE]),
+            frame_matrix=source_axis_local_matrix(op, _primary_source_child(op)),
         )
     else:
         matrices, colors, effector_visible = pre_matrices, pre_colors, None

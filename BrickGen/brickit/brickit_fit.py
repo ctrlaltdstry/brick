@@ -20,6 +20,14 @@ from source_geometry import (
     source_polygon_islands as _source_polygon_islands,
 )
 
+from .brickit_sources import (
+    BRICKIFYASSEMBLY_SOURCE_MODE_UNION as _SOURCE_MODE_UNION,
+    bake_brickit_sources_per_mode as _bake_brickit_sources_per_mode,
+    primary_source_child as _primary_source_child,
+    sources_state_key as _sources_state_key,
+    voxelize_brickit_sources as _voxelize_brickit_sources,
+)
+
 
 BRICKIT_DEFAULT_RGB = (180, 180, 180)
 PRUNE_AUTO_DISABLE_MIX_THRESHOLD = 0.55
@@ -118,9 +126,9 @@ def _get_active_library(self, op):
     return BrickLibrary(enabled)
 
 
-def _make_fit_key(self, source_obj, params):
+def _make_fit_key(self, op, params):
     return (
-        self._source_state_key(source_obj),
+        _sources_state_key(op),
         params["studs_across"],
         params["use_manual_stud_size"],
         params["stud_size"],
@@ -142,12 +150,9 @@ def _make_fit_key(self, source_obj, params):
         params["lib_mask"],
     )
 
-def _source_state_key(self, source_obj):
-    return _logo_link_identity_key(source_obj)
-
-def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
+def _make_voxel_key(self, op, params, stud_size, plate_size):
     return (
-        self._source_state_key(source_obj),
+        _sources_state_key(op),
         params["voxel_backend"],
         params["studs_across"],
         params["use_manual_stud_size"],
@@ -158,14 +163,29 @@ def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
     )
 
 
-def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
-    source_key = self._source_state_key(source_obj)
+def _get_cached_source_arrays(self, op, doc, force_csto=False):
+    """Bake the Union-merged source mesh and return fitting arrays.
+
+    Multi-source: this returns geometry for the **Union bucket only**
+    (subtract/intersect children carve the voxel grid in
+    voxelize_brickit_sources but never contribute to fitting verts/faces
+    — they have no "positive" volume to fit bricks into). The frame_inv
+    and bind reference are taken from the first Union child so the
+    source-axis-local frame stays stable across rebuilds.
+    """
+    source_key = _sources_state_key(op)
     if (
         not force_csto
         and self._source_cache_key == source_key
         and self._source_cache_data is not None
     ):
         return self._source_cache_data
+
+    primary = _primary_source_child(op)
+    if primary is None:
+        self._source_cache_key = None
+        self._source_cache_data = None
+        return None
 
     log_first_eval = not getattr(self, "_first_eval_logged", False)
     t_bake0 = time.perf_counter() if log_first_eval else 0.0
@@ -178,10 +198,15 @@ def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
     # "Re-bind to Current Frame" would always fit to rest pose regardless of
     # the document time.
     if force_csto:
+        # Bind-to-source-deformation traces the primary Union child only
+        # (v1 scope: single deforming reference). Per-frame eval bakes
+        # the same primary via CSTO, so vertex/triangle indices line up
+        # between the bind's rest-pose cache and live frames. Multi-
+        # Union-bind is a future feature.
         try:
             result = c4d.utils.SendModelingCommand(
                 command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
-                list=[source_obj],
+                list=[primary],
                 mode=c4d.MODELINGCOMMANDMODE_ALL,
                 doc=doc,
             )
@@ -190,8 +215,13 @@ def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
                 source_metadata = {"groups": []}
         except Exception:
             baked = None
-    if baked is None:
-        baked, source_metadata = _baked_polygon_object_with_metadata(source_obj, doc)
+        if baked is None:
+            baked, source_metadata = _baked_polygon_object_with_metadata(primary, doc)
+    else:
+        per_mode = _bake_brickit_sources_per_mode(op, doc)
+        union_entry = per_mode.get(_SOURCE_MODE_UNION)
+        if union_entry is not None:
+            baked, source_metadata = union_entry
     if log_first_eval:
         breakdown = getattr(self, "_first_eval_stage_breakdown", None) or {}
         breakdown["source_bake"] = (
@@ -205,7 +235,7 @@ def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
         return None
 
     try:
-        frame_inv = ~source_obj.GetMg()
+        frame_inv = ~primary.GetMg()
     except Exception:
         frame_inv = None
     verts, faces = _polygon_object_to_arrays(baked, frame_inv=frame_inv)
@@ -265,7 +295,7 @@ def _refit_if_needed(self, op, doc, params=None):
     from brick.pipeline import brick_mesh, auto_stud_size
     from brick.voxelize import PLATE_RATIO
 
-    source_obj = op[BRICKIFYASSEMBLY_SOURCE]
+    source_obj = _primary_source_child(op)
     if source_obj is None:
         self._fit_cache_key = None
         self._fit_placements = None
@@ -280,7 +310,7 @@ def _refit_if_needed(self, op, doc, params=None):
 
     if params is None:
         params = self._resolve_params(op, source_obj)
-    fit_key = self._make_fit_key(source_obj, params)
+    fit_key = self._make_fit_key(op, params)
     if self._fit_cache_key == fit_key and self._fit_placements is not None:
         return True
 
@@ -296,7 +326,7 @@ def _refit_if_needed(self, op, doc, params=None):
         return True
 
     force_csto_bake = bool(params.get("bind_to_source_deformation"))
-    source_data = self._get_cached_source_arrays(source_obj, doc, force_csto=force_csto_bake)
+    source_data = self._get_cached_source_arrays(op, doc, force_csto=force_csto_bake)
     if source_data is None:
         self._fit_cache_key = None
         self._fit_placements = None
@@ -325,7 +355,7 @@ def _refit_if_needed(self, op, doc, params=None):
             resolved_stud_size = auto_stud_size(verts, params["studs_across"])
         resolved_plate_size = resolved_stud_size * PLATE_RATIO
         voxel_key = self._make_voxel_key(
-            source_obj,
+            op,
             params,
             resolved_stud_size,
             resolved_plate_size,
@@ -365,9 +395,9 @@ def _refit_if_needed(self, op, doc, params=None):
             else:
                 _log_first_eval = not getattr(self, "_first_eval_logged", False)
                 _t_vox0 = time.perf_counter() if _log_first_eval else 0.0
-                precomputed_voxels = _c4d_volume_voxels_from_polygon_object(
-                    baked,
-                    verts,
+                precomputed_voxels = _voxelize_brickit_sources(
+                    op,
+                    doc,
                     params,
                     resolved_stud_size,
                     resolved_plate_size,
@@ -401,6 +431,42 @@ def _refit_if_needed(self, op, doc, params=None):
                 self._voxel_cache_key = None
                 self._voxel_cache_voxels = None
             precomputed_voxels = None
+
+    # Internal backend with carving (Subtract/Intersect children present):
+    # we need to precompute the composed grid so the boolean carving
+    # reaches brick_mesh's fitter. Pure-Union with no carving falls
+    # through unchanged so the existing per-vertex color path is preserved.
+    if precomputed_voxels is None and params.get("voxel_backend") != "c4d_volume":
+        from .brickit_sources import enumerate_brickit_sources as _enum_sources
+        has_carving = any(
+            mode != _SOURCE_MODE_UNION
+            for _child, mode in _enum_sources(op)
+        )
+        if has_carving:
+            resolved_stud_size = call_stud_size
+            if resolved_stud_size is None:
+                resolved_stud_size = auto_stud_size(verts, params["studs_across"])
+            resolved_plate_size = resolved_stud_size * PLATE_RATIO
+            try:
+                precomputed_voxels = _voxelize_brickit_sources(
+                    op,
+                    doc,
+                    params,
+                    resolved_stud_size,
+                    resolved_plate_size,
+                    BRICKIT_DEFAULT_RGB,
+                    frame_inv=frame_inv,
+                )
+                if precomputed_voxels is not None:
+                    call_stud_size = resolved_stud_size
+            except Exception as exc:
+                try:
+                    _brick_log(
+                        "[brick] Internal backend carving fallback: {0}".format(exc)
+                    )
+                except Exception:
+                    pass
+                precomputed_voxels = None
 
     include_debug_info = params.get("visualization_mode") in (
         BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
