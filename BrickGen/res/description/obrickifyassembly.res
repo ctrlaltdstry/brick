@@ -5,28 +5,143 @@ CONTAINER obrickifyassembly
 
     GROUP ID_OBJECTPROPERTIES
     {
-        GROUP
+        // Volume-Builder-shaped layout:
+        //   Algorithm + Resolution at the top (matches Volume Builder's
+        //   Volume Type / Voxel Size); Sources child list directly below;
+        //   the rest of the voxel/shape options follow. The Sources list
+        //   is rendered by the native BrickSources custom GUI plugin.
+        //
+        // Two-column flat layout — widgets stream directly into the
+        // parent's column slots row-by-row. This is the pattern Maxon's
+        // own `ohairsdkgen.res` uses for COLUMNS 2 layouts, and it's the
+        // only structure where the layout engine actually splits the AM
+        // width 50/50. Nested inner-GROUPs with SCALE_H were tried and
+        // produced a left-aligned non-responsive layout regardless of
+        // SCALE_H/LAYOUTGROUP combinations — the engine treats each
+        // inner group as one cell and sizes it to its widest child.
+        //
+        // Row order is the layout:
+        //   row 1: Algorithm           | Rebuild Now
+        //   row 2: Resolution          | Live Update
+        //   row 3: Use Custom Scale    | (empty)
+        //   row 4: Stud Size           | (empty)
+        // Empty cells use BRICKIFYASSEMBLY_SPACER_N as a STATICTEXT with
+        // an empty NAME string.
+        GROUP BRICKIFYASSEMBLY_GROUP_VOXEL
         {
+            COLUMNS 2;
             DEFAULT 1;
-            COLUMNS 1;
             SCALE_H;
 
-            GROUP
+            LONG BRICKIFYASSEMBLY_VOXEL_BACKEND
             {
+                NAME BRICKIFYASSEMBLY_VOXEL_BACKEND;
+                DEFAULT 1;
                 SCALE_H;
-
-                LONG BRICKIFYASSEMBLY_HERO
+                CYCLE
                 {
-                    NAME BRICKIFYASSEMBLY_HERO;
-                    CUSTOMGUI CUSTOMGUIBRICKHERO;
-                    ANIM OFF;
-                    SCALE_H;
+                    BRICKIFYASSEMBLY_VOXEL_BACKEND_INTERNAL;
+                    BRICKIFYASSEMBLY_VOXEL_BACKEND_C4D_VOLUME;
                 }
             }
 
-            BUTTON BRICKIFYASSEMBLY_OPEN_USER_MANUAL
+            BUTTON BRICKIFYASSEMBLY_REBUILD
             {
-                NAME BRICKIFYASSEMBLY_OPEN_USER_MANUAL;
+                NAME BRICKIFYASSEMBLY_REBUILD;
+                SCALE_H;
+            }
+
+            REAL BRICKIFYASSEMBLY_VOXEL_RESOLUTION
+            {
+                NAME BRICKIFYASSEMBLY_VOXEL_RESOLUTION;
+                MIN 0.1;
+                MAX 1.0;
+                STEP 0.1;
+                DEFAULT 1.0;
+                SCALE_H;
+            }
+
+            BOOL BRICKIFYASSEMBLY_AUTO_REBUILD
+            {
+                NAME BRICKIFYASSEMBLY_AUTO_REBUILD;
+                DEFAULT 1;
+                SCALE_H;
+            }
+
+            // Row 3: Use Custom Scale gates Stud Size via GetDEnabling
+            // so the field greys out when auto-scale is on. Build Type
+            // (Solid / Shell) sits next to it on the right since the
+            // shell-related Wall Thickness lives just below it.
+            BOOL BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE
+            {
+                NAME BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE;
+                DEFAULT 0;
+                SCALE_H;
+            }
+
+            LONG BRICKIFYASSEMBLY_VOXEL_MODE
+            {
+                NAME BRICKIFYASSEMBLY_VOXEL_MODE;
+                DEFAULT 0;
+                SCALE_H;
+                CYCLE
+                {
+                    BRICKIFYASSEMBLY_VOXEL_MODE_SOLID;
+                    BRICKIFYASSEMBLY_VOXEL_MODE_SHELL;
+                }
+            }
+
+            // Row 4: Stud Size | Wall Thickness
+            REAL BRICKIFYASSEMBLY_STUD_SIZE
+            {
+                NAME BRICKIFYASSEMBLY_STUD_SIZE;
+                MIN 0.1;
+                MAX 1000.0;
+                STEP 0.1;
+                DEFAULT 8.0;
+                UNIT METER;
+                SCALE_H;
+            }
+
+            LONG BRICKIFYASSEMBLY_SHELL_THICKNESS
+            {
+                NAME BRICKIFYASSEMBLY_SHELL_THICKNESS;
+                MIN 1;
+                MAX 8;
+                STEP 1;
+                DEFAULT 3;
+                SCALE_H;
+            }
+
+            // Row 5: Keep Tiny Gaps | Clean Small Details
+            BOOL BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS
+            {
+                NAME BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS;
+                DEFAULT 0;
+                SCALE_H;
+            }
+
+            LONG BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS
+            {
+                NAME BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS;
+                MIN 0;
+                MAX 4;
+                STEP 1;
+                DEFAULT 1;
+                SCALE_H;
+            }
+
+            // Row 6: Make Physically Accurate | (empty)
+            BOOL BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY
+            {
+                NAME BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY;
+                DEFAULT 0;
+                SCALE_H;
+            }
+
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_1
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_1;
             }
         }
 
@@ -35,112 +150,82 @@ CONTAINER obrickifyassembly
             DEFAULT 1;
             COLUMNS 1;
 
-            GROUP
+            // Native custom GUI: dark-framed inset list of the BrickIt op's
+            // direct children with a per-row Mode control (Union / Subtract /
+            // Intersect). Implemented by RegisterBrickSourcesCustomGUI in
+            // native/bricklibrary.inline_gui/source/main.cpp. The IN_EXCLUDE
+            // base type declares the InExcludeData parameter; the CUSTOMGUI
+            // attribute swaps the renderer to our custom GUI.
+            IN_EXCLUDE BRICKIFYASSEMBLY_SOURCES
             {
-                COLUMNS 2;
-
-                LINK BRICKIFYASSEMBLY_SOURCE
-                {
-                    NAME BRICKIFYASSEMBLY_SOURCE;
-                    ACCEPT { Obase; }
-                }
-
-                GROUP
-                {
-                    SCALE_H;
-                    COLUMNS 1;
-                }
-            }
-
-            BOOL BRICKIFYASSEMBLY_HIDE_SOURCE_MESH
-            {
-                NAME BRICKIFYASSEMBLY_HIDE_SOURCE_MESH;
-                DEFAULT 1;
-            }
-
-            BOOL BRICKIFYASSEMBLY_AUTO_REBUILD
-            {
-                NAME BRICKIFYASSEMBLY_AUTO_REBUILD;
-                DEFAULT 1;
-            }
-
-            STATICTEXT BRICKIFYASSEMBLY_SPACER_1
-            {
-                NAME BRICKIFYASSEMBLY_SPACER_1;
-            }
-
-            BUTTON BRICKIFYASSEMBLY_REBUILD
-            {
-                NAME BRICKIFYASSEMBLY_REBUILD;
+                NAME BRICKIFYASSEMBLY_SOURCES;
+                CUSTOMGUI CUSTOMGUIBRICKSOURCES;
+                ACCEPT { Obase; }
             }
         }
 
-        GROUP BRICKIFYASSEMBLY_GROUP_VOXEL
+        // Bind to Source Deformation lives on the Object tab (it's an
+        // object-level scene-graph behavior, not a brick-pipeline option).
+        // Placed directly under the Sources list and above the voxel/shape
+        // options so users find it adjacent to what it binds against.
+        GROUP BRICKIFYASSEMBLY_GROUP_BIND
         {
-                DEFAULT 1;
-                COLUMNS 1;
+            DEFAULT 1;
+            COLUMNS 1;
 
-                LONG BRICKIFYASSEMBLY_VOXEL_BACKEND
-                {
-                    NAME BRICKIFYASSEMBLY_VOXEL_BACKEND;
-                    DEFAULT 1;
-                    CYCLE
-                    {
-                        BRICKIFYASSEMBLY_VOXEL_BACKEND_INTERNAL;
-                        BRICKIFYASSEMBLY_VOXEL_BACKEND_C4D_VOLUME;
-                    }
-                }
+            BOOL BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION
+            {
+                NAME BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION;
+                DEFAULT 0;
+            }
 
-                REAL BRICKIFYASSEMBLY_VOXEL_RESOLUTION
+            LONG BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE
+            {
+                NAME BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE;
+                DEFAULT 0;
+                CYCLE
                 {
-                    NAME BRICKIFYASSEMBLY_VOXEL_RESOLUTION;
-                    MIN 0.1;
-                    MAX 1.0;
-                    STEP 0.1;
-                    DEFAULT 1.0;
-                }
-
-                LONG BRICKIFYASSEMBLY_VOXEL_MODE
-                {
-                    NAME BRICKIFYASSEMBLY_VOXEL_MODE;
-                    DEFAULT 0;
-                    CYCLE
-                    {
-                        BRICKIFYASSEMBLY_VOXEL_MODE_SOLID;
-                        BRICKIFYASSEMBLY_VOXEL_MODE_SHELL;
-                    }
-                }
-
-                LONG BRICKIFYASSEMBLY_SHELL_THICKNESS
-                {
-                    NAME BRICKIFYASSEMBLY_SHELL_THICKNESS;
-                    MIN 1;
-                    MAX 8;
-                    STEP 1;
-                    DEFAULT 3;
-                }
-
-                LONG BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS
-                {
-                    NAME BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS;
-                    MIN 0;
-                    MAX 4;
-                    STEP 1;
-                    DEFAULT 1;
-                }
-
-                BOOL BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS
-                {
-                    NAME BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS;
-                    DEFAULT 0;
-                }
-
-                BOOL BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY
-                {
-                    NAME BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY;
-                    DEFAULT 0;
+                    BRICKIFYASSEMBLY_BIND_ORIENT_WORLD_UP;
+                    BRICKIFYASSEMBLY_BIND_ORIENT_FOLLOW_NORMAL;
                 }
             }
+
+            REAL BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO
+            {
+                NAME BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 1.0;
+                STEP 0.01;
+                DEFAULT 0.6;
+            }
+
+            REAL BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING
+            {
+                NAME BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 1.0;
+                STEP 0.01;
+                DEFAULT 0.7;
+            }
+
+            LONG BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME
+            {
+                NAME BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME;
+                MIN 0;
+                MAX 1000000;
+                STEP 1;
+                DEFAULT 0;
+            }
+
+            BUTTON BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME
+            {
+                NAME BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME;
+            }
+        }
 
         GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY
         {
@@ -166,6 +251,30 @@ CONTAINER obrickifyassembly
                 {
                     NAME BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL;
                 }
+            }
+        }
+
+        // User manual sits last on the Object tab — peripheral action,
+        // doesn't compete with the brick-pipeline controls above. Wrapped
+        // in its own COLUMNS 1 group so it picks up the same left edge as
+        // every other top-level group on the tab. One empty STATICTEXT
+        // above the button adds ~22px of vertical breathing room — the
+        // description grammar doesn't have a SPACE attribute (dialog-only),
+        // so empty parameter rows are the canonical spacer.
+        GROUP
+        {
+            DEFAULT 1;
+            COLUMNS 1;
+            SCALE_H;
+
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_3
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_3;
+            }
+
+            BUTTON BRICKIFYASSEMBLY_OPEN_USER_MANUAL
+            {
+                NAME BRICKIFYASSEMBLY_OPEN_USER_MANUAL;
             }
         }
     }
@@ -227,21 +336,29 @@ CONTAINER obrickifyassembly
             }
         }
 
+        // Brick Selection — flat 2-column layout. Use Plates (boolean
+        // toggle) on the left, Brick Size Style (3-way dropdown) on the
+        // right since they're related selection-shaping options. Both
+        // widgets get SCALE_H so the columns claim their 50/50 share
+        // (matches the Shape-group justified pattern).
         GROUP BRICKIFYASSEMBLY_GROUP_BRICK_SELECTION
         {
+            COLUMNS 2;
             DEFAULT 1;
-            COLUMNS 1;
+            SCALE_H;
 
             BOOL BRICKIFYASSEMBLY_ENABLE_PLATES
             {
                 NAME BRICKIFYASSEMBLY_ENABLE_PLATES;
                 DEFAULT 0;
+                SCALE_H;
             }
 
             LONG BRICKIFYASSEMBLY_DETAIL_MODE
             {
                 NAME BRICKIFYASSEMBLY_DETAIL_MODE;
                 DEFAULT 1;
+                SCALE_H;
                 CYCLE
                 {
                     BRICKIFYASSEMBLY_DETAIL_MODE_OFF;
@@ -251,10 +368,21 @@ CONTAINER obrickifyassembly
             }
         }
 
+        // Brick Height — original 1-column layout. Tried pairing the
+        // preset buttons inline with the Brick Height field but the
+        // nested-COLUMNS-3 sub-group inside a flat COLUMNS 2 parent
+        // either overflowed to a full-width row underneath or, with
+        // LAYOUTGROUP, vanished entirely. The auto-generated label
+        // column for LONG widgets makes "field + 3 buttons in one row"
+        // not cleanly expressible without restructuring everything as a
+        // COLUMNS 4 layout that conflicts with the rest of the rows.
+        // Keeping the presets stacked underneath; later rows use the
+        // flat 2-column pattern that does work.
         GROUP BRICKIFYASSEMBLY_GROUP_BRICK_HEIGHT
         {
             DEFAULT 1;
             COLUMNS 1;
+            SCALE_H;
 
             LONG BRICKIFYASSEMBLY_MAX_BRICK_HEIGHT
             {
@@ -263,24 +391,29 @@ CONTAINER obrickifyassembly
                 MAX 6;
                 STEP 1;
                 DEFAULT 3;
+                SCALE_H;
             }
 
             GROUP
             {
                 DEFAULT 1;
                 COLUMNS 3;
+                SCALE_H;
 
                 BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE
                 {
                     NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_FINE;
+                    SCALE_H;
                 }
                 BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED
                 {
                     NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BALANCED;
+                    SCALE_H;
                 }
                 BUTTON BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY
                 {
                     NAME BRICKIFYASSEMBLY_HEIGHT_PRESET_BLOCKY;
+                    SCALE_H;
                 }
             }
 
@@ -290,15 +423,9 @@ CONTAINER obrickifyassembly
                 DEFAULT 0;
             }
 
-            LONG BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED
-            {
-                NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED;
-                MIN 0;
-                MAX 1000000;
-                STEP 1;
-                DEFAULT 1;
-            }
-
+            // Variation Amount drives the visible result; Seed only
+            // matters once Amount > 0. Showing Amount first keeps the
+            // primary control directly under the gate toggle.
             REAL BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT
             {
                 NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT;
@@ -307,6 +434,17 @@ CONTAINER obrickifyassembly
                 MAX 1.0;
                 STEP 0.01;
                 DEFAULT 0.6;
+                SCALE_H;
+            }
+
+            LONG BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED
+            {
+                NAME BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED;
+                MIN 0;
+                MAX 1000000;
+                STEP 1;
+                DEFAULT 1;
+                SCALE_H;
             }
 
             BOOL BRICKIFYASSEMBLY_MERGE_PLATES
@@ -316,10 +454,21 @@ CONTAINER obrickifyassembly
             }
         }
 
+        // Per-Brick Variation — Humanize Bricks gates the entire group
+        // including Brick Separation. Per user direction: when Humanize
+        // is off, no per-brick variation should be active, so all sub-
+        // options (Brick Separation, Humanize Seed, Position Variation,
+        // Rotation Variation) grey out together.
         GROUP BRICKIFYASSEMBLY_GROUP_BRICK_ADJUSTMENTS
         {
             DEFAULT 1;
             COLUMNS 1;
+
+            BOOL BRICKIFYASSEMBLY_HUMANIZE_BRICKS
+            {
+                NAME BRICKIFYASSEMBLY_HUMANIZE_BRICKS;
+                DEFAULT 0;
+            }
 
             REAL BRICKIFYASSEMBLY_BRICK_SEPARATION
             {
@@ -330,12 +479,6 @@ CONTAINER obrickifyassembly
                 MAX 1.0;
                 STEP 0.01;
                 DEFAULT 0.0;
-            }
-
-            BOOL BRICKIFYASSEMBLY_HUMANIZE_BRICKS
-            {
-                NAME BRICKIFYASSEMBLY_HUMANIZE_BRICKS;
-                DEFAULT 0;
             }
 
             LONG BRICKIFYASSEMBLY_HUMANIZE_SEED
@@ -370,64 +513,6 @@ CONTAINER obrickifyassembly
             }
         }
 
-        GROUP BRICKIFYASSEMBLY_GROUP_BIND
-        {
-            DEFAULT 1;
-            COLUMNS 1;
-
-            BOOL BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION
-            {
-                NAME BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION;
-                DEFAULT 0;
-            }
-
-            LONG BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE
-            {
-                NAME BRICKIFYASSEMBLY_BIND_ORIENTATION_MODE;
-                DEFAULT 0;
-                CYCLE
-                {
-                    BRICKIFYASSEMBLY_BIND_ORIENT_WORLD_UP;
-                    BRICKIFYASSEMBLY_BIND_ORIENT_FOLLOW_NORMAL;
-                }
-            }
-
-            REAL BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO
-            {
-                NAME BRICKIFYASSEMBLY_BIND_STRETCH_CULL_RATIO;
-                CUSTOMGUI REALSLIDER;
-                SCALE_H;
-                MIN 0.0;
-                MAX 1.0;
-                STEP 0.01;
-                DEFAULT 0.6;
-            }
-
-            REAL BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING
-            {
-                NAME BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING;
-                CUSTOMGUI REALSLIDER;
-                SCALE_H;
-                MIN 0.0;
-                MAX 1.0;
-                STEP 0.01;
-                DEFAULT 0.7;
-            }
-
-            LONG BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME
-            {
-                NAME BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME;
-                MIN 0;
-                MAX 1000000;
-                STEP 1;
-                DEFAULT 0;
-            }
-
-            BUTTON BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME
-            {
-                NAME BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME;
-            }
-        }
     }
 
     GROUP BRICKIFYASSEMBLY_TAB_PREVIEW

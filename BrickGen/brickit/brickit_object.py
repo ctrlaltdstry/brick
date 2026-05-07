@@ -1,8 +1,13 @@
 """BrickIt source-mesh-to-brick-assembly ObjectData plugin."""
+import os
 import threading
 
 import c4d
 from c4d import plugins
+
+
+def _desc_log_enabled():
+    return os.environ.get("BRICKIT_LOG_DESC", "").strip().lower() not in ("", "0", "false", "no")
 
 from c4d_symbols import *  # noqa: F401,F403 - C4D resource IDs are constants.
 from logo_helpers import (
@@ -94,7 +99,6 @@ class BrickAssembly(plugins.ObjectData):
         self._interactive_preview_log_key = None
         self._interactive_last_edit_at = 0.0
         self._interactive_last_desc_id = -1
-        self._managed_source = None
         self._last_prune_warning_key = None
         self._resolution_live_timer = None
         self._resolution_live_timer_op = None
@@ -102,78 +106,10 @@ class BrickAssembly(plugins.ObjectData):
         self._bind_cache_key = None
         self._bind_diagnostics = None
         self._bind_force_rebind = False
-
-    def _restore_managed_source(self):
-        state = self._managed_source
-        if not state:
-            return
-        obj = state.get("obj")
-        if obj is None:
-            self._managed_source = None
-            return
-        try:
-            obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = state.get("editor", c4d.OBJECT_UNDEF)
-            obj[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = state.get("render", c4d.OBJECT_UNDEF)
-        except Exception:
-            pass
-        self._managed_source = None
-
-    def _sync_source_visibility(self, op):
-        """Hide linked source object, restore it when unlinked/changed."""
-        src = None
-        try:
-            src = op[BRICKIFYASSEMBLY_SOURCE]
-        except Exception:
-            src = None
-
-        managed = self._managed_source
-        managed_obj = managed.get("obj") if managed else None
-
-        # Source changed or removed -> restore previous managed source.
-        if managed_obj is not None and managed_obj is not src:
-            self._restore_managed_source()
-            managed = None
-            managed_obj = None
-
-        if src is None:
-            return
-
-        hide_source = True
-        try:
-            hide_source = bool(op[BRICKIFYASSEMBLY_HIDE_SOURCE_MESH])
-        except Exception:
-            hide_source = True
-
-        if managed_obj is src:
-            if not hide_source:
-                self._restore_managed_source()
-            return
-
-        if not hide_source:
-            return
-
-        try:
-            prev_editor = int(src[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR])
-            prev_render = int(src[c4d.ID_BASEOBJECT_VISIBILITY_RENDER])
-        except Exception:
-            prev_editor = c4d.OBJECT_UNDEF
-            prev_render = c4d.OBJECT_UNDEF
-
-        self._managed_source = {
-            "obj": src,
-            "editor": prev_editor,
-            "render": prev_render,
-        }
-        try:
-            src[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.OBJECT_OFF
-            src[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.OBJECT_OFF
-        except Exception:
-            pass
+        self._auto_hidden_guids = set()
 
     def Free(self, node):
         self._cancel_resolution_live_timer()
-        # If the generator gets deleted, restore source-visibility state.
-        self._restore_managed_source()
 
     def _cancel_resolution_live_timer(self):
         t = self._resolution_live_timer
@@ -286,11 +222,12 @@ class BrickAssembly(plugins.ObjectData):
         hide the entire Object tab with no error dialog.
         """
         if not description.LoadDescription(ID_BRICKIFYASSEMBLY):
-            print(
-                "[brick] BrickAssembly: description.LoadDescription("
-                "ID_BRICKIFYASSEMBLY) failed -- check res/description/"
-                "obrickifyassembly.res for non-ASCII bytes or syntax errors."
-            )
+            if _desc_log_enabled():
+                print(
+                    "[brick] BrickAssembly: description.LoadDescription("
+                    "ID_BRICKIFYASSEMBLY) failed -- check res/description/"
+                    "obrickifyassembly.res for non-ASCII bytes or syntax errors."
+                )
             return False
         try:
             # Migrate the temporary linear-slider default used during the UI
@@ -326,6 +263,46 @@ class BrickAssembly(plugins.ObjectData):
                 return not bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD])
             except Exception:
                 return True
+        if pid == BRICKIFYASSEMBLY_STUD_SIZE:
+            # Custom Scale field is only meaningful when the user opted into
+            # manual sizing — auto-derive mode greys it out.
+            try:
+                return bool(op[BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE])
+            except Exception:
+                return False
+        if pid == BRICKIFYASSEMBLY_VOXEL_RESOLUTION:
+            # Resolution and Custom Scale are mutually exclusive sizing
+            # controls: resolution sets bricks-per-source-bounds, custom
+            # scale sets absolute stud size. Grey resolution out when the
+            # user has taken over absolute sizing.
+            try:
+                return not bool(op[BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE])
+            except Exception:
+                return True
+        if pid in (
+            BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT,
+            BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED,
+        ):
+            # Variation amount + seed only meaningful when Vary Brick
+            # Heights is on; grey out otherwise.
+            try:
+                return bool(op[BRICKIFYASSEMBLY_HEIGHT_VARIATION])
+            except Exception:
+                return False
+        if pid in (
+            BRICKIFYASSEMBLY_BRICK_SEPARATION,
+            BRICKIFYASSEMBLY_HUMANIZE_SEED,
+            BRICKIFYASSEMBLY_HUMANIZE_POSITION,
+            BRICKIFYASSEMBLY_HUMANIZE_ROTATION,
+        ):
+            # Per-Brick Variation sub-options are all gated on Humanize
+            # Bricks per user direction — including Brick Separation,
+            # which is grouped here as a "things that vary per brick"
+            # option even though it's not strictly humanization.
+            try:
+                return bool(op[BRICKIFYASSEMBLY_HUMANIZE_BRICKS])
+            except Exception:
+                return False
         if pid in (
             BRICKIFYASSEMBLY_LOGO_SOURCE,
             BRICKIFYASSEMBLY_LOGO_ROTATION,
@@ -418,7 +395,6 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_CAP_STYLE] = BRICKIFYASSEMBLY_CAP_STYLE_MATCH_BELOW
         op[BRICKIFYASSEMBLY_CAP_RANDOM_SEED] = 0
         op[BRICKIFYASSEMBLY_ENABLE_PLATES] = False
-        op[BRICKIFYASSEMBLY_HIDE_SOURCE_MESH] = True
         op[BRICKIFYASSEMBLY_MERGE_PLATES] = True
         op[BRICKIFYASSEMBLY_PRUNE_CONNECTIVITY] = False
         op[BRICKIFYASSEMBLY_CLEANUP_PROTRUSIONS] = 1
@@ -453,6 +429,10 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_HUMANIZE_ROTATION] = 0.0
         try:
             op[BRICKIFYASSEMBLY_MOGRAPH_EFFECTORS] = c4d.InExcludeData()
+        except Exception:
+            pass
+        try:
+            op[BRICKIFYASSEMBLY_SOURCES] = c4d.InExcludeData()
         except Exception:
             pass
         try:
@@ -496,7 +476,6 @@ class BrickAssembly(plugins.ObjectData):
         self._interactive_preview_log_key = None
         self._interactive_last_edit_at = 0.0
         self._interactive_last_desc_id = -1
-        self._managed_source = None
         self._last_prune_warning_key = None
         self._resolution_live_timer = None
         self._resolution_live_timer_op = None
@@ -504,6 +483,7 @@ class BrickAssembly(plugins.ObjectData):
         self._bind_cache_key = None
         self._bind_diagnostics = None
         self._bind_force_rebind = False
+        self._auto_hidden_guids = set()
         try:
             op[BRICKIFYASSEMBLY_BIND_TO_SOURCE_DEFORMATION] = False
             op[BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME] = 0
@@ -530,17 +510,17 @@ class BrickAssembly(plugins.ObjectData):
     def _resolve_params(self, op, source_obj):
         return _params_resolve_params(self, op, source_obj)
 
-    def _make_fit_key(self, source_obj, params):
-        return _fit_make_fit_key(self, source_obj, params)
+    def _make_fit_key(self, op, params):
+        return _fit_make_fit_key(self, op, params)
 
     def _source_state_key(self, source_obj):
         return _logo_link_identity_key(source_obj)
 
-    def _make_voxel_key(self, source_obj, params, stud_size, plate_size):
-        return _fit_make_voxel_key(self, source_obj, params, stud_size, plate_size)
+    def _make_voxel_key(self, op, params, stud_size, plate_size):
+        return _fit_make_voxel_key(self, op, params, stud_size, plate_size)
 
-    def _get_cached_source_arrays(self, source_obj, doc, force_csto=False):
-        return _fit_get_cached_source_arrays(self, source_obj, doc, force_csto=force_csto)
+    def _get_cached_source_arrays(self, op, doc, force_csto=False):
+        return _fit_get_cached_source_arrays(self, op, doc, force_csto=force_csto)
 
     def _resolution_key(self, params):
         return _params_resolution_key(self, params)

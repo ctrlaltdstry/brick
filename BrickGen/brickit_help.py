@@ -101,19 +101,14 @@ BRICK_HELP = {
 
 # BrickIt (assembly) parameters.
 BRICKIT_HELP = {
-    "BRICKIFYASSEMBLY_SOURCE": (
-        "Source Mesh\n\n"
-        "Polygon object that BrickIt voxelizes and tiles with bricks. "
-        "Any polygon shape works. The source's world transform places "
-        "the brick assembly - moving the source moves the bricks; "
-        "scaling it scales the assembly. BrickIt's own position adds an "
-        "extra parent transform on top."
-    ),
-    "BRICKIFYASSEMBLY_HIDE_SOURCE_MESH": (
-        "Hide Source Mesh\n\n"
-        "Toggle the source polygon object's editor and render "
-        "visibility. Convenient because the source usually overlaps the "
-        "brick output."
+    "BRICKIFYASSEMBLY_SOURCES": (
+        "Sources\n\n"
+        "Drop polygon objects directly under the BrickIt object to use "
+        "them as sources. Each source has a Mode: Union (add to the "
+        "shape), Subtract (carve out), Intersect (keep only the "
+        "overlap). The first Union child also drives Bind to Source "
+        "Deformation. The source's world transform places the brick "
+        "assembly; BrickIt's own position adds an extra parent transform."
     ),
 
     # Shape tab - voxelization.

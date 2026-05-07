@@ -9,6 +9,15 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 if _PLUGIN_DIR not in sys.path:
     sys.path.insert(0, _PLUGIN_DIR)
 
+
+def _register_log_enabled():
+    return os.environ.get("BRICKIT_LOG_REGISTER", "").strip().lower() not in ("", "0", "false", "no")
+
+
+def _register_log(message):
+    if _register_log_enabled():
+        print(message)
+
 from c4d_symbols import *  # noqa: F401,F403 - re-exported for headless tools.
 from brickgen_object import BrickGen
 from brickit.brickit_object import BrickAssembly
@@ -45,9 +54,9 @@ def _register_brick_icons():
         try:
             c4d.gui.RegisterIcon(ICON_BRICKIFY_HERO, hero_bmp)
         except Exception as exc:
-            print("[brick] hero icon register failed:", exc)
+            _register_log("[brick] hero icon register failed: {0}".format(exc))
     else:
-        print("[brick] hero banner not found at", hero_path)
+        _register_log("[brick] hero banner not found at {0}".format(hero_path))
 
     # Brick thumbnails. Use the @64 variants for crisper rendering on
     # high-DPI displays — C4D scales down to the AM's row height.
@@ -60,40 +69,61 @@ def _register_brick_icons():
                     try:
                         c4d.gui.RegisterIcon(ICON_BRICKIFY_BRICK_BASE + i, bmp)
                     except Exception as exc:
-                        print(
-                            "[brick] icon {0} register failed: {1}"
-                            .format(name, exc)
+                        _register_log(
+                            "[brick] icon {0} register failed: {1}".format(name, exc)
                         )
                 break
         else:
-            print("[brick] brick thumbnail missing:", name)
+            _register_log("[brick] brick thumbnail missing: {0}".format(name))
 
 
 def register():
-    def _load_plugin_icon():
-        # The Object Manager tree shows this next to every BrickAssembly
-        # / Brick entry. brickify_icon.png is the dedicated 64x64
-        # red 2x2 brick render produced by tools/prepare_branding_assets.py;
-        # the isometric thumbnails are the AM gallery fallback for older
-        # deployments that don't have the rendered icon yet.
-        here = os.path.dirname(os.path.abspath(__file__))
-        for candidate in (
-            os.path.join(here, "res", "brickify_icon.png"),
-            os.path.join(here, "res", "icons", "bricks", "brick_2x2@64.png"),
-            os.path.join(here, "res", "icons", "bricks", "brick_2x2@2x.png"),
-            os.path.join(here, "res", "icons", "bricks", "brick_2x2.png"),
-        ):
-            bmp = _load_bitmap(candidate)
+    def _load_first_existing(*candidates):
+        """Return the first BaseBitmap that loads from `candidates`, or None.
+
+        Used so each plugin can fall back through @2x → @64 → plain
+        variants without a separate try/except per call site.
+        """
+        for path in candidates:
+            bmp = _load_bitmap(path)
             if bmp is not None:
                 return bmp
         return None
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    icons_root = os.path.join(here, "res", "icons")
+
+    def _load_brick_object_icon():
+        # Object Manager icon for the legacy Brick generator (single brick,
+        # ID_BRICKGENERATOR). Dedicated brick_object.png replaces the older
+        # red 2x2 thumbnail-fallback chain.
+        return _load_first_existing(
+            os.path.join(icons_root, "brick_object@2x.png"),
+            os.path.join(icons_root, "brick_object.png"),
+            # Legacy fallbacks for deployments that don't have the new icon yet.
+            os.path.join(here, "res", "brickify_icon.png"),
+            os.path.join(icons_root, "bricks", "brick_2x2@64.png"),
+            os.path.join(icons_root, "bricks", "brick_2x2@2x.png"),
+            os.path.join(icons_root, "bricks", "brick_2x2.png"),
+        )
+
+    def _load_brickit_object_icon():
+        # Object Manager icon for the BrickIt generator (assembly /
+        # ID_BRICKIFYASSEMBLY). Distinct icon so users can tell at a
+        # glance which object type they have selected.
+        return _load_first_existing(
+            os.path.join(icons_root, "brickit_object@2x.png"),
+            os.path.join(icons_root, "brickit_object.png"),
+            # Legacy fallback to the same chain as the Brick generator.
+            os.path.join(here, "res", "brickify_icon.png"),
+        )
 
     # Register brick thumbnail icons FIRST so the description widgets can
     # resolve them on first AM display.
     try:
         _register_brick_icons()
     except Exception as exc:
-        print("[brick] icon registration error:", exc)
+        _register_log("[brick] icon registration error: {0}".format(exc))
 
     # Pre-import the brick package + numpy/scipy chain at plugin register
     # time. Without this, the very first GetVirtualObjects evaluation after
@@ -107,16 +137,17 @@ def register():
         import brick.fitter    # noqa: F401 - warm import
         import brick.voxelize  # noqa: F401 - warm import
     except Exception as exc:
-        print("[brick] preimport failed (deferring to first eval):", exc)
+        _register_log("[brick] preimport failed (deferring to first eval): {0}".format(exc))
 
-    icon = _load_plugin_icon()
+    brick_icon = _load_brick_object_icon()
+    brickit_icon = _load_brickit_object_icon()
     ok1 = plugins.RegisterObjectPlugin(
         id=ID_BRICKGENERATOR,
         str=IDS_BRICKGENERATOR,
         g=BrickGen,
         description="obrickgenerator",
         info=c4d.OBJECT_GENERATOR,
-        icon=icon,
+        icon=brick_icon,
     )
     ok2 = plugins.RegisterObjectPlugin(
         id=ID_BRICKIFYASSEMBLY,
@@ -124,7 +155,7 @@ def register():
         g=BrickAssembly,
         description="obrickifyassembly",
         info=c4d.OBJECT_GENERATOR | c4d.OBJECT_INPUT,
-        icon=icon,
+        icon=brickit_icon,
     )
     # BrickLibraryPanelCommand is intentionally not registered as a standalone
     # command plugin. The library UI is kept embedded in BrickIt's Attribute
@@ -133,7 +164,7 @@ def register():
         from brickit.brickit_effectors_autohook import register as _register_brickit_autohook
         _register_brickit_autohook()
     except Exception as exc:
-        print("[brick] BrickIt effectors auto-hook register failed:", exc)
+        _register_log("[brick] BrickIt effectors auto-hook register failed: {0}".format(exc))
     try:
         from plugin_bootstrap import brick_log as _bs_brick_log
     except Exception:
@@ -143,13 +174,12 @@ def register():
         # Register here (not in the package submodule) because
         # RegisterTagPlugin reads `__res__` from the calling module's
         # globals — only the .pyp module has it auto-injected.
-        follow_surface_icon = _load_bitmap(
-            os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "res",
-                "follow_surface_icon.png",
-            )
-        ) or icon
+        follow_surface_icon = _load_first_existing(
+            os.path.join(icons_root, "brickit_follow_surface_tag@2x.png"),
+            os.path.join(icons_root, "brickit_follow_surface_tag.png"),
+            # Legacy fallback for older deployments.
+            os.path.join(here, "res", "follow_surface_icon.png"),
+        ) or brickit_icon
         result = plugins.RegisterTagPlugin(
             id=ID_BRICKIT_FOLLOW_SURFACE_TAG,
             str=IDS_BRICKIT_FOLLOW_SURFACE_TAG,
@@ -159,7 +189,7 @@ def register():
             icon=follow_surface_icon,
         )
         msg = "[brick] BrickIt Follow Surface tag register returned: {0}".format(result)
-        print(msg)
+        _register_log(msg)
         if _bs_brick_log is not None:
             try:
                 _bs_brick_log(msg)
@@ -170,7 +200,7 @@ def register():
         msg = "[brick] BrickIt Follow Surface tag register failed: {0}\n{1}".format(
             exc, traceback.format_exc()
         )
-        print(msg)
+        _register_log(msg)
         if _bs_brick_log is not None:
             try:
                 _bs_brick_log(msg)

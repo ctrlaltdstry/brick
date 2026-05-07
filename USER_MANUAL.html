@@ -165,16 +165,17 @@
 
     <a href="#brickit" class="section">BrickIt — mesh-to-brick assembly</a>
     <a href="#brickit-quick" class="sub">Quick start</a>
-    <a href="#tab-shape" class="sub">Shape tab</a>
-      <a href="#shape-source" class="sub2">Source</a>
-      <a href="#shape-voxel" class="sub2">Voxelization</a>
-      <a href="#shape-buildtype" class="sub2">Build Type</a>
-      <a href="#shape-style" class="sub2">Brick Size Style</a>
-      <a href="#shape-finish" class="sub2">Surface finishing</a>
-      <a href="#shape-smoothtop" class="sub2">Smooth Top Surfaces</a>
+    <a href="#tab-object" class="sub">Object tab</a>
+      <a href="#object-shape" class="sub2">Shape group</a>
+      <a href="#object-sources" class="sub2">Sources list</a>
+      <a href="#object-bind" class="sub2">Bind to Source Deformation</a>
+      <a href="#object-tools" class="sub2">Tools</a>
     <a href="#tab-bricks" class="sub">Bricks tab</a>
       <a href="#bricks-choose" class="sub2">Choose Bricks</a>
       <a href="#bricks-plates" class="sub2">Plate behavior</a>
+      <a href="#bricks-style" class="sub2">Brick Size Style</a>
+      <a href="#bricks-finish" class="sub2">Surface finishing</a>
+      <a href="#bricks-smoothtop" class="sub2">Smooth Top Surfaces</a>
       <a href="#bricks-variation" class="sub2">Per-Brick Variation</a>
     <a href="#tab-look" class="sub">Look tab</a>
       <a href="#look-quality" class="sub2">Render Quality</a>
@@ -190,7 +191,6 @@
       <a href="#effectors-list" class="sub2">Effectors list</a>
       <a href="#effectors-supported" class="sub2">Supported effectors</a>
       <a href="#effectors-color" class="sub2">Per-brick color in Redshift</a>
-    <a href="#tab-tools" class="sub">Tools tab</a>
 
     <a href="#recipes" class="section">Workflow recipes</a>
     <a href="#recipe-hero" class="sub">Render a hero shot</a>
@@ -211,7 +211,7 @@
 <p>Two objects ship in the same plugin:</p>
 <ul>
   <li><strong>Brick</strong> — a single parametric brick.</li>
-  <li><strong>BrickIt</strong> — converts any source mesh into a structurally-buildable brick assembly with animation, MoGraph effectors, and per-brick color in Redshift.</li>
+  <li><strong>BrickIt</strong> — converts one or more source meshes into a structurally-buildable brick assembly. Supports multi-source compositions (Union / Subtract / Intersect), MoGraph effectors, build animation, deforming-mesh binding, and per-brick color in Redshift.</li>
 </ul>
 
 <hr>
@@ -272,70 +272,129 @@
 <hr>
 
 <h2 id="brickit">BrickIt — mesh-to-brick assembly</h2>
-<p>Drop in any polygon object, link it as the Source Mesh, and BrickIt voxelizes the mesh and tiles it with bricks. Real-time preview, animation, MoGraph effectors, Redshift per-brick color all work on the live output.</p>
+<p>Drop in one or more polygon objects as sources, and BrickIt voxelizes them and tiles the result with bricks. Real-time preview, animation, MoGraph effectors, Redshift per-brick color all work on the live output. Multiple sources can be combined boolean-style (Union / Subtract / Intersect) for additive and carved compositions.</p>
 
 <h3 id="brickit-quick">Quick start</h3>
 <ol>
   <li>Object menu → <strong>BrickIt</strong>.</li>
-  <li>Drag a polygon object into <strong>Source Mesh</strong> on the Shape tab.</li>
-  <li>The default settings produce a 2×4-brick shaped assembly. Adjust <strong>Resolution</strong> and <strong>Target Studs Across</strong> until the silhouette matches what you want.</li>
+  <li>Parent a polygon object under the BrickIt in the Object Manager — it auto-appears in the <strong>Sources</strong> list and the source mesh hides itself in the viewport (the brick output replaces it).</li>
+  <li>Adjust <strong>Resolution</strong> in the Shape group until the silhouette matches what you want. Lower = chunkier bricks; higher = finer detail.</li>
   <li>Switch <strong>Brick Mesh Detail</strong> (Look tab) to <strong>Hero</strong> for a final render.</li>
 </ol>
-<p>The BrickIt object's parameters are organized into six tabs:</p>
+<p>The BrickIt object's parameters are organized into five tabs:</p>
 <ul>
-  <li><strong>Shape</strong> — voxelization, build type, surface finishing.</li>
-  <li><strong>Bricks</strong> — which brick sizes to use, plate-stack rules, per-brick variation.</li>
+  <li><strong>Object</strong> — Shape (voxelization, sizing), Sources list, Bind to Source Deformation, Tools.</li>
+  <li><strong>Bricks</strong> — which brick sizes to use, plate-stack rules, surface finishing, smooth-top, per-brick variation.</li>
   <li><strong>Look</strong> — render quality, preview mode, custom stud logo, live-update.</li>
   <li><strong>Animate</strong> — build animation, smooth-top finishing animation.</li>
-  <li><strong>Effectors</strong> — MoGraph effectors that drive matrix and color (and now visibility).</li>
-  <li><strong>Tools / Surface Finish</strong> — utility buttons (proxy generator, RS color material, hide source mesh).</li>
+  <li><strong>Effectors</strong> — MoGraph effectors that drive matrix, color, and visibility.</li>
 </ul>
 
-<h3 id="tab-shape">Shape tab</h3>
-<p>This is where you decide how the source mesh is sampled and what brick "texture" the assembly has.</p>
+<h3 id="tab-object">Object tab</h3>
+<p>The Object tab holds everything that defines the assembly's overall shape and source-input model: the <strong>Shape</strong> group (voxelization + sizing), the <strong>Sources</strong> list, <strong>Bind to Source Deformation</strong>, and the <strong>Tools</strong> action buttons.</p>
 
-<h4 id="shape-source">Source</h4>
+<h4 id="object-shape">Shape group</h4>
+<p>Two-column layout: voxelization parameters on the left, build options + rebuild controls on the right.</p>
 <ul>
-  <li><strong>Source Mesh</strong> — the polygon object BrickIt fits bricks into. Any polygon object works (Polygon Object, Spline Polygonized, Mesh Object, primitives made editable). The source's <em>world transform</em> defines where the brick assembly appears — moving the source moves the bricks; scaling it scales the assembly.</li>
-</ul>
-
-<h4 id="shape-voxel">Voxelization</h4>
-<ul>
-  <li><strong>Resolution</strong> — slider 0.1–1.0 controlling how many voxels are sampled. Lower = chunkier bricks, faster builds. Higher = finer detail, slower.</li>
-  <li><strong>Target Studs Across</strong> — sets the brick assembly width by stud count. Increase to get finer detail at the same source size; decrease for a blockier look.</li>
-  <li><strong>Use Custom Scale</strong> + <strong>Stud Size</strong> — override the auto-derived stud size with a fixed value. Useful when the brickified output needs to match a specific real-world scale.</li>
   <li><strong>Algorithm</strong> — voxelization backend:
     <ul>
       <li><strong>Simple</strong> — internal voxelizer. Faster, less precise on thin features.</li>
       <li><strong>Detailed</strong> — Cinema 4D Volume (<code>MeshToVolume</code>) sampling. Slower but handles thin walls and concave surfaces much better. Recommended for most production work.</li>
     </ul>
   </li>
-</ul>
-
-<h4 id="shape-buildtype">Build Type</h4>
-<ul>
-  <li><strong>Solid</strong> — fill the entire interior with bricks.</li>
-  <li><strong>Shell</strong> — only place bricks within <code>Wall Thickness</code> of the surface. Lighter assemblies, hollow inside.</li>
-  <li><strong>Wall Thickness</strong> — only used in Shell mode. Number of brick layers inward from the surface.</li>
-</ul>
-
-<h4 id="shape-style">Brick Size Style</h4>
-<p>How aggressively BrickIt picks larger bricks vs smaller ones:</p>
-<ul>
-  <li><strong>Simple</strong> — favors larger brick sizes; fewest pieces.</li>
-  <li><strong>Balanced</strong> — default mix.</li>
-  <li><strong>Preserve Small Features</strong> — tries hardest to keep thin source details visible, even if it means many small bricks.</li>
-</ul>
-
-<h4 id="shape-finish">Surface finishing</h4>
-<ul>
-  <li><strong>Make Physically Accurate</strong> — when ON, the assembly must be a single connected structure (drops floating clusters; you can build it with real bricks). When OFF, BrickIt prioritizes silhouette accuracy and fills boundary cells with 1×1s as needed; physically separate islands are kept.</li>
+  <li><strong>Resolution</strong> — slider 0.1–1.0 controlling voxel density. Lower = chunkier bricks, faster builds. Higher = finer detail, slower. Greys out when <strong>Use Custom Scale</strong> is on (the two are mutually exclusive sizing controls).</li>
+  <li><strong>Use Custom Scale</strong> + <strong>Stud Size</strong> — when on, you set the absolute physical stud size in scene units instead of letting BrickIt derive it from the source bounds. Useful when the brickified output needs to match a specific real-world scale. Stud Size greys out when Custom Scale is off.</li>
+  <li><strong>Build Type</strong> — Solid (fill the whole interior with bricks) or Shell (only place bricks within Wall Thickness of the surface — lighter, hollow inside).</li>
+  <li><strong>Wall Thickness</strong> — only meaningful for Shell. Number of brick layers inward from the surface.</li>
+  <li><strong>Clean Small Details</strong> — removes stray single-brick protrusions that read as noise rather than detail (0–4 levels of cleanup).</li>
   <li><strong>Keep Tiny Gaps</strong> — preserves narrow gaps in the source by allowing smaller bricks; off by default for cleaner output.</li>
-  <li><strong>Clean Small Details</strong> — removes stray single-brick protrusions that read as noise rather than detail.</li>
+  <li><strong>Make Physically Accurate</strong> — when ON, the assembly must be a single connected structure (drops floating clusters; you can build it with real bricks). When OFF, BrickIt prioritizes silhouette accuracy and fills boundary cells with 1×1s as needed; physically separate islands are kept.</li>
+  <li><strong>Rebuild Now</strong> + <strong>Live Update</strong> — when Live Update is on (default), the assembly rebuilds after every parameter change. When off, sliders only update cached state and Rebuild Now commits. Useful on heavy scenes when scrubbing feels sluggish.</li>
 </ul>
 
-<h4 id="shape-smoothtop">Smooth Top Surfaces</h4>
-<p>Replace the lumpy top of the assembly with flat plates. When enabled:</p>
+<h4 id="object-sources">Sources list</h4>
+<p>BrickIt accepts <em>multiple</em> source meshes and combines them with boolean-style modes. The Sources list is rendered as a Volume-Builder-style inset panel with one row per source, each carrying an icon (matching the OM), the object name, and a Mode control (Union / Subtract / Intersect).</p>
+
+<p><strong>Adding sources — two paths:</strong></p>
+<ul>
+  <li><strong>Parent under BrickIt.</strong> Drop the polygon object as a child of the BrickIt in the Object Manager. It auto-appears in the Sources list and the source mesh hides itself in the viewport (the bricked output represents it now).</li>
+  <li><strong>Drag-drop into the list.</strong> Drag any OM object directly onto the sources panel. The cursor changes to "accept" when valid; on drop the row appears at the bottom and the source mesh hides. Drag-dropped sources keep their original parentage in the OM — they're <em>references</em> rather than children.</li>
+</ul>
+
+<p><strong>Removing sources:</strong></p>
+<ul>
+  <li><strong>Click a row, then press Delete</strong> (or right-click → "Remove from list"). If the object was a direct child of the BrickIt, it's also deleted from the scene; if it was drag-dropped from elsewhere, only the list link goes away and the scene object survives. Both cases unhide the source.</li>
+  <li><strong>Un-parent in the OM.</strong> Dragging a child out from under the BrickIt removes it from the list (and unhides it). Drag-dropped references stay even if you reparent the object elsewhere.</li>
+  <li><strong>Delete the object from the scene.</strong> The list entry self-prunes on the next eval.</li>
+</ul>
+
+<p><strong>Multi-select:</strong> standard OS conventions — Ctrl-click to toggle individual rows, Shift-click for a range. Delete or right-click "Remove from list (N)" acts on the whole selection.</p>
+
+<p><strong>Mode column:</strong> click the Mode icon to cycle Union → Subtract → Intersect. Each mode runs as a separate voxel pass and the results are composed lattice-aligned:</p>
+<ul>
+  <li><strong>Union</strong> — adds the source's volume to the assembly.</li>
+  <li><strong>Subtract</strong> — carves the source's volume out of any Union sources.</li>
+  <li><strong>Intersect</strong> — keeps only cells that are also inside this source.</li>
+</ul>
+
+<p><strong>Cycle protection:</strong> a BrickIt cannot be a source of itself or another BrickIt; an ancestor of the BrickIt cannot be a source either (would freeze C4D on bake). The list rejects invalid drops with a console message.</p>
+
+<h4 id="object-bind">Bind to Source Deformation</h4>
+<p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), this group locks each brick to the closest triangle on the source so the brick assembly rides the deformation per frame.</p>
+<ul>
+  <li><strong>Bind Bricks to Source Deformation</strong> — toggles the binding. The bricks ride the surface in the live preview.</li>
+  <li><strong>Brick Orientation</strong> — <em>World Up</em> keeps every brick axis-aligned; <em>Follow Surface Normal</em> tilts each brick to match the local surface orientation.</li>
+  <li><strong>Stretch Cull Threshold</strong> — hides bricks whose anchor triangle compresses below this fraction of its rest-pose area. Useful when cloth bunches up tight enough that bricks would otherwise overlap.</li>
+  <li><strong>Orientation Smoothing</strong> — dampens per-face-normal jitter on small / heavily deformed triangles. 0.7 is a good default.</li>
+  <li><strong>Reference Frame</strong> — frame number used as the rest pose. 0 means "use current at fit time."</li>
+  <li><strong>Re-bind to Current Frame</strong> — re-fits and re-binds with the current deformed pose as the new rest pose.</li>
+</ul>
+<p>For the full simulation + render pipeline (Make Proxies → Bake to Keyframes → RBD → Swap Quality), see the <a href="#recipe-deformation">deforming-mesh recipe</a> below.</p>
+
+<h4 id="object-tools">Tools</h4>
+<ul>
+  <li><strong>Create Proxies</strong> — bakes the live brick assembly into a static hierarchy: a Fracture object containing a per-brick Instance for every placement. This is what you reach for when you want dynamics, manual selection, or any work that needs real edit-able geometry instead of a live cache.</li>
+  <li><strong>Proxy / High Res</strong> — toggles the proxy hierarchy between Proxy-quality carrier meshes (light, used during sim and interaction) and current-Brick-Mesh-Detail meshes (renderable). Quick way to hide proxies during simulation playback and bring them back for the render pass. The swap preserves per-brick logo rotation variants — 1×1s with quarter-turn variety and the 0/180 mix-flip both survive.</li>
+  <li><strong>Create RS Color Material</strong> — see the <a href="#effectors-color">Effectors section</a>.</li>
+</ul>
+<p>The <strong>Open User Manual</strong> button at the bottom of the tab opens this document.</p>
+
+<h3 id="tab-bricks">Bricks tab</h3>
+<p>Controls <em>which</em> brick sizes BrickIt is allowed to use, how surfaces are finished, and per-brick variation.</p>
+
+<h4 id="bricks-choose">Choose Bricks</h4>
+<p>A thumbnail picker showing the 15 stock brick sizes (1×1 through 2×8 plus 3×3, 3×4, 3×6, 3×8). Click a thumbnail to toggle that size in/out of the active library. The current selection is the search space the fitter draws from.</p>
+<p><strong>Quick Select</strong> buttons:</p>
+<ul>
+  <li><strong>All</strong> — enable every brick.</li>
+  <li><strong>None</strong> — disable everything (you'll get an empty assembly until you add at least one).</li>
+  <li><strong>Invert</strong> — flip the current selection.</li>
+  <li><strong>1×1 Only</strong> — useful for a "voxel-perfect" look that ignores larger bricks entirely.</li>
+</ul>
+<p><strong>Open Thumbnail Picker</strong> — pops up a larger floating picker (handy on small monitors).</p>
+
+<h4 id="bricks-plates">Brick Selection — plates and size style</h4>
+<p>Two-column row:</p>
+<ul>
+  <li><strong>Use Plates</strong> — when ON, the fitter can use 1-plate-tall bricks (plates) in addition to 3-plate bricks. Lets the assembly hug curves more tightly at the cost of more total pieces.</li>
+  <li id="bricks-style"><strong>Brick Size Style</strong> — how aggressively BrickIt picks larger bricks vs smaller ones:
+    <ul>
+      <li><strong>Simple</strong> — favors larger brick sizes; fewest pieces.</li>
+      <li><strong>Balanced</strong> — default mix.</li>
+      <li><strong>Preserve Small Features</strong> — tries hardest to keep thin source details visible, even if it means many small bricks.</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="bricks-height">Brick Height</h4>
+<ul>
+  <li><strong>Brick Height</strong> — max height (in plates) the fitter is allowed to use. <strong>Fine / Balanced / Blocky</strong> presets below the field set the field to 2/3/6 respectively as quick shortcuts.</li>
+  <li><strong>Vary Brick Heights</strong> — randomly mix tall and short bricks across the assembly for a less grid-uniform look. <strong>Variation Amount</strong> and <strong>Variation Seed</strong> below it grey out unless this toggle is on.</li>
+  <li><strong>Merge Plate Stacks into Bricks</strong> — when three vertically-aligned plates can be replaced by one brick, do so. Reduces piece count.</li>
+</ul>
+
+<h4 id="bricks-finish">Surface finishing &amp; <span id="bricks-smoothtop">Smooth Top Surfaces</span></h4>
+<p>The Smooth Top Surfaces toggle replaces the lumpy top of the assembly with flat plates:</p>
 <ul>
   <li><strong>Cap Style</strong>:
     <ul>
@@ -345,47 +404,18 @@
     </ul>
   </li>
   <li><strong>Cap Random Seed</strong> — seed for the Random Library Mix style.</li>
-  <li><strong>Top Finish Starts At</strong> / <strong>Top Finish Duration</strong> — animation timing for when the smooth-top plates appear during Build Progress (see Animate tab).</li>
   <li><strong>Smooth Top Coverage</strong> — fraction of top cells that get smoothed (1.0 = full coverage; lower values leave some studs poking through).</li>
-  <li><strong>Randomize Top Finish</strong> / <strong>Blend Top Finish</strong> — animation order and cross-fade behavior for the cap-on-top reveal.</li>
-</ul>
-
-<h3 id="tab-bricks">Bricks tab</h3>
-<p>Controls <em>which</em> brick sizes BrickIt is allowed to use and how plates and heights are handled.</p>
-
-<h4 id="bricks-choose">Choose Bricks</h4>
-<p>A thumbnail picker showing the 22 stock brick sizes (1×1 through 2×8 plus 3×3, 3×4, 3×6, 3×8). Click a thumbnail to toggle that size in/out of the active library. The current selection is the search space the fitter draws from.</p>
-<p><strong>Quick Select</strong> buttons:</p>
-<ul>
-  <li><strong>All</strong> — enable every brick.</li>
-  <li><strong>None</strong> — disable everything (you'll get an empty assembly until you add at least one).</li>
-  <li><strong>Invert</strong> — flip the current selection.</li>
-  <li><strong>Bricks</strong> / <strong>Plates</strong> — limit to one brick height class.</li>
-  <li><strong>1×1 Only</strong> — useful for a "voxel-perfect" look that ignores larger bricks entirely.</li>
-</ul>
-<p><strong>Open Thumbnail Picker</strong> — pops up a larger floating picker (handy on small monitors).</p>
-
-<h4 id="bricks-plates">Plate behavior</h4>
-<ul>
-  <li><strong>Use Plates</strong> — when ON, the fitter can use 1-plate-tall bricks (plates) in addition to 3-plate bricks. Lets the assembly hug curves more tightly at the cost of more total pieces.</li>
-  <li><strong>Brick Height (preset)</strong> — quick preset for the height search:
-    <ul>
-      <li><strong>Fine</strong> — allow plates and tall bricks.</li>
-      <li><strong>Balanced</strong> — default.</li>
-      <li><strong>Blocky</strong> — bias toward full bricks.</li>
-    </ul>
-  </li>
-  <li><strong>Vary Brick Heights</strong> — randomly mix tall and short bricks across the assembly for a less grid-uniform look.</li>
-  <li><strong>Variation Seed</strong> / <strong>Variation Amount</strong> — seed and intensity for that randomization.</li>
-  <li><strong>Merge Plate Stacks into Bricks</strong> — when three vertically-aligned plates can be replaced by one brick, do so. Reduces piece count.</li>
+  <li><strong>Randomize Top Finish</strong> — randomizes the order in which cap plates appear during the build animation.</li>
 </ul>
 
 <h4 id="bricks-variation">Per-Brick Variation</h4>
+<p><strong>Humanize Bricks</strong> at the top gates this entire group — when off, all sub-options grey out and the assembly stays grid-perfect.</p>
 <ul>
-  <li><strong>Brick Separation</strong> — adds a tiny gap between bricks (in scene units). Useful for renders where you want to read the seams. 0 = bricks touch exactly.</li>
   <li><strong>Humanize Bricks</strong> — when ON, every brick gets a small random offset and rotation so the assembly looks hand-built rather than CNC-perfect.</li>
+  <li><strong>Brick Separation</strong> — adds a tiny gap between bricks (0–1, scene-relative). Useful for renders where you want to read the seams. 0 = bricks touch exactly.</li>
   <li><strong>Humanize Seed</strong> — controls the random pattern.</li>
-  <li><strong>Position Variation</strong> / <strong>Rotation Variation</strong> — magnitude of the jitter (each 0–1 or 0–2). Use small values; the effect compounds.</li>
+  <li><strong>Position Variation</strong> — XY jitter magnitude (0–1).</li>
+  <li><strong>Rotation Variation</strong> — yaw jitter magnitude (0–2). Use small values; the effect compounds across the assembly.</li>
 </ul>
 
 <h3 id="tab-look">Look tab</h3>
@@ -404,7 +434,18 @@
 </ul>
 
 <h4 id="look-logo">Custom Logo</h4>
-<p>(Same controls as the Brick object): replace the flat top-of-stud with a custom embossed logo. Only baked at Hero quality — Proxy/Draft/Standard skip stud logos for performance.</p>
+<p>Replace the flat top-of-stud with a custom embossed logo across every brick in the assembly. Same base controls as the single Brick object (Logo Source Mesh, Logo Rotation, Logo Fill %, Logo Height, Logo Blend, Logo Sink), plus per-brick rotation mixing for variety:</p>
+<ul>
+  <li><strong>Mix Logo Orientation</strong> — when ON, individual bricks rotate their logos by a random amount on top of the base Logo Rotation. Off = every logo points the same way (CNC-perfect). On = looks like a hand-built model where bricks were placed at slightly different orientations.</li>
+  <li><strong>Mix Amount %</strong> — fraction of bricks that get a non-base rotation. 0 = all bricks at the base rotation; 100 = every brick gets rotated.</li>
+  <li><strong>Mix Seed</strong> — controls the random pattern.</li>
+</ul>
+<p>Rotation choices depend on brick footprint:</p>
+<ul>
+  <li><strong>1×1 bricks</strong> — pick from four quarter-turns (0° / 90° / 180° / 270°) since the brick footprint is square and all four orientations are valid in the grid.</li>
+  <li><strong>Larger bricks</strong> (1×N, 2×N, 3×N…) — flip between 0° / 180° only. Rotating a 1×2 by 90° would change its footprint and collide with neighbors.</li>
+</ul>
+<p>Stud logos are baked into the brick mesh at Draft / Standard / Hero quality. Proxy quality skips logos for speed (the proxy bricks have plain studs). When you click <strong>Proxy / High Res</strong> after a simulation, each brick's per-instance rotation is preserved across the swap so your hand-built look survives the render-quality bump.</p>
 
 <h4 id="look-preview">Preview Mode</h4>
 <ul>
@@ -455,7 +496,7 @@
 <ul>
   <li><strong>Top Finish Starts At</strong> — fraction of Build Progress at which the cap starts revealing.</li>
   <li><strong>Top Finish Duration</strong> — how long the cap reveal takes.</li>
-  <li><strong>Smooth Top Coverage</strong>, <strong>Randomize Top Finish</strong>, <strong>Blend Top Finish</strong> — already covered on the Shape tab.</li>
+  <li><strong>Smooth Top Coverage</strong>, <strong>Randomize Top Finish</strong> — already covered on the Bricks tab (Smooth Top Surfaces section).</li>
 </ul>
 
 <h3 id="tab-effectors">Effectors tab</h3>
@@ -473,16 +514,10 @@
 </ul>
 
 <h4 id="effectors-color">Per-brick color in Redshift</h4>
-<p>Effectors that set color need a material that reads it. Click <strong>Create RS Color Material</strong> (Tools tab) and BrickIt builds and assigns <code>BrickIt_PerBrick_Color</code> — a Redshift node graph wired to the <code>RSObjectColor</code> user data attribute. After that, any color set by an effector (or by the source mesh sampling) shows up at render time.</p>
+<p>Effectors that set color need a material that reads it. Click <strong>Create RS Color Material</strong> (Object tab → Tools) and BrickIt builds and assigns <code>BrickIt_PerBrick_Color</code> — a Redshift node graph wired to the <code>RSObjectColor</code> user data attribute. After that, any color set by an effector (or by the source mesh sampling) shows up at render time.</p>
 <p>If you build the material yourself, the only requirement is a <code>Color User Data</code> node with <strong>Attribute Name</strong> = <code>RSObjectColor</code> (the case-sensitive attribute string Redshift maps the per-instance color to). The "Object Color" preset works because it stores <code>RSObjectColor</code> under the hood.</p>
 
-<h3 id="tab-tools">Tools tab — Surface Finish / utility actions</h3>
-<ul>
-  <li><strong>Hide Source Mesh</strong> — toggles the source polygon object's editor + render visibility. Convenient because the source usually overlaps the brick assembly.</li>
-  <li><strong>Create Proxies</strong> — bakes the live brick assembly into a static hierarchy under the BrickIt object: one Fracture object containing grouped Nulls per source-mesh region, with per-brick instances inside. This is what you reach for when you want to do dynamics, manual selection, or any work that needs real edit-able geometry instead of a live cache.</li>
-  <li><strong>Proxy / High Res</strong> — toggles the proxy hierarchy between Proxy-quality carrier meshes (light) and current-Brick-Mesh-Detail meshes (renderable). Quick way to hide the proxies during interaction and bring them back for the render pass.</li>
-  <li><strong>Create RS Color Material</strong> — see the Effectors section above.</li>
-</ul>
+<p>The action buttons (<strong>Create Proxies</strong>, <strong>Proxy / High Res</strong>, <strong>Create RS Color Material</strong>) live on the Object tab; see the <a href="#object-tools">Tools section</a> above. Source-mesh visibility is now managed automatically — adding an object to the Sources list hides it; removing it unhides it. There is no longer a manual "Hide Source Mesh" button.</p>
 
 <hr>
 
@@ -490,11 +525,11 @@
 
 <h3 id="recipe-hero">Render a hero shot</h3>
 <ol>
-  <li>Drop a BrickIt, link your source.</li>
-  <li>On the Shape tab, <strong>Algorithm = Detailed</strong>.</li>
+  <li>Drop a BrickIt, parent your source mesh under it (or drag-drop into the Sources list).</li>
+  <li>On the Object tab → Shape, <strong>Algorithm = Detailed</strong>.</li>
   <li>On the Bricks tab, pick the brick sizes you want and a sensible variation.</li>
   <li>On the Look tab, <strong>Brick Mesh Detail = Hero</strong>.</li>
-  <li><strong>Create RS Color Material</strong> (Tools tab) so per-brick color renders.</li>
+  <li>Click <strong>Create RS Color Material</strong> (Object tab → Tools) so per-brick color renders.</li>
   <li>Render.</li>
 </ol>
 
@@ -509,9 +544,9 @@
 
 <h3 id="recipe-field">Field-driven color and visibility</h3>
 <ol>
-  <li>Drop a BrickIt and a Plain effector. The Plain auto-links into BrickIt's Effectors list.</li>
+  <li>Drop a BrickIt with at least one source, and a Plain effector. The Plain auto-links into BrickIt's Effectors list.</li>
   <li>On the Plain effector, set <strong>Color Mode = Field</strong> and add a Field (e.g. Random Field, Spherical Field) under Falloff.</li>
-  <li><strong>Create RS Color Material</strong> to wire the per-brick color path.</li>
+  <li><strong>Create RS Color Material</strong> (Object tab → Tools) to wire the per-brick color path.</li>
   <li>To hide bricks the field touches: enable <strong>Visibility</strong> on the Plain effector and set Field strength such that touched clones turn off. Hidden bricks fall completely out of the scene rather than scaling to zero, so a moving Field is much lighter to interact with.</li>
 </ol>
 
@@ -519,22 +554,22 @@
 <ol>
   <li><strong>Brick Mesh Detail = Proxy</strong> during interaction.</li>
   <li>Turn <strong>Live Update</strong> off; press <strong>Rebuild Now</strong> when you want to see a change.</li>
-  <li>Use <strong>Hide Source Mesh</strong> so you only see the brick output.</li>
+  <li>Source meshes auto-hide as soon as they're added to the Sources list, so you only see the brick output by default.</li>
   <li>Switch back to Hero only for the final render.</li>
 </ol>
 
 <h3 id="recipe-deformation">Bricks that follow a deforming mesh + collide with each other</h3>
 <p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), BrickIt can lock each brick to the closest triangle on the source and ride the deformation per frame. Combined with C4D's Rigid Body Dynamics, you can have the bricks track the mesh while collisions push them apart instead of overlapping.</p>
 <ol>
-  <li><strong>Set up the source.</strong> Apply your deformer/cloth/Alembic to the source mesh and link it as BrickIt's Source.</li>
-  <li><strong>Bind.</strong> On the Layout tab → Bind to Source Deformation group, check <strong>Bind Bricks to Source Deformation</strong>. The bricks ride the surface in the live preview.
+  <li><strong>Set up the source.</strong> Apply your deformer/cloth/Alembic to the source mesh and parent it under the BrickIt (or drag-drop it into the Sources list).</li>
+  <li><strong>Bind.</strong> On the Object tab → Bind to Source Deformation group, check <strong>Bind Bricks to Source Deformation</strong>. The bricks ride the surface in the live preview.
     <ul>
       <li><strong>Brick Orientation = Follow Surface Normal</strong> tilts each brick to match the local surface orientation. <strong>Orientation Smoothing</strong> dampens per-face-normal jitter on small / heavily deformed triangles; 0.7 is a good default.</li>
       <li><strong>Stretch Cull Threshold</strong> hides bricks whose anchor triangle compresses below the threshold ratio of its rest-pose area — useful when the cloth bunches up tight enough that bricks would otherwise overlap.</li>
       <li><strong>Re-bind to Current Frame</strong> re-fits and re-binds with the current deformed pose as the new rest pose.</li>
     </ul>
   </li>
-  <li><strong>Make Proxies.</strong> Once you're happy with the binding, click <strong>Create Proxies</strong> (Tools tab) to spawn a real proxy hierarchy under a <code>BrickIt_ProxySim_&lt;source&gt;</code> Null. The proxies follow the deformation via a <strong>BrickIt Follow Surface</strong> tag added to that Null automatically.</li>
+  <li><strong>Make Proxies.</strong> Once you're happy with the binding, click <strong>Create Proxies</strong> (Object tab → Tools) to spawn a real proxy hierarchy under a <code>BrickIt_ProxySim_&lt;source&gt;</code> Null. The proxies follow the deformation via a <strong>BrickIt Follow Surface</strong> tag added to that Null automatically.</li>
   <li><strong>Set the timeline preview range</strong> to the frames you want to bake.</li>
   <li><strong>Bake to Keyframes.</strong> Select the Follow Surface tag and click <strong>Bake to Keyframes (Preview Range)</strong>. The bake writes per-brick keyframes, converts each instance into a real polygon mesh, flattens the hierarchy under a single <code>bricks</code> Null, adds a Rigid Body tag to each brick with Follow Position/Rotation set high, and disables the Follow Surface tag.</li>
   <li><strong>Run the simulation.</strong> Scrub or play — the per-brick RBD pulls each brick toward its keyframed target while collisions push neighbors apart. <strong>Cache the simulation</strong> so playback is stable.</li>
@@ -557,9 +592,9 @@
 
 <p><strong>Animation is sluggish when an effector is active.</strong> Drop to Proxy quality on the Look tab while you scrub, switch back to Hero for the render. The effector-active fast path rebuilds carrier instances each frame; Proxy geometry makes that ~10× cheaper.</p>
 
-<p><strong>The brickified output is missing pieces in interior cavities.</strong> That's Shell mode at work — switch the Shape tab to <strong>Solid</strong> if you want the interior filled.</p>
+<p><strong>The brickified output is missing pieces in interior cavities.</strong> That's Shell mode at work — switch <strong>Build Type</strong> on the Object tab → Shape group to <strong>Solid</strong> if you want the interior filled.</p>
 
-<p><strong>Adding 1×1 bricks to fill a boundary creates noise.</strong> Turn on <strong>Clean Small Details</strong> on the Shape tab, or switch <strong>Brick Size Style</strong> to <strong>Simple</strong> so the fitter prefers larger pieces.</p>
+<p><strong>Adding 1×1 bricks to fill a boundary creates noise.</strong> Turn on <strong>Clean Small Details</strong> (Object tab → Shape), or switch <strong>Brick Size Style</strong> on the Bricks tab to <strong>Simple</strong> so the fitter prefers larger pieces.</p>
 
 <p><strong>Make Editable produces selection or material chaos.</strong> The non-Make-Editable workflow (using <strong>Create RS Color Material</strong>) is the recommended path for most renders. If you do need Make Editable, <strong>Create Proxies</strong> first — that produces a clean static hierarchy organized by source-mesh region (one Null per source child, sub-Nulls per disconnected polygon island) which is much easier to select and assign materials in.</p>
 
