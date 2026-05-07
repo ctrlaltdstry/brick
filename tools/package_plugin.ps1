@@ -91,7 +91,7 @@ foreach ($filter in $directoryFilters) {
         ForEach-Object { Remove-Item $_.FullName -Recurse -Force }
 }
 
-$fileFilters = @("*.pyc", "*.pyo", "*.log", "*.tmp", "*.bak")
+$fileFilters = @("*.pyc", "*.pyo", "*.log", "*.tmp", "*.bak", "*.pdb")
 foreach ($filter in $fileFilters) {
     Get-ChildItem -Path $packageRoot -Recurse -File -Force -Filter $filter -ErrorAction SilentlyContinue |
         ForEach-Object { Remove-Item $_.FullName -Force }
