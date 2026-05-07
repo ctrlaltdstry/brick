@@ -7,12 +7,13 @@ import c4d
 
 from .brickit_animation import (
     ordered_placements,
+    shell_smooth_top_target_cells,
     smooth_top_cap_selection_for_coverage,
 )
 from .brickit_bind import deformed_centers_for_frame
 from .brickit_bind_follower import UD_CARRIER_BIND_INDEX
 from .brickit_groups import grouped_parent_for_placement
-from .brickit_humanize import apply_humanize_to_low_corner_matrix
+from .brickit_humanize import apply_humanize_to_center_matrix
 from .brickit_mograph_generator import (
     _color_vector_from_rgb as _color_vector_from_rgb_for_proxy,
     _evaluate_native_mograph as _evaluate_native_mograph_for_proxy,
@@ -565,6 +566,22 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
     smooth_plate_visual = False
     smooth_cap_ids = set()
     if bool(params.get("surface_only_plates")):
+        # Mirror the live MoGraph generator's target-cell computation so
+        # smooth-cap selection matches between the live preview and the
+        # baked proxy. Without this, shell-mode builds get different caps
+        # in the two paths and the proxy looks noticeably different on
+        # top.
+        smooth_target_cells = None
+        if str(params.get("voxel_mode", "")).lower() == "shell":
+            cells = info.get("occupancy_cells")
+            dims = info.get("grid_dims")
+            if cells and dims:
+                smooth_target_cells = shell_smooth_top_target_cells(
+                    placements,
+                    cells,
+                    dims,
+                    interior_void_cells=info.get("interior_void_cells"),
+                )
         smooth_cap_ids, generated_caps = smooth_top_cap_selection_for_coverage(
             placements,
             params.get("top_surface_coverage", 1.0),
@@ -572,11 +589,12 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             cap_style=int(params.get("cap_style", 0)),
             library=None,
             seed=int(params.get("cap_random_seed", 0)),
+            target_top_cells=smooth_target_cells,
         )
         placements = ordered_placements(list(placements) + generated_caps)
         smooth_cap_ids.update(id(p) for p in generated_caps)
     mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_RENDERINSTANCE", 1)
-    from brick.separation import placement_assembly_center, separated_low_corner
+    from brick.separation import placement_assembly_center, separated_center
     brick_separation = float(params.get("brick_separation", 0.0) or 0.0)
     separation_center = placement_assembly_center(placements, stud_size, plate_size)
 
@@ -609,6 +627,12 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         logos_root = c4d.BaseObject(c4d.Onull)
         logos_root.SetName("stud_logos")
         logos_root.InsertUnder(proto)
+        # Templates are now brick-centered (see _center_template_mesh), so
+        # logo positions must be expressed relative to the brick center,
+        # not its low corner.
+        half_w = float(brick_type.width) * float(stud_size) * 0.5
+        half_h = float(brick_type.height) * float(plate_size) * 0.5
+        half_d = float(brick_type.depth) * float(stud_size) * 0.5
         top_y = (
             float(brick_type.height) * float(plate_size)
             + float(plate_size) * 0.55
@@ -623,9 +647,9 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 logo_obj.SetName("stud_logo")
                 m = c4d.Matrix()
                 m.off = c4d.Vector(
-                    float((sx + 0.5) * stud_size),
-                    float(top_y),
-                    float((sz + 0.5) * stud_size),
+                    float((sx + 0.5) * stud_size) - half_w,
+                    float(top_y) - half_h,
+                    float((sz + 0.5) * stud_size) - half_d,
                 )
                 _apply_logo_quarter_turn(m, logo_rotation)
                 logo_obj.SetMl(m)
@@ -702,6 +726,11 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         if mesh_obj is None or not _brick_has_template_logos(brick_type, smooth_top=smooth_top):
             return mesh_obj
         objects = _collect_polygon_objects_with_matrices(mesh_obj)
+        # Mesh has already been recentered, so logo positions are
+        # expressed relative to the brick center.
+        half_w = float(brick_type.width) * float(stud_size) * 0.5
+        half_h = float(brick_type.height) * float(plate_size) * 0.5
+        half_d = float(brick_type.depth) * float(stud_size) * 0.5
         top_y = (
             float(brick_type.height) * float(plate_size)
             + float(plate_size) * 0.55
@@ -714,9 +743,9 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                     continue
                 m = c4d.Matrix()
                 m.off = c4d.Vector(
-                    float((sx + 0.5) * stud_size),
-                    float(top_y),
-                    float((sz + 0.5) * stud_size),
+                    float((sx + 0.5) * stud_size) - half_w,
+                    float(top_y) - half_h,
+                    float((sz + 0.5) * stud_size) - half_d,
                 )
                 _apply_logo_quarter_turn(m, logo_rotation)
                 try:
@@ -726,6 +755,34 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 objects.extend(_collect_polygon_objects_with_matrices(logo_obj))
         baked = _merge_polygon_objects_local(objects, mesh_obj.GetName())
         return baked if baked is not None else mesh_obj
+
+    def _center_template_mesh(mesh_obj, brick_type):
+        """Recenter a low-corner-origin template mesh on its own center.
+
+        The proxy carriers position bricks by their CENTER (matching the
+        live MoGraph generator). Without this recentering step, OBJ proxy
+        and procedural-collider meshes — both of which come out
+        low-corner-origin — would be displaced by half the brick's own
+        size in each axis, and the magnitude of that displacement varies
+        per brick footprint (a 1x8 brick offsets four times as far as a
+        1x1). That manifested as proxies appearing to "stick out" or be
+        "different sizes" relative to the live preview before this fix.
+        """
+        if mesh_obj is None:
+            return mesh_obj
+        offset = c4d.Vector(
+            -float(brick_type.width) * float(stud_size) * 0.5,
+            -float(brick_type.height) * float(plate_size) * 0.5,
+            -float(brick_type.depth) * float(stud_size) * 0.5,
+        )
+        try:
+            points = mesh_obj.GetAllPoints()
+            for i, point in enumerate(points):
+                mesh_obj.SetPoint(i, point + offset)
+            mesh_obj.Message(c4d.MSG_UPDATE)
+        except Exception:
+            pass
+        return mesh_obj
 
     def _stable_template_name(brick_type):
         return "brick_{0}x{1}_h{2}p".format(
@@ -776,6 +833,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 mesh,
                 name="mesh_{0}".format(name),
             )
+            _center_template_mesh(mesh_obj, brick_type)
             if render_template:
                 mesh_obj = _bake_template_logos_into_mesh(
                     mesh_obj,
@@ -823,6 +881,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 brick_type.width, brick_type.depth, brick_type.height
             ),
         )
+        _center_template_mesh(mesh_obj, brick_type)
         mesh_obj.InsertUnder(proto)
         _add_template_logo_children(proto, brick_type, smooth_top=smooth_top)
         proto.InsertUnder(templates_root)
@@ -948,7 +1007,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         pre_colors = []
         for p in placements:
             m = c4d.Matrix()
-            sx, sy, sz = separated_low_corner(
+            sx, sy, sz = separated_center(
                 p,
                 stud_size,
                 plate_size,
@@ -960,13 +1019,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 float(origin[1] + sy),
                 float(origin[2] + sz),
             )
-            m = apply_humanize_to_low_corner_matrix(
-                m,
-                p,
-                params,
-                stud_size,
-                plate_size,
-            )
+            m = apply_humanize_to_center_matrix(m, p, params)
             bound_center = (
                 bind_center_by_obj.get(id(p))
                 if bind_center_by_obj is not None
@@ -1034,24 +1087,14 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                             )
             if bound_center is not None:
                 cx, cy, cz = bound_center
-                hx = 0.5 * float(getattr(p, "w", 1)) * stud_size
-                hy = 0.5 * float(getattr(p, "h", 1)) * plate_size
-                hz = 0.5 * float(getattr(p, "d", 1)) * stud_size
                 m = c4d.Matrix()
                 if ob is not None:
                     v1, v2, v3 = ob
                     m.v1 = c4d.Vector(float(v1[0]), float(v1[1]), float(v1[2]))
                     m.v2 = c4d.Vector(float(v2[0]), float(v2[1]), float(v2[2]))
                     m.v3 = c4d.Vector(float(v3[0]), float(v3[1]), float(v3[2]))
-                    shift_x = m.v1.x * hx + m.v2.x * hy + m.v3.x * hz
-                    shift_y = m.v1.y * hx + m.v2.y * hy + m.v3.y * hz
-                    shift_z = m.v1.z * hx + m.v2.z * hy + m.v3.z * hz
-                    m.off = c4d.Vector(cx - shift_x, cy - shift_y, cz - shift_z)
-                else:
-                    m.off = c4d.Vector(cx - hx, cy - hy, cz - hz)
-                m = apply_humanize_to_low_corner_matrix(
-                    m, p, params, stud_size, plate_size,
-                )
+                m.off = c4d.Vector(float(cx), float(cy), float(cz))
+                m = apply_humanize_to_center_matrix(m, p, params)
             pre_matrices.append(m)
             pre_colors.append(_color_vector_from_rgb_for_proxy(
                 getattr(p, "rgb", (255, 255, 255))
