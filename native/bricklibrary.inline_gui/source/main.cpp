@@ -1681,10 +1681,13 @@ private:
 
 Bool RegisterBrickLibraryPanelCommand()
 {
+	// PLUGINFLAG_HIDEPLUGINMENU keeps this internal scaffold panel out
+	// of the Extensions menu — it's only meant to be invoked through
+	// BrickIt's UI hooks, not directly by the user.
 	return RegisterCommandPlugin(
 		g_bricklibrary_panel_cmd_id,
 		"Brick Library Inline GUI (WIP)"_s,
-		0,
+		PLUGINFLAG_HIDEPLUGINMENU,
 		nullptr,
 		"Open Brick Library native scaffold panel."_s,
 		NewObjClear(BrickLibraryPanelCommand));
