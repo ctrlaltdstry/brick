@@ -413,6 +413,19 @@ def make_proxy_collider(
     optional coarse studs. Tubes, underside ribs, and stud-ceiling indents are
     omitted.
     """
+    # The cavity wall/ceiling thicknesses default to absolute LEGO units
+    # (1.0mm walls, 1.2mm ceiling) tuned for the canonical stud_size=8.0.
+    # When BrickIt drives this with a different stud_size — e.g. a scene
+    # whose 1 unit is well under 1mm — those absolute thicknesses can
+    # exceed a 1-plate brick's body height and the cavity ceiling ends
+    # up at a NEGATIVE Y. That overflows the brick's silhouette and
+    # produces visibly wrong-sized proxy meshes (most obvious on
+    # surface-only-plate caps where the body is just 1 plate tall).
+    # Scale both with the scene's stud_size to preserve the LEGO
+    # proportions at any unit scale.
+    scale = float(stud_size) / 8.0
+    underside_wall_thickness = 1.0 * scale
+    underside_ceiling_thickness = 1.2 * scale
     mesh = make_brick_hires(
         width_studs,
         depth_studs,
@@ -431,6 +444,8 @@ def make_proxy_collider(
         rib_fillet_radius=0.0,
         with_studs=with_studs,
         with_underside=True,
+        underside_wall_thickness=underside_wall_thickness,
+        underside_ceiling_thickness=underside_ceiling_thickness,
         with_tubes=False,
         with_stud_indents=False,
         with_ribs=False,

@@ -401,9 +401,14 @@ def _build_render_template_proto(
         smooth_plate_visual=False,
         force_smooth_top=bool(smooth_top),
     )
-    proto = c4d.BaseObject(c4d.Onull)
-    proto.SetName(target_name)
-    mesh_obj = mesh_to_polygon_object(mesh, name="mesh_{0}".format(target_name))
+    # Polygon-direct (no Null wrapper) — same reason as the eager template
+    # builder: C4D's RBD external Alembic bake walks INSTANCEOBJECT_LINK
+    # → Null parent → polygon child and produces wrong cached transforms.
+    # PolygonObject as the direct INSTANCEOBJECT_LINK target bakes
+    # correctly. This also keeps proxy and render template formats
+    # consistent so the proxy→hi-res swap doesn't flip-flop between
+    # representations.
+    mesh_obj = mesh_to_polygon_object(mesh, name=target_name)
 
     logo_template = self._get_logo_template_obj(params, doc, stud_size, plate_size)
     has_logos = (
@@ -448,9 +453,34 @@ def _build_render_template_proto(
         if baked is not None:
             mesh_obj = baked
 
-    mesh_obj.InsertUnder(proto)
-    proto.InsertUnder(render_root)
-    return proto
+    # v1.0.2 switched proxy carriers to center-pivot positioning AND added
+    # _center_template_mesh on proxy templates. Render templates also need
+    # to be center-pivot so the proxy→hi-res swap (which replaces a
+    # carrier's INSTANCEOBJECT_LINK without changing its transform) keeps
+    # bricks at the same world positions. Without this, the center-pivot
+    # carrier transform applies to a low-corner-pivot mesh and bricks
+    # shift by half their own size.
+    try:
+        offset = c4d.Vector(
+            -float(brick_type.width) * float(stud_size) * 0.5,
+            -float(brick_type.height) * float(plate_size) * 0.5,
+            -float(brick_type.depth) * float(stud_size) * 0.5,
+        )
+        points = mesh_obj.GetAllPoints()
+        for i, point in enumerate(points):
+            mesh_obj.SetPoint(i, point + offset)
+        mesh_obj.Message(c4d.MSG_UPDATE)
+    except Exception:
+        pass
+
+    # Reapply canonical name in case _merge_polygon_objects_local_top
+    # produced a freshly-named merged polygon.
+    try:
+        mesh_obj.SetName(target_name)
+    except Exception:
+        pass
+    mesh_obj.InsertUnder(render_root)
+    return mesh_obj
 
 
 def _create_mograph_handoff(self, op):
@@ -546,11 +576,12 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
         return False
     fracture.SetName("bricks_mograph_fracture")
     try:
-        # Straight mode for both proxy and live MoGraph rigs.  MoGraph
-        # effectors (random color, etc.) treat each direct child as one
-        # clone, and PBD with the V5 single-island carriers and a
-        # Fracture-level Rigid Body tag still simulates per-brick
-        # correctly without needing Explode mode.
+        # Straight mode (MODE_NONE) is required for the proxy→hi-res swap to
+        # stay coherent: hi-res hero bricks aren't watertight, so Explode
+        # Segments would split each brick into its individual non-welded
+        # shards on swap. Straight keeps each carrier's geometry intact.
+        # See _alembic_safe_bake_proxy_caches below for the Alembic-cache
+        # workaround this mode requires.
         fracture[c4d.MGFRACTUREOBJECT_MODE] = c4d.MGFRACTUREOBJECT_MODE_NONE
     except Exception:
         pass
@@ -827,12 +858,16 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                     plate_size,
                     force_smooth_top=bool(smooth_top),
                 )
-            proto = c4d.BaseObject(c4d.Onull)
-            proto.SetName(name)
-            mesh_obj = mesh_to_polygon_object(
-                mesh,
-                name="mesh_{0}".format(name),
-            )
+            # Build the polygon directly; no Null wrapper. The Null was
+            # originally a host for stud-logo Null children (live MoGraph
+            # path), but proxy and render templates bake their logos
+            # INTO the mesh, so the wrapper has no purpose here. It also
+            # broke the RBD-tag → External Alembic cache: C4D's bake
+            # walked INSTANCEOBJECT_LINK → Null parent → polygon child
+            # and produced wrong simulation transforms in the .abc.
+            # PolygonObject as the direct INSTANCEOBJECT_LINK target
+            # bakes correctly.
+            mesh_obj = mesh_to_polygon_object(mesh, name=name)
             _center_template_mesh(mesh_obj, brick_type)
             if render_template:
                 mesh_obj = _bake_template_logos_into_mesh(
@@ -840,13 +875,19 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                     brick_type,
                     smooth_top=smooth_top,
                 )
-            mesh_obj.InsertUnder(proto)
+            # _bake_template_logos_into_mesh may return a fresh merged
+            # PolygonObject, so reapply the canonical name after baking
+            # so the swap path can find it via _child_name_map.
+            try:
+                mesh_obj.SetName(name)
+            except Exception:
+                pass
             if render_template:
-                proto.InsertUnder(render_templates_root)
+                mesh_obj.InsertUnder(render_templates_root)
             else:
-                proto.InsertUnder(templates_root)
-            cache[tkey] = proto
-            return proto
+                mesh_obj.InsertUnder(templates_root)
+            cache[tkey] = mesh_obj
+            return mesh_obj
 
         tkey = (
             brick_type.width,
