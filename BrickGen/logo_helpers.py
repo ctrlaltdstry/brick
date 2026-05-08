@@ -108,16 +108,33 @@ def resolve_logo_source_link(op, link_param_id):
     if cache_key is not None:
         cached = _logo_link_cache.get(cache_key)
         if cached is not None:
+            # Distinguish "transient resolution failure (link is still set
+            # but C4D returned None mid-message-dispatch)" from "user
+            # deleted the source mesh or cleared the link." In the first
+            # case the cached object is still in the scene tree and
+            # cached.GetDocument() returns the active doc. In the second
+            # case the cached object is orphaned — IsAlive() may still
+            # return True because of undo retention, but GetDocument()
+            # returns None once the object is no longer in any doc tree.
+            # Only reuse the cache when the cached object is still alive
+            # AND still in a document. Otherwise drop the cache so a
+            # subsequent Enable-Logo toggle doesn't resurrect a deleted
+            # source.
             try:
-                if cached.IsAlive():
-                    _logo_log(
-                        "Logo link transient resolution failed; reusing cached source for param id={0}".format(
-                            link_param_id
-                        )
-                    )
-                    return cached
+                cached_alive = bool(cached.IsAlive())
             except Exception:
-                pass
+                cached_alive = False
+            try:
+                cached_doc = cached.GetDocument() if cached_alive else None
+            except Exception:
+                cached_doc = None
+            if cached_alive and cached_doc is not None:
+                _logo_log(
+                    "Logo link transient resolution failed; reusing cached source for param id={0}".format(
+                        link_param_id
+                    )
+                )
+                return cached
             _logo_link_cache.pop(cache_key, None)
     return None
 
