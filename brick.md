@@ -593,6 +593,144 @@ world-X singularity). Run before changing `brickit_bind.py`,
 **Public prerelease build:** tag `brick-c4d2026-preview-20260503-c8fe7e2` on
 repo `ctrlaltdstry/brick-releases`, asset `Brick.zip` (Windows + C4D 2026).
 
+### v1.0.4 features (2026-05-08)
+
+Five new capabilities ship in v1.0.4. Each is described below with the
+behavior contract that next sessions must preserve.
+
+**Make Physically Accurate now actually delivers connected geometry.**
+The repair + fill pipeline in `brick/buildability_repair.py` runs after
+voxel-island prune and does the real work that "Make Physically
+Accurate" promises:
+
+- Per-brick repair iterates ungrounded bricks in y-ascending order
+  through up to 3 rounds of `rotate → lateral shift → downsize → drop`,
+  re-running `check_buildability` between rounds so cascade
+  repairs converge.
+- After repair, an **anchor pass** plants 1×1 stud-bearing bricks
+  (`plate_1x1` family, biggest height that fits) under overhang root
+  cells — i.e. needs-fill cells whose y-1 is OUTSIDE the source
+  silhouette. Without anchors, voxelized hollow / overhanging shapes
+  fragment into many disconnected components even when fill is run
+  bottom-up. Anchors live OUTSIDE silhouette and are tagged
+  `is_anchor=True` on the `BrickPlacement`. Pipeline strips
+  `is_anchor` placements at the end of `brickify_mesh` so they don't
+  render — they exist only to give overhang cells a foundation to
+  attach to. **Do not render anchors and do not let the coverage
+  scoring count them** (they're outside `occupancy` so this is already
+  free).
+- Fill pass walks needs-fill cells in `(y, z, x)` order, tries the
+  tallest available brick first per cell, falls back through smaller
+  heights and footprints, and uses a `top_at_y` mask + a `top_id_at_y`
+  grid for O(1) support lookups. **Do not flip the height ordering to
+  smallest-first** — that produced visible plate-stack columns where
+  one tall brick would have fit (this was tried and reverted).
+- The first-fit policy is the production code; the score-then-pick
+  variant tried on 2026-05-08 (scoring by `(bridged, support_cells,
+  volume)` and picking the highest) caused full C4D freezes on large
+  scenes with 162-orientation libraries because it iterates every
+  candidate and runs `np.unique` per candidate. Reverted to first-fit.
+  If smarter scoring is reintroduced, **bound the candidate count**
+  before iterating the full library.
+
+Diagnostic histogram: `[brick] Physically Accurate fail histogram:`
+log line in `brickit_fit.py` reports per-y `no_support`,
+`no_candidate`, `collision`, `partial_sil`, `outside_grid`, and
+`overhang` failure counts. The `overhang_by_y` bucket distinguishes
+"y-1 is outside silhouette → real overhang" from "y-1 is inside
+silhouette but empty → fill-pass coverage gap" — used during the
+anchor-pass design and useful for any future repair-tuning work.
+
+**Mirror Left/Right (X axis) toggle.** A user-asserted symmetry hint
+on the BrickIt object that masks `occupancy[half:, :, :] = False`
+right after voxelization, runs the entire pipeline (fit / merge /
+prune / repair / fill) on the left-half-only occupancy, then mirrors
+every placement to the right at the very end of `brickify_mesh`.
+**Do not mirror earlier** (e.g. immediately after fit) — repair and
+fill are pair-unaware, and mirroring before repair allows asymmetric
+shifts to break the symmetry contract. The right-half mirror is
+guaranteed to not overlap the left because the keep-mask zeros out
+both the right half AND the centerline column for odd Nx grids.
+
+For odd-Nx grids the centerline column is filled by a separate
+post-pass that plants 1×1×1 plates bottom-up at every centerline cell
+the source occupancy wanted filled — single-column footprint, no
+overlap with the mirrored bricks. Without that pass odd-Nx models
+showed a visible vertical seam down the middle of the model.
+
+Mirror X toggling triggers a live rebuild via two changes in
+`brickit_messages.py`: `BRICKIFYASSEMBLY_MIRROR_X` is in the
+`is_param_dirty_relevant` set, AND it's in the
+`PRESERVE_TINY_GAPS / SURFACE_ONLY_PLATES`-style explicit
+cache-invalidation block (clears `_fit_cache_key` and
+`_hierarchy_cache_key`, sets `_force_rebuild=True`, calls
+`_dirty(op)`). Adding it to only the dirty-relevant list was not
+enough — it's an A/B-tested toggle and needs the cache invalidation.
+The fit cache key in `brickit_fit.py:_make_fit_key` also includes
+`params.get("mirror_x", False)`.
+
+**Build Info read-only stats panel.** A new collapsible "Build Info"
+group at the bottom of the Object tab (above the User Manual button)
+exposes Brick Count, Library Items, Coverage %, Connected Components,
+Grid Dimensions, and Buildable (Yes/No). Implemented as STRING /
+STATICTEXT fields in `obrickifyassembly.res`. Populated by
+`_update_build_info_panel` in `brickit_runtime.py` from the `info`
+dict that `brickify_mesh` returns. **Do not write to these fields
+from anywhere else** — the helper is the single source of truth.
+Read-only display is intentional; if the user wants finer detail they
+have the console log line.
+
+**Simplified proxies + Box collision shape.** A new "Proxy Style"
+dropdown next to the Create Proxies button picks between **Studded
+(Detailed)** (default, current behavior) and **Simplified (Flat
+Cubes)**. Simplified mode swaps the studded proxy template for an
+8-vertex / 6-quad cube built by `_make_simple_cube_proxy` in
+`brickit_templates.py`. Each face is a single quad (NO triangulation),
+fully welded, watertight. **No Phong tag** so it stays flat-shaded;
+adding a Phong tag with default break-angle would smooth the cube
+into a sphere-look. Coordinate system matches the studded proxy
+convention: low-corner-origin (vertices span 0..w, 0..h, 0..d) so
+`_center_template_mesh` recenters it correctly with no special-case
+math.
+
+When Simplified mode is active, the Fracture-level Rigid Body tag
+that ships with proxies uses `RIGIDBODY_PBD_COLLISION_SHAPES_BOX`
+instead of `_CONVEX_HULLS`. Box is exact for the cube geometry and
+much cheaper than convex-hull decomposition. The flag flows
+`params["proxy_style"]` (read in `brickit_params.py`) →
+`simplified_proxy` local in `_create_mograph_handoff_impl` →
+`_attach_proxy_rigid_body_to_fracture(fracture, simplified=...)`.
+
+**The proxy-style rollout came back in three deploys.** A first
+attempt landed all the IDs, .res / .str entries, and Python plumbing
+in one shot and broke `RegisterObjectPlugin` (BrickIt vanished from
+the Extensions menu, scenes that referenced it loaded with a `?`
+placeholder). Splitting the rollout into stages — IDs only, then
+.res/.str widget, then Python wiring — and deploying between each
+stage isolated the failure surface and produced a clean v1.0.4. **For
+future C4D resource changes that touch IDs + .res + .str + Python
+together, deploy in stages.** The deploy log will tell you BrickIt
+registered (it appears in the Extensions menu) before piling on the
+next stage.
+
+**Status-bar progress indicator.** `brickify_mesh` accepts an optional
+`progress_callback(stage, percent)` parameter. `brickit_fit.py`
+passes a callback that drives `c4d.StatusSetText` /
+`c4d.StatusSetBar` / `c4d.StatusClear` in a try/finally bracket
+spanning fit + hierarchy build. The pipeline calls it at major stage
+boundaries (voxelize 5%, label-islands 25%, fit 35%, merge 60%,
+repair+fill 75%, build 95%). The `try/finally` is critical: without
+it, a build error or an early return leaves the C4D status bar
+"stuck" with a stale "BrickIt: …" label.
+
+**Native plugin menu visibility.** The `bricklibrary.inline_gui`
+panel command was registered with `info=0`, which made it appear in
+Extensions menu as "Brick Library Inline GUI (WIP)" alongside real
+plugins. v1.0.4 sets `PLUGINFLAG_HIDEPLUGINMENU` on the
+`RegisterCommandPlugin` call in `native/bricklibrary.inline_gui/source/main.cpp`
+so it stays internal-only. The native plugin still functions; it's
+just hidden from the user's menu.
+
 ## The brick generator (current focus)
 
 Two implementations exist. **Use `brick_geom_hires.py`. The other one
