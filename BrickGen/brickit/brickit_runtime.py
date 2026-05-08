@@ -65,6 +65,55 @@ def _update_build_info_panel(op, info, placements):
     except Exception:
         pass
 
+    # Build animation: BUILD_STEP is the authoritative integer stepper.
+    # Update its scrubable max + the read-only displays + auto-rescale
+    # the step when the total brick count has changed across regenerate.
+    try:
+        n_bricks_total = max(0, int(len(placements or [])))
+        try:
+            prev_total = int(op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] or 0)
+        except Exception:
+            prev_total = 0
+        # Stepper is REAL — keep fractional values across rebuilds so
+        # animation keyframes mid-brick aren't quantized.
+        try:
+            current_step = max(0.0, float(op[BRICKIFYASSEMBLY_BUILD_STEP] or 0.0))
+        except Exception:
+            current_step = 0.0
+        # Auto-rescale: if the total changed, preserve the step's
+        # PROPORTION of the build instead of its absolute brick index.
+        # First-fit case (prev_total == 0) skips rescale and snaps to
+        # the new total so default scenes show a fully-built model.
+        if prev_total == 0:
+            current_step = float(n_bricks_total)
+        elif prev_total != n_bricks_total and prev_total > 0:
+            ratio = current_step / float(prev_total)
+            current_step = ratio * float(n_bricks_total)
+        current_step = max(0.0, min(current_step, float(n_bricks_total)))
+        try:
+            op[BRICKIFYASSEMBLY_BUILD_STEP] = current_step
+        except Exception:
+            pass
+        try:
+            op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] = n_bricks_total
+        except Exception:
+            pass
+        try:
+            op[BRICKIFYASSEMBLY_BUILD_TOTAL_BRICKS] = "{0:,}".format(
+                n_bricks_total
+            )
+        except Exception:
+            pass
+        try:
+            pct = (
+                100.0 * current_step / float(max(1, n_bricks_total))
+            )
+            op[BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT] = "{0:.1f}%".format(pct)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 
 def _sweep_orphaned_auto_added(op):
     """Drop list entries flagged AUTO_ADDED whose object is no longer a

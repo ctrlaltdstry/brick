@@ -809,15 +809,40 @@ CONTAINER obrickifyassembly
             COLUMNS 1;
             SCALE_H;
 
-            REAL BRICKIFYASSEMBLY_BUILD_PROGRESS
+            // Build Step (authoritative): integer stepper that maps
+            // 1:1 to bricks placed so far. Range [0, total_bricks];
+            // step==0 → no bricks visible, step==total → full build.
+            // The percent and total-bricks fields are derived
+            // read-only displays sharing this row. Plain LONG (no
+            // CUSTOMGUI) renders as a number field with up/down arrows
+            // — no slider track.
+            GROUP
             {
-                NAME BRICKIFYASSEMBLY_BUILD_PROGRESS;
-                CUSTOMGUI REALSLIDER;
+                DEFAULT 1;
+                COLUMNS 3;
                 SCALE_H;
-                MIN 0.0;
-                MAX 100.0;
-                STEP 0.01;
-                DEFAULT 100.0;
+
+                REAL BRICKIFYASSEMBLY_BUILD_STEP
+                {
+                    NAME BRICKIFYASSEMBLY_BUILD_STEP;
+                    ANIM ON;
+                    MIN 0.0;
+                    MAX 100000.0;
+                    STEP 0.01;
+                    DEFAULT 0.0;
+                }
+
+                STRING BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT
+                {
+                    NAME BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT;
+                    CUSTOMGUI STATICTEXT;
+                }
+
+                STRING BRICKIFYASSEMBLY_BUILD_TOTAL_BRICKS
+                {
+                    NAME BRICKIFYASSEMBLY_BUILD_TOTAL_BRICKS;
+                    CUSTOMGUI STATICTEXT;
+                }
             }
 
             REAL BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS

@@ -74,6 +74,7 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER,
         BRICKIFYASSEMBLY_VISUALIZATION_MODE,
         BRICKIFYASSEMBLY_BUILD_PROGRESS,
+        BRICKIFYASSEMBLY_BUILD_STEP,
         BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS,
         BRICKIFYASSEMBLY_BUILD_Y_OFFSET,
         BRICKIFYASSEMBLY_BUILD_STAGGER,
@@ -245,6 +246,32 @@ def Message(self, op, msg_type, data):
                 _dirty(op)
             else:
                 _dirty(op)
+            if desc_id == BRICKIFYASSEMBLY_BUILD_STEP:
+                # The .res declares MAX 100000 as a static placeholder
+                # (per-instance dynamic MAX would require GetDDescription
+                # overrides). Clamp the value here on commit so the
+                # stepper effectively caps at total_bricks even though
+                # the visual range allows scrubbing past it. The clamp
+                # also updates the read-only Progress display.
+                # Stepper is REAL — fractional values scrub bricks
+                # mid-fall, so we don't round to int here.
+                try:
+                    step = max(0.0, float(op[BRICKIFYASSEMBLY_BUILD_STEP] or 0.0))
+                    total = max(1, int(
+                        op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] or 1
+                    ))
+                    if step > float(total):
+                        step = float(total)
+                        try:
+                            op[BRICKIFYASSEMBLY_BUILD_STEP] = step
+                        except Exception:
+                            pass
+                    pct = 100.0 * step / float(total)
+                    op[BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT] = (
+                        "{0:.1f}%".format(pct)
+                    )
+                except Exception:
+                    pass
             if desc_id == BRICKIFYASSEMBLY_LIBRARY_MASK:
                 _apply_library_mask_to_toggles(op, _read_library_mask(op))
                 _dirty(op)

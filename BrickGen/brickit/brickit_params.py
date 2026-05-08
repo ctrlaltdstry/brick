@@ -352,13 +352,30 @@ def _resolve_params(self, op, source_obj):
         logo_mix_seed = max(0, int(op[BRICKIFYASSEMBLY_LOGO_MIX_SEED] or 0))
     except Exception:
         logo_mix_seed = 0
-    build_progress_raw = op[BRICKIFYASSEMBLY_BUILD_PROGRESS]
-    if build_progress_raw is None:
-        build_progress_raw = 100.0
-    build_progress = max(0.0, min(1.0, float(build_progress_raw) / 100.0))
+    # Build animation: BUILD_STEP (integer brick count) is the
+    # authoritative param. We derive build_progress (0..1 float) from
+    # step / total_bricks. The total brick count comes from the cached
+    # fit info; before the first fit we fall back to 1 to avoid div/0
+    # and treat the build as fully placed.
+    try:
+        build_step_raw = op[BRICKIFYASSEMBLY_BUILD_STEP]
+    except Exception:
+        build_step_raw = 0.0
+    # Stepper is REAL so the user can scrub fractional positions and
+    # see bricks mid-fall instead of snapping integer-by-integer.
+    build_step = max(0.0, float(build_step_raw or 0.0))
+    try:
+        build_total_bricks = max(
+            1, int(op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] or 1)
+        )
+    except Exception:
+        build_total_bricks = 1
+    build_progress = max(
+        0.0, min(1.0, build_step / float(build_total_bricks))
+    )
     build_progress_time = _param_linear_timeline(
         op,
-        BRICKIFYASSEMBLY_BUILD_PROGRESS,
+        BRICKIFYASSEMBLY_BUILD_STEP,
         build_progress,
     )
     smooth_top_progress_raw = op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS]
