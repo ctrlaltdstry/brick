@@ -36,6 +36,12 @@ class BrickPlacement:
                                                   # the artist's materials
                                                   # can apply ANY palette
                                                   # via shader logic.
+    is_anchor: bool = False # True for support-only bricks planted under
+                            # overhangs to give the cell above something
+                            # to attach to. These live OUTSIDE the source
+                            # silhouette and are not counted toward
+                            # coverage. Render code may choose to hide
+                            # or distinctly mark them.
 
     @property
     def w(self) -> int:

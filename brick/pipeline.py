@@ -530,6 +530,8 @@ def brickify_mesh(
     relaxed_boundary_fit: bool = False,
     precomputed_voxels: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]] = None,
     include_debug_info: bool = True,
+    progress_callback: Optional[Any] = None,
+    mirror_x: bool = False,
 ) -> Tuple[List[BrickPlacement], Dict[str, Any]]:
     """Run the full mesh -> brick placements pipeline.
 
@@ -557,6 +559,16 @@ def brickify_mesh(
     voxel_backend_key = normalize_voxel_backend(voxel_backend)
     connectivity_required = False
     effective_prune_connectivity = bool(prune_connectivity)
+
+    def _progress(stage: str, pct: int) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(stage, int(pct))
+        except Exception:
+            pass
+
+    _progress("voxelizing", 5)
     t0 = time.perf_counter()
     if precomputed_voxels is not None:
         occupancy, colors, origin, backend_info = precomputed_voxels
@@ -578,6 +590,35 @@ def brickify_mesh(
             preserve_tiny_gaps=preserve_tiny_gaps,
         )
     timings["voxel_input_seconds"] = float(time.perf_counter() - t0)
+
+    # Mirror mode setup: mask the right half AND the centerline column
+    # to False immediately after voxelization. Left half = cells where
+    # x < Nx_full // 2. The centerline column is dropped intentionally —
+    # if we kept it, bricks could straddle it and their mirrored twins
+    # would overlap, producing bad placements. Cost: for odd Nx_full,
+    # the user loses one column of coverage at x = Nx_full // 2. This
+    # is a small price for guaranteed symmetry. We mirror the resulting
+    # placements at the very end of the pipeline.
+    mirror_state = None
+    if mirror_x:
+        Nx_full = int(occupancy.shape[0])
+        half = Nx_full // 2
+        keep_mask = np.zeros_like(occupancy)
+        keep_mask[:half, :, :] = True
+        # Stash a copy of the centerline column from the ORIGINAL
+        # occupancy so the post-mirror centerline-fill pass knows which
+        # cells to plant 1x1 plates at.
+        centerline_occ = (
+            occupancy[half, :, :].copy() if Nx_full > half else None
+        )
+        mirror_state = {
+            "Nx_full": Nx_full,
+            "half": half,
+            "centerline_occ": centerline_occ,
+        }
+        occupancy = occupancy & keep_mask
+
+    _progress("labeling islands", 25)
 
     # Preserve detached voxel islands as separate source subassemblies. The
     # placement-level pass below removes only floating fragments within each
@@ -610,6 +651,8 @@ def brickify_mesh(
         height_mix_seed=height_mix_seed,
         height_mix_amount=height_mix_amount,
     )
+
+    _progress("fitting bricks", 35)
     t0 = time.perf_counter()
     placements = fitter.fit(
         occupancy,
@@ -620,6 +663,7 @@ def brickify_mesh(
         relaxed_boundary_fit=relaxed_boundary_fit,
     )
     timings["fit_seconds"] = float(time.perf_counter() - t0)
+    _progress("merging bricks", 60)
 
     # Vertical plate merging is purely structural and intentionally
     # independent of surface_only_plates (which is a cosmetic top-cap render
@@ -681,6 +725,34 @@ def brickify_mesh(
     else:
         prune_skipped = True
     timings["placement_prune_seconds"] = float(time.perf_counter() - t0)
+
+    # Per-brick repair pass for within-island floating bricks. The
+    # voxel-island prune above removes isolated fragments, but it
+    # doesn't catch bricks that are voxel-adjacent to the main island
+    # yet have no real stud-to-cavity support. Try to fix each via
+    # rotate → lateral shift → downsize → drop, then a bottom-up fill
+    # pass to cover any voxel cells the drops left empty.
+    repair_summary: Dict[str, Any] = {
+        "rounds": 0,
+        "repaired_rotated": 0,
+        "repaired_shifted": 0,
+        "repaired_downsized": 0,
+        "dropped_unrepairable": 0,
+        "still_ungrounded": 0,
+        "fill_added_bricks": 0,
+        "fill_cells_filled": 0,
+    }
+    _progress("repairing & filling", 75)
+    t0 = time.perf_counter()
+    if effective_prune_connectivity and placements:
+        from .buildability_repair import repair_unsupported
+        placements, repair_summary = repair_unsupported(
+            placements,
+            library if library is not None else BrickLibrary(),
+            max_rounds=3,
+            occupancy=occupancy,
+        )
+    timings["buildability_repair_seconds"] = float(time.perf_counter() - t0)
 
     t0 = time.perf_counter()
     if effective_prune_connectivity:
@@ -771,6 +843,7 @@ def brickify_mesh(
         "buildability": pre_prune_buildability_report,
         "final_buildability": final_buildability_report,
         "physical_repair": physical_repair_report,
+        "buildability_repair": repair_summary,
         "occupancy_cells": occupancy_cells,
         "debug_info_included": bool(include_debug_info),
         "timings": timings,
@@ -778,6 +851,95 @@ def brickify_mesh(
     for key, value in backend_info.items():
         if key.startswith("voxel_backend_") and key not in info:
             info[key] = value
+
+    # Anchors are support-only bricks planted outside the silhouette to
+    # give overhang cells something to attach to. They were necessary
+    # for the buildability/coverage reports above to be accurate, but
+    # they must NOT render — otherwise the visible model bulges out
+    # past the source mesh wherever an overhang lives. Strip them now.
+    n_anchors_stripped = sum(
+        1 for p in placements if bool(getattr(p, "is_anchor", False))
+    )
+    if n_anchors_stripped:
+        placements = [
+            p for p in placements if not bool(getattr(p, "is_anchor", False))
+        ]
+        info["anchors_stripped"] = int(n_anchors_stripped)
+
+    # Mirror pass: now that fit, merge, repair, and fill have all
+    # finished on the left-half-only occupancy, duplicate every
+    # placement to the right half. A brick at (x, y, z) with width w
+    # mirrors to (Nx_full - x - w, y, z); height/depth/rotation stay.
+    # The keep_mask earlier guaranteed every placement has x + w <= half,
+    # so the mirror's leftmost column (Nx_full - x - w) is >= half — no
+    # overlap is possible.
+    if mirror_state is not None:
+        Nx_full = mirror_state["Nx_full"]
+        half = mirror_state["half"]
+        centerline_occ = mirror_state.get("centerline_occ")
+        mirrored: List[BrickPlacement] = []
+        for p in placements:
+            mx = Nx_full - int(p.x) - int(p.w)
+            mirrored.append(BrickPlacement(
+                brick=p.brick,
+                x=mx,
+                y=int(p.y),
+                z=int(p.z),
+                rotation_y=int(p.rotation_y),
+                color_idx=int(getattr(p, "color_idx", -1)),
+                rgb=tuple(getattr(p, "rgb", (180, 180, 180))),
+            ))
+        placements = list(placements) + mirrored
+        info["mirrored_placements"] = int(len(mirrored))
+
+        # Centerline post-fill: for odd Nx_full, the centerline column
+        # x=half was masked out earlier to prevent mirror-overlap. Now
+        # that the mirror is done, plant 1x1x1 plates in centerline
+        # cells the source mesh wanted filled, walking bottom-up so
+        # each plate gets support from the one below (or the build
+        # plate at y=0). 1x1 footprint guarantees no overlap with the
+        # left or right halves' bricks. We do this only when Nx_full
+        # is odd; for even Nx, there's no centerline column and the
+        # left/right halves meet directly.
+        if (
+            (Nx_full % 2 == 1)
+            and centerline_occ is not None
+            and bool(centerline_occ.any())
+        ):
+            lib = library if library is not None else BrickLibrary()
+            plate_1x1 = None
+            for bt in lib.bricks:
+                if int(bt.width) == 1 and int(bt.depth) == 1 and int(bt.height) == 1:
+                    plate_1x1 = bt
+                    break
+            if plate_1x1 is not None:
+                # centerline_occ shape is (Ny, Nz). Walk every (y, z)
+                # in ascending y so each plate's support comes from the
+                # plate placed in the previous y iteration.
+                Ny_grid, Nz_grid = int(centerline_occ.shape[0]), int(centerline_occ.shape[1])
+                centerline_added = 0
+                for y in range(Ny_grid):
+                    for z in range(Nz_grid):
+                        if not bool(centerline_occ[y, z]):
+                            continue
+                        # Support: y=0 always supported. y>0 needs the
+                        # cell below to also be a placed centerline
+                        # plate (since we're walking up from y=0, this
+                        # is True iff the source occupancy had y-1, z).
+                        if y > 0 and not bool(centerline_occ[y - 1, z]):
+                            continue
+                        placements.append(BrickPlacement(
+                            brick=plate_1x1,
+                            x=half,
+                            y=y,
+                            z=z,
+                            rotation_y=0,
+                            color_idx=-1,
+                            rgb=(180, 180, 180),
+                        ))
+                        centerline_added += 1
+                info["centerline_plates_added"] = int(centerline_added)
+
     return placements, info
 
 
