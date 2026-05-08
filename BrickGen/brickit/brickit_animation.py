@@ -37,6 +37,11 @@ BUILD_ANIMATION_DEFAULT_Y_OFFSET = 25.0
 BUILD_ANIMATION_DEFAULT_STAGGER = 0.10
 BUILD_ANIMATION_MIN_EFFECTIVE_STAGGER = 0.03
 BUILD_ANIMATION_IN_LAYER_STAGGER = 0.35
+
+# Brick-index scheduling: stagger maps 0..1 to in-flight brick count
+# 1..BUILD_ANIMATION_IN_FLIGHT_MAX. Stagger=0 → strict one-at-a-time,
+# stagger=1 → loose swarm (~20 bricks falling at once).
+BUILD_ANIMATION_IN_FLIGHT_MAX = 20
 BUILD_ANIMATION_VISIBLE_AHEAD_LAYERS = 2.0
 BUILD_ANIMATION_Y_OFFSET_VARIATION = 0.45
 BUILD_ANIMATION_MIN_HANG_EXPONENT = 0.35
@@ -1339,40 +1344,61 @@ def _build_fixed_motion_states_for_ordered(
     upper/later bricks from having their curve squeezed into the end of the
     slider range.
     """
-    layer_indices, layer_count, layer_ranks = _ordered_layer_timing(ordered)
-    if not layer_indices:
+    n = len(ordered)
+    if n <= 0:
         return []
 
+    # Brick-index scheduling with a per-layer barrier.
+    #
+    # Two independent timing concepts:
+    #
+    # - `duration` = how many cursor ticks each brick's individual drop
+    #   takes. Constant per build so the fall is always visible no
+    #   matter what stagger is set to.
+    #
+    # - `step_size` = how many cursor ticks pass between consecutive
+    #   bricks starting. Driven by stagger:
+    #     stagger=0  → step_size == duration   (strict sequential, no
+    #                                           in-flight overlap)
+    #     stagger=1  → step_size == 1          (max overlap, swarm)
+    #
+    # The per-layer barrier additionally jumps the cursor when the Y
+    # changes so layer N+1's first brick can't start until layer N's
+    # last brick has finished its drop — even at stagger=1.
     effective_stagger = _effective_stagger(stagger)
-    duration = max(
-        0.0001,
-        min(1.0, float(BUILD_ANIMATION_FIXED_MOTION_DURATION)),
-    )
-    start_span = max(0.0, 1.0 - duration)
-    schedule_positions = []
-    for i in range(len(ordered)):
-        schedule_positions.append(
-            float(layer_indices[i])
-            + (
-                float(layer_ranks[i])
-                * effective_stagger
-                * BUILD_ANIMATION_IN_LAYER_STAGGER
-            )
-        )
-    schedule_range = max(schedule_positions) if schedule_positions else 0.0
+    duration = float(BUILD_ANIMATION_IN_FLIGHT_MAX)
+    step_size = max(1.0, duration - effective_stagger * (duration - 1.0))
+
+    start_ticks = [0.0] * n
+    cursor_pos = 0.0
+    prev_layer = None
+    last_brick_in_layer_start = 0.0
+    for i, placement in enumerate(ordered):
+        layer = int(getattr(placement, "y", 0))
+        if prev_layer is not None and layer != prev_layer:
+            # New layer: wait for the previous layer's last-started
+            # brick to finish its drop. That brick started at
+            # last_brick_in_layer_start and lands `duration` later.
+            cursor_pos = last_brick_in_layer_start + duration
+        start_ticks[i] = cursor_pos
+        last_brick_in_layer_start = cursor_pos
+        cursor_pos += step_size
+        prev_layer = layer
+    total_ticks = last_brick_in_layer_start + duration
+    if total_ticks <= 0.0:
+        total_ticks = 1.0
 
     p = _clamp01(progress)
     motion_p = _clamp01(p if time_progress is None else time_progress)
     if int(motion_curve) != BUILD_MOTION_CURVE_BOUNCE:
         motion_p = p
+    cursor = motion_p * total_ticks
     start_offset = max(0.0, float(y_offset))
     states = []
     for i, placement in enumerate(ordered):
-        if schedule_range <= 0.0:
-            placement_start = 0.0
-        else:
-            placement_start = (schedule_positions[i] / schedule_range) * start_span
-        local_progress = _clamp01((motion_p - placement_start) / duration)
+        # local_progress = how far brick i is through its individual
+        # drop. 0 = just started, 1 = landed.
+        local_progress = _clamp01((cursor - start_ticks[i]) / duration)
         if motion_p >= 1.0 or local_progress >= 1.0 - 1.0e-9:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, hang_time)
