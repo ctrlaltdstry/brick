@@ -124,7 +124,7 @@ def _set_document_to_frame_zero(doc):
             pass
 
 
-def _attach_proxy_rigid_body_to_fracture(fracture):
+def _attach_proxy_rigid_body_to_fracture(fracture, *, simplified=False):
     """Add one Rigid Body tag to the parent Fracture so the entire proxy
     assembly simulates as a single Fracture-level rig.
 
@@ -134,6 +134,10 @@ def _attach_proxy_rigid_body_to_fracture(fracture):
     one independently).  One tag at the top is easier for the user to
     tweak than per-carrier tags.  Tag ships disabled; the user opts in by
     toggling Enabled on the assembly via the Select All RBD Tags button.
+
+    When `simplified` is True, the proxy templates are flat 6-quad cubes
+    so we use the Box collision shape — much cheaper than convex-hull
+    decomposition and exact for the cube geometry.
     """
     if fracture is None:
         return False
@@ -150,6 +154,14 @@ def _attach_proxy_rigid_body_to_fracture(fracture):
         tag.SetName("bricks_rigid_body")
     except Exception:
         pass
+    if simplified:
+        collision_shape = getattr(
+            c4d, "RIGIDBODY_PBD_COLLISION_SHAPES_BOX", None
+        )
+    else:
+        collision_shape = getattr(
+            c4d, "RIGIDBODY_PBD_COLLISION_SHAPES_CONVEX_HULLS", None
+        )
     settings = (
         ("RIGIDBODY_USE", False),
         (
@@ -158,7 +170,7 @@ def _attach_proxy_rigid_body_to_fracture(fracture):
         ),
         (
             "RIGIDBODY_PBD_COLLISION_SHAPES",
-            getattr(c4d, "RIGIDBODY_PBD_COLLISION_SHAPES_CONVEX_HULLS", None),
+            collision_shape,
         ),
         ("RIGIDBODY_PBD_CONVEXDECOMPOSITION_ACCURACY", 10.0),
     )
@@ -822,6 +834,15 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             int(brick_type.height),
         )
 
+    # Simplified proxy: only applies when building proxies (not render
+    # templates), and only when the user picked "Simplified" in the
+    # dropdown. Local int compare avoids importing the symbol value at
+    # function-def time — params already comes from brickit_params with
+    # the integer normalized.
+    simplified_proxy = bool(proxy) and (
+        int(params.get("proxy_style", 0) or 0) == 1
+    )
+
     def _get_template_obj(brick_type, smooth_top=False, render_template=False):
         if proxy:
             tkey = (
@@ -830,6 +851,10 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                 brick_type.depth,
                 brick_type.height,
                 int(bool(smooth_top)),
+                # Distinguish simplified vs studded proxy templates in
+                # the cache so a switch between them doesn't reuse the
+                # other style's geometry.
+                int(bool(simplified_proxy and not render_template)),
             )
             cache = type_to_render_template if render_template else type_to_template
             if tkey in cache:
@@ -842,6 +867,8 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             )
             if bool(smooth_top):
                 name += "_smooth"
+            if simplified_proxy and not render_template:
+                name += "_simple"
             if render_template:
                 mesh = self._get_template_mesh(
                     brick_type,
@@ -857,6 +884,7 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
                     stud_size,
                     plate_size,
                     force_smooth_top=bool(smooth_top),
+                    simplified=bool(simplified_proxy),
                 )
             # Build the polygon directly; no Null wrapper. The Null was
             # originally a host for stud-logo Null children (live MoGraph
@@ -1317,7 +1345,9 @@ def _create_mograph_handoff_impl(self, op, *, proxy=False):
             _build_proxy_island_selections(
                 root, proxy_island_carriers, proxy_island_meta
             )
-            _attach_proxy_rigid_body_to_fracture(fracture)
+            _attach_proxy_rigid_body_to_fracture(
+                fracture, simplified=bool(simplified_proxy)
+            )
             # Skip the frame-zero reset when binding is on; the follower
             # tag drives carrier transforms each frame and the user
             # explicitly chose the click-time pose as the dynamics start.

@@ -139,6 +139,14 @@ CONTAINER obrickifyassembly
                 SCALE_H;
             }
 
+            // Row 7: Mirror X | (empty)
+            BOOL BRICKIFYASSEMBLY_MIRROR_X
+            {
+                NAME BRICKIFYASSEMBLY_MIRROR_X;
+                DEFAULT 0;
+                SCALE_H;
+            }
+
             STATICTEXT BRICKIFYASSEMBLY_SPACER_1
             {
                 NAME BRICKIFYASSEMBLY_SPACER_1;
@@ -232,15 +240,43 @@ CONTAINER obrickifyassembly
             DEFAULT 1;
             COLUMNS 1;
 
+            // Row 1: Proxy Style dropdown | Create Proxies button
             GROUP
             {
                 DEFAULT 1;
-                COLUMNS 3;
+                COLUMNS 2;
+
+                LONG BRICKIFYASSEMBLY_PROXY_STYLE
+                {
+                    NAME BRICKIFYASSEMBLY_PROXY_STYLE;
+                    DEFAULT 0;
+                    SCALE_H;
+                    CYCLE
+                    {
+                        BRICKIFYASSEMBLY_PROXY_STYLE_STUDDED;
+                        BRICKIFYASSEMBLY_PROXY_STYLE_SIMPLIFIED;
+                    }
+                }
 
                 BUTTON BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH
                 {
                     NAME BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH;
                 }
+            }
+
+            // Empty STATICTEXT acts as a spacer row — the description
+            // grammar doesn't have a SPACE attribute, so a blank widget
+            // is the canonical way to add vertical padding.
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_4
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_4;
+            }
+
+            // Row 2: Proxy/High Res swap | Create RS Color Material
+            GROUP
+            {
+                DEFAULT 1;
+                COLUMNS 2;
 
                 BUTTON BRICKIFYASSEMBLY_SWAP_PROXY_RENDER
                 {
@@ -251,6 +287,48 @@ CONTAINER obrickifyassembly
                 {
                     NAME BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL;
                 }
+            }
+        }
+
+        GROUP BRICKIFYASSEMBLY_GROUP_BUILD_INFO
+        {
+            DEFAULT 0;
+            COLUMNS 2;
+
+            STRING BRICKIFYASSEMBLY_INFO_BRICK_COUNT
+            {
+                NAME BRICKIFYASSEMBLY_INFO_BRICK_COUNT;
+                CUSTOMGUI STATICTEXT;
+            }
+
+            STRING BRICKIFYASSEMBLY_INFO_LIBRARY_ITEMS
+            {
+                NAME BRICKIFYASSEMBLY_INFO_LIBRARY_ITEMS;
+                CUSTOMGUI STATICTEXT;
+            }
+
+            STRING BRICKIFYASSEMBLY_INFO_COVERAGE
+            {
+                NAME BRICKIFYASSEMBLY_INFO_COVERAGE;
+                CUSTOMGUI STATICTEXT;
+            }
+
+            STRING BRICKIFYASSEMBLY_INFO_COMPONENTS
+            {
+                NAME BRICKIFYASSEMBLY_INFO_COMPONENTS;
+                CUSTOMGUI STATICTEXT;
+            }
+
+            STRING BRICKIFYASSEMBLY_INFO_GRID_DIMS
+            {
+                NAME BRICKIFYASSEMBLY_INFO_GRID_DIMS;
+                CUSTOMGUI STATICTEXT;
+            }
+
+            STRING BRICKIFYASSEMBLY_INFO_BUILDABLE
+            {
+                NAME BRICKIFYASSEMBLY_INFO_BUILDABLE;
+                CUSTOMGUI STATICTEXT;
             }
         }
 

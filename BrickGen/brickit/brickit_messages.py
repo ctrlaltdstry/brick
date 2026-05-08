@@ -115,6 +115,7 @@ def _is_interactive_preview_param(self, desc_id):
         BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
         BRICKIFYASSEMBLY_ENABLE_PLATES,
         BRICKIFYASSEMBLY_VOXEL_BACKEND,
+        BRICKIFYASSEMBLY_MIRROR_X,
     )
 
 
@@ -253,23 +254,41 @@ def Message(self, op, msg_type, data):
                 < BRICKIFYASSEMBLY_BRICK_BASE + len(BRICK_TOGGLE_NAMES)
             ):
                 _sync_library_mask_from_toggles(op)
+            # Live Update OFF means the user has explicitly opted into
+            # manual rebuild control — they want to make several edits
+            # (mode changes, parameter tweaks, source moves) and then
+            # click Rebuild once. Don't sneak in forced rebuilds for
+            # specific param edits in that mode; only the Rebuild button
+            # itself bypasses Live Update.
+            try:
+                _live_update_on = bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD])
+            except Exception:
+                _live_update_on = True
             if desc_id in (
                 BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS,
                 BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES,
+                BRICKIFYASSEMBLY_MIRROR_X,
             ):
                 # This toggle is commonly A/B tested while dialing a model;
                 # force immediate reevaluation so users can see the effect
-                # without requiring manual "Rebuild Now".
+                # without requiring manual "Rebuild Now". Skipped when
+                # Live Update is off — the user gets the rebuild on their
+                # next manual Rebuild click.
                 self._fit_cache_key = None
                 self._hierarchy_cache_key = None
-                self._force_rebuild = True
-                _dirty(op)
+                if _live_update_on:
+                    self._force_rebuild = True
+                    _dirty(op)
             if desc_id == BRICKIFYASSEMBLY_SOURCES:
                 # Sources list edited: invalidate caches and rebuild.
+                # Same Live Update rule — without that gate, mode-cycling
+                # in the sources list would force a rebuild even though
+                # the user explicitly turned Live Update off.
                 self._fit_cache_key = None
                 self._hierarchy_cache_key = None
-                self._force_rebuild = True
-                c4d.EventAdd()
+                if _live_update_on:
+                    self._force_rebuild = True
+                    c4d.EventAdd()
         except Exception:
             pass
     return True

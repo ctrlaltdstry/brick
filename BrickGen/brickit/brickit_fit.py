@@ -148,6 +148,7 @@ def _make_fit_key(self, op, params):
         params["preserve_tiny_gaps"],
         params["enable_plates"],
         params["lib_mask"],
+        params.get("mirror_x", False),
     )
 
 def _make_voxel_key(self, op, params, stud_size, plate_size):
@@ -481,31 +482,52 @@ def _refit_if_needed(self, op, doc, params=None):
 
     _log_first_eval_bm = not getattr(self, "_first_eval_logged", False)
     _t_bm0 = time.perf_counter() if _log_first_eval_bm else 0.0
-    placements, info = brick_mesh(
-        verts, faces,
-        default_color=BRICKIT_DEFAULT_RGB,
-        studs_across=params["studs_across"],
-        stud_size=call_stud_size,
-        voxel_backend=params["voxel_backend"],
-        voxel_mode=params["voxel_mode"],
-        shell_thickness=params["shell_thickness"],
-        detail_mode=params["detail_mode"],
-        max_brick_height=params["max_brick_height"],
-        randomize_heights=params["randomize_heights"],
-        height_mix_seed=params["height_mix_seed"],
-        height_mix_amount=params["height_mix_amount"],
-        merge_plates=params["merge_plates"],
-        prune_connectivity=params["prune"],
-        cleanup_protrusions=params["cleanup_protrusions"],
-        preserve_silhouette=params["preserve_silhouette"],
-        preserve_tiny_gaps=params["preserve_tiny_gaps"],
-        surface_only_plates=False,
-        relaxed_boundary_fit=params["relaxed_boundary_fit"],
-        library=active_library,
-        min_column_voxels=0,
-        precomputed_voxels=precomputed_voxels,
-        include_debug_info=include_debug_info,
-    )
+
+    def _status_progress(stage, pct):
+        # C4D status bar lives on the bottom of the main UI. Setting bar
+        # AND text gives the user both visual progress and a stage label.
+        try:
+            c4d.StatusSetText("BrickIt: {0}...".format(stage))
+            c4d.StatusSetBar(int(max(0, min(100, pct))))
+        except Exception:
+            pass
+
+    try:
+        _status_progress("starting", 1)
+        placements, info = brick_mesh(
+            verts, faces,
+            default_color=BRICKIT_DEFAULT_RGB,
+            studs_across=params["studs_across"],
+            stud_size=call_stud_size,
+            voxel_backend=params["voxel_backend"],
+            voxel_mode=params["voxel_mode"],
+            shell_thickness=params["shell_thickness"],
+            detail_mode=params["detail_mode"],
+            max_brick_height=params["max_brick_height"],
+            randomize_heights=params["randomize_heights"],
+            height_mix_seed=params["height_mix_seed"],
+            height_mix_amount=params["height_mix_amount"],
+            merge_plates=params["merge_plates"],
+            prune_connectivity=params["prune"],
+            cleanup_protrusions=params["cleanup_protrusions"],
+            preserve_silhouette=params["preserve_silhouette"],
+            preserve_tiny_gaps=params["preserve_tiny_gaps"],
+            surface_only_plates=False,
+            relaxed_boundary_fit=params["relaxed_boundary_fit"],
+            library=active_library,
+            min_column_voxels=0,
+            precomputed_voxels=precomputed_voxels,
+            include_debug_info=include_debug_info,
+            progress_callback=_status_progress,
+            mirror_x=bool(params.get("mirror_x", False)),
+        )
+        _status_progress("building output", 90)
+    finally:
+        # Status is cleared by the caller after the MoGraph hierarchy
+        # build finishes; see _clear_brick_status below. We intentionally
+        # don't clear here because the caller has more work to do that
+        # the user should see progress for.
+        pass
     if _log_first_eval_bm:
         _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}
         _bd["brick_mesh"] = (
@@ -530,10 +552,19 @@ def _refit_if_needed(self, op, doc, params=None):
         final_buildability = info.get("final_buildability") or {}
         physical_repair = info.get("physical_repair") or {}
         coverage = info.get("coverage") or {}
+        repair_summary = info.get("buildability_repair") or {}
         _brick_log(
             "[brick] Physically Accurate: ui={0}, effective={1}, dropped={2}, "
             "components_before={3}, components_after={4}, coverage={5:.3f}, "
-            "uncovered={6}, buildable={7}, ungrounded={8}, repair={9}".format(
+            "uncovered={6}, buildable={7}, ungrounded={8}, repair={9}, "
+            "repair_rounds={10}, rotated={11}, shifted={12}, "
+            "downsized={13}, dropped_unrepairable={14}, "
+            "fill_added={15}, fill_cells={16}, fill_needed={17}, "
+            "fill_skip_no_support={18}, fill_skip_outside_sil={19}, "
+            "fill_skip_no_candidate={20}, fill_skip_collision={21}, "
+            "fill_skip_outside_grid={22}, library_heights={23}, "
+            "library_has_1x1x1={24}, library_n_orientations={25}, "
+            "anchors_planted={26}".format(
                 bool(params.get("prune_user")),
                 bool(info.get("prune_connectivity_effective", False)),
                 int(info.get("n_dropped", 0) or 0),
@@ -544,8 +575,51 @@ def _refit_if_needed(self, op, doc, params=None):
                 bool(final_buildability.get("buildable", False)),
                 int(final_buildability.get("n_ungrounded", 0) or 0),
                 str(physical_repair.get("status", "")),
+                int(repair_summary.get("rounds", 0) or 0),
+                int(repair_summary.get("repaired_rotated", 0) or 0),
+                int(repair_summary.get("repaired_shifted", 0) or 0),
+                int(repair_summary.get("repaired_downsized", 0) or 0),
+                int(repair_summary.get("dropped_unrepairable", 0) or 0),
+                int(repair_summary.get("fill_added_bricks", 0) or 0),
+                int(repair_summary.get("fill_cells_filled", 0) or 0),
+                int(repair_summary.get("fill_cells_needed", 0) or 0),
+                int(repair_summary.get("fill_skipped_no_support", 0) or 0),
+                int(repair_summary.get("fill_skipped_outside_silhouette", 0) or 0),
+                int(repair_summary.get("fill_skipped_no_candidate", 0) or 0),
+                int(repair_summary.get("fill_skipped_collision", 0) or 0),
+                int(repair_summary.get("fill_skipped_outside_grid", 0) or 0),
+                list(repair_summary.get("fill_library_heights", []) or []),
+                bool(repair_summary.get("fill_library_has_1x1x1", False)),
+                int(repair_summary.get("fill_library_n_orientations", 0) or 0),
+                int(repair_summary.get("anchors_planted", 0) or 0),
             )
         )
+        try:
+            fail_y_ns = dict(repair_summary.get("fail_y_no_support") or {})
+            fail_y_nc = dict(repair_summary.get("fail_y_no_candidate") or {})
+            fail_y_co = dict(repair_summary.get("fail_y_collision") or {})
+            fail_y_ps = dict(repair_summary.get("fail_y_partial_silhouette") or {})
+            fail_y_og = dict(repair_summary.get("fail_y_outside_grid") or {})
+            fail_y_oh = dict(repair_summary.get("overhang_by_y") or {})
+            if (
+                fail_y_ns or fail_y_nc or fail_y_co
+                or fail_y_ps or fail_y_og or fail_y_oh
+            ):
+                _brick_log(
+                    "[brick] Physically Accurate fail histogram: "
+                    "no_support_by_y={0}  no_candidate_by_y={1}  "
+                    "collision_by_y={2}  partial_sil_by_y={3}  "
+                    "outside_grid_by_y={4}  overhang_by_y={5}".format(
+                        sorted(fail_y_ns.items()),
+                        sorted(fail_y_nc.items()),
+                        sorted(fail_y_co.items()),
+                        sorted(fail_y_ps.items()),
+                        sorted(fail_y_og.items()),
+                        sorted(fail_y_oh.items()),
+                    )
+                )
+        except Exception:
+            pass
     except Exception:
         pass
     if params.get("voxel_backend") == "c4d_volume":

@@ -306,6 +306,18 @@ def _resolve_params(self, op, source_obj):
     # shelves stay intact instead of fragmenting into sparse leftovers.
     preserve_silhouette = bool(only_1x1_library or only_2x_library)
     preserve_tiny_gaps = bool(op[BRICKIFYASSEMBLY_PRESERVE_TINY_GAPS])
+    # Mirror X is a user-asserted symmetry hint: fit the left half only
+    # and mirror placements to the right at the end of the pipeline.
+    try:
+        mirror_x = bool(int(op[BRICKIFYASSEMBLY_MIRROR_X]))
+    except Exception:
+        mirror_x = False
+    # Proxy style: 0 = studded (default), 1 = simplified flat-cube. Used
+    # by the proxy build flow to pick the template mesh shape.
+    try:
+        proxy_style = int(op[BRICKIFYASSEMBLY_PROXY_STYLE] or 0)
+    except Exception:
+        proxy_style = 0
     # UI override for plate placement policy.
     surface_only_plates_ui = bool(op[BRICKIFYASSEMBLY_SURFACE_ONLY_PLATES])
     # Apply in both solid and shell voxel modes, but only when plate usage
@@ -502,6 +514,8 @@ def _resolve_params(self, op, source_obj):
         "cleanup_protrusions": cleanup_protrusions,
         "preserve_silhouette": preserve_silhouette,
         "preserve_tiny_gaps": preserve_tiny_gaps,
+        "mirror_x": mirror_x,
+        "proxy_style": proxy_style,
         "surface_only_plates": surface_only_plates,
         "cap_style": cap_style,
         "cap_random_seed": cap_random_seed,

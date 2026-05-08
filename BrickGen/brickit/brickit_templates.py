@@ -8,6 +8,60 @@ from logo_helpers import (
 from quality_presets import ASSEMBLY_QUALITY_PRESETS, QUALITY_PROXY
 
 
+def _make_simple_cube_proxy(
+    width_studs,
+    depth_studs,
+    height_plates,
+    *,
+    stud_size,
+    plate_size,
+):
+    """Build the simplest possible cube mesh for a brick proxy: 8 verts,
+    6 quads, no studs, fully welded, watertight. Tiles flush with
+    adjacent simplified proxies because there's no stud sticking up.
+
+    Coordinate system: low-corner-origin, matching the existing studded
+    proxy template convention. Vertices span 0..w in X, 0..h in Y,
+    0..d in Z. The proxy build pipeline calls _center_template_mesh on
+    the resulting mesh to shift it to center-pivot before placement.
+    """
+    # Imports inside the function: numpy / brick.mesh aren't guaranteed
+    # to be on sys.path at plugin-registration time. Keeping these out
+    # of module load avoids a registration failure if the path setup
+    # changes.
+    import numpy as np
+    from brick.mesh import Mesh
+    w = float(width_studs) * float(stud_size)
+    d = float(depth_studs) * float(stud_size)
+    h = float(height_plates) * float(plate_size)
+    x0, x1 = 0.0, w
+    y0, y1 = 0.0, h
+    z0, z1 = 0.0, d
+    # 8 corners. Index layout:
+    #   0:(x0,y0,z0) 1:(x1,y0,z0) 2:(x1,y0,z1) 3:(x0,y0,z1)
+    #   4:(x0,y1,z0) 5:(x1,y1,z0) 6:(x1,y1,z1) 7:(x0,y1,z1)
+    vertices = np.array([
+        [x0, y0, z0],
+        [x1, y0, z0],
+        [x1, y0, z1],
+        [x0, y0, z1],
+        [x0, y1, z0],
+        [x1, y1, z0],
+        [x1, y1, z1],
+        [x0, y1, z1],
+    ], dtype=np.float64)
+    # 6 quad faces, CCW from outside.
+    faces = [
+        (0, 3, 2, 1),  # bottom
+        (4, 5, 6, 7),  # top
+        (0, 1, 5, 4),  # front (-Z)
+        (2, 3, 7, 6),  # back (+Z)
+        (0, 4, 7, 3),  # left (-X)
+        (1, 2, 6, 5),  # right (+X)
+    ]
+    return Mesh(vertices=vertices, faces=faces)
+
+
 def _get_template_mesh(
     self,
     brick_type,
@@ -110,9 +164,11 @@ def _get_proxy_template_mesh(
     *,
     inset=0.0,
     force_smooth_top=False,
+    simplified=False,
 ):
     from brick.brick_geom_hires import make_proxy_collider
     is_smooth_visual = int(bool(force_smooth_top))
+    is_simplified = int(bool(simplified))
     key = (
         "proxy",
         brick_type.width,
@@ -122,9 +178,22 @@ def _get_proxy_template_mesh(
         round(plate_size, 6),
         round(float(inset), 6),
         is_smooth_visual,
+        is_simplified,
     )
     if key in self._mesh_cache:
         return self._mesh_cache[key]
+    # Simplified proxy: a flat 6-quad cube with no studs. Skip the OBJ
+    # synthesis and procedural collider paths.
+    if simplified:
+        mesh = _make_simple_cube_proxy(
+            int(brick_type.width),
+            int(brick_type.depth),
+            int(brick_type.height),
+            stud_size=float(stud_size),
+            plate_size=float(plate_size),
+        )
+        self._mesh_cache[key] = mesh
+        return mesh
     # V5 watertight OBJ-based proxy first (matches the path used by
     # _get_template_mesh for QUALITY_PROXY).  V5 doesn't model the
     # procedural inset offset, so skip V5 when inset is non-zero.

@@ -21,6 +21,51 @@ def _has_mograph_effectors_for_runtime(effectors):
     return bool(effectors)
 
 
+def _update_build_info_panel(op, info, placements):
+    """Populate the read-only Build Info STRING fields on `op` from the
+    pipeline `info` dict. Called after each successful rebuild.
+
+    Failures are swallowed: this is purely cosmetic, and the pipeline
+    must not be broken by a bad info dict or a missing UI field.
+    """
+    if op is None:
+        return
+    try:
+        n_bricks = int(len(placements or []))
+        # Distinct (brick_type, rotation) pairs in use.
+        seen = set()
+        for p in (placements or []):
+            try:
+                seen.add((p.brick.name, int(p.rotation_y)))
+            except Exception:
+                continue
+        n_library_items = len(seen)
+
+        coverage = (info or {}).get("coverage") or {}
+        cov_ratio = float(coverage.get("coverage_ratio", 0.0) or 0.0)
+
+        connectivity = (info or {}).get("final_connectivity") or {}
+        n_components = int(connectivity.get("n_components", 0) or 0)
+
+        grid_dims = (info or {}).get("grid_dims") or (0, 0, 0)
+        try:
+            gx, gy, gz = (int(d) for d in grid_dims)
+        except Exception:
+            gx = gy = gz = 0
+
+        final_buildability = (info or {}).get("final_buildability") or {}
+        is_buildable = bool(final_buildability.get("buildable", False))
+
+        op[BRICKIFYASSEMBLY_INFO_BRICK_COUNT] = "{0:,}".format(n_bricks)
+        op[BRICKIFYASSEMBLY_INFO_LIBRARY_ITEMS] = "{0}".format(n_library_items)
+        op[BRICKIFYASSEMBLY_INFO_COVERAGE] = "{0:.1f}%".format(cov_ratio * 100.0)
+        op[BRICKIFYASSEMBLY_INFO_COMPONENTS] = "{0}".format(n_components)
+        op[BRICKIFYASSEMBLY_INFO_GRID_DIMS] = "{0} x {1} x {2}".format(gx, gy, gz)
+        op[BRICKIFYASSEMBLY_INFO_BUILDABLE] = "Yes" if is_buildable else "No"
+    except Exception:
+        pass
+
+
 def _sweep_orphaned_auto_added(op):
     """Drop list entries flagged AUTO_ADDED whose object is no longer a
     direct child of the host BrickIt. Drag-dropped entries (AUTO_ADDED bit
@@ -274,6 +319,54 @@ def GetVirtualObjects(self, op, hh):
     # drag-drop, OM reparent, list-delete, scene-delete, etc.
     _sync_source_visibility(self, op)
 
+    # Live Update gate: when the user unchecks Live Update, skip the
+    # full refit-and-rebuild on every viewport tick so they can drag
+    # source meshes, tweak parameters, or scrub the timeline without
+    # paying the cost. The cached output comes from C4D's generator
+    # cache — no extra state to manage on our side.
+    #
+    # Single-source case: we update the cached root's local matrix to
+    # follow the source's current transform, so the bricks rigid-
+    # translate/rotate/scale with the source mesh as the user moves
+    # it. The brick fit itself stays frozen (cheap), but the visible
+    # output tracks the source's position. This matches the user's
+    # mental model — "I moved the source, the existing bricks should
+    # come with it."
+    #
+    # Multi-source case: bricks are a composite of all sources via
+    # union/subtract/intersect, so moving one source would need a
+    # full refit to reflect the new boolean result. We can't rigid-
+    # follow a single source. The output stays frozen until the user
+    # re-enables Live Update or clicks Rebuild.
+    #
+    # The user can force a full build by clicking Rebuild (which sets
+    # self._force_rebuild = True before the next eval) or by re-
+    # checking Live Update.
+    try:
+        live_update = bool(op[BRICKIFYASSEMBLY_AUTO_REBUILD])
+    except Exception:
+        live_update = True
+    if not live_update and not self._force_rebuild:
+        cached = op.GetCache(hh)
+        if cached is not None:
+            try:
+                from .brickit_sources import enumerate_brickit_sources as _enum_sources
+                pairs = _enum_sources(op)
+            except Exception:
+                pairs = []
+            if len(pairs) == 1:
+                single_source = pairs[0][0]
+                if single_source is not None:
+                    try:
+                        from source_geometry import source_axis_local_matrix as _src_axis_local
+                        cached.SetMl(_src_axis_local(op, single_source))
+                    except Exception:
+                        pass
+            return cached
+        # No cached output yet (first eval after toggling off Live Update
+        # before anything was built) — fall through to a normal build so
+        # the user sees something instead of an empty viewport.
+
     # Defer the first heavy GVO eval after this Python instance was
     # constructed (i.e. after scene-load deserialization). Returning a
     # cheap empty placeholder lets the Object Manager become responsive
@@ -482,16 +575,42 @@ def GetVirtualObjects(self, op, hh):
 
     t_build0 = time.perf_counter()
     t0 = time.perf_counter()
-    if not self._refit_if_needed(op, doc, params):
-        return None
+    try:
+        if not self._refit_if_needed(op, doc, params):
+            try:
+                c4d.StatusClear()
+            except Exception:
+                pass
+            return None
+    except Exception:
+        try:
+            c4d.StatusClear()
+        except Exception:
+            pass
+        raise
     refit_seconds = time.perf_counter() - t0
     _maybe_rebind(self, params)
 
+    try:
+        c4d.StatusSetText("BrickIt: building hierarchy...")
+        c4d.StatusSetBar(95)
+    except Exception:
+        pass
+
     t0 = time.perf_counter()
-    if params.get("visualization_mode") == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE:
-        result = self._build_integrated_mograph_hierarchy(op, params=params)
-    else:
-        result = self._build_hierarchy(op)
+    try:
+        if params.get("visualization_mode") == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE:
+            result = self._build_integrated_mograph_hierarchy(op, params=params)
+        else:
+            result = self._build_hierarchy(op)
+    finally:
+        # Always clear the status bar — whether the build succeeded,
+        # returned None, or raised. Otherwise the bar is left "stuck" and
+        # the next non-BrickIt operation inherits a confusing label.
+        try:
+            c4d.StatusClear()
+        except Exception:
+            pass
     hierarchy_seconds = time.perf_counter() - t0
     total_seconds = time.perf_counter() - t_build0
     try:
@@ -507,6 +626,14 @@ def GetVirtualObjects(self, op, hh):
         )
     except Exception:
         pass
+
+    # Update the read-only Build Info panel from the most recent pipeline
+    # info. Cosmetic only — wrapped to never affect the build result.
+    _update_build_info_panel(
+        op,
+        getattr(self, "_fit_info", None),
+        getattr(self, "_fit_placements", None),
+    )
     if log_first_eval:
         # Stage breakdown for the very first GVO evaluation of this BrickIt
         # in the current C4D session. This is the cost the user feels as

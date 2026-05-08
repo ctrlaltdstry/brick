@@ -581,6 +581,7 @@ class BrickAssembly(plugins.ObjectData):
         *,
         inset=0.0,
         force_smooth_top=False,
+        simplified=False,
     ):
         return _template_get_proxy_template_mesh(
             self,
@@ -589,6 +590,7 @@ class BrickAssembly(plugins.ObjectData):
             plate_size,
             inset=inset,
             force_smooth_top=force_smooth_top,
+            simplified=simplified,
         )
 
     def _create_proxy_mograph_handoff(self, op):
