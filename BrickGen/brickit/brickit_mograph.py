@@ -277,12 +277,17 @@ _PROXY_TEMPLATE_NAME_RE = None
 
 
 def _parse_proxy_template_name(name):
-    """Parse "proxy_brick_WxDxHp[_smooth]" into (w, d, h, smooth_top)."""
+    """Parse "proxy_brick_WxDxHp[_smooth][_simple]" into
+    (w, d, h, smooth_top). The trailing `_simple` suffix marks a
+    simplified-cube proxy template (Proxy Style = Simplified). It is
+    parsed and ignored here — the proxy→hi-res swap always builds the
+    full-detail render template regardless of how the proxy was made.
+    """
     global _PROXY_TEMPLATE_NAME_RE
     import re
     if _PROXY_TEMPLATE_NAME_RE is None:
         _PROXY_TEMPLATE_NAME_RE = re.compile(
-            r"^proxy_brick_(\d+)x(\d+)_h(\d+)p(_smooth)?$"
+            r"^proxy_brick_(\d+)x(\d+)_h(\d+)p(_smooth)?(_simple)?$"
         )
     if not name:
         return None
@@ -1482,6 +1487,24 @@ def _swap_proxy_to_render_handoff(self, op):
                         target_mode = "proxy"
             if target_mode is None:
                 continue
+            # Going proxy→render: wipe any pre-existing render templates so
+            # the lazy builder below rebuilds them at the BrickIt's CURRENT
+            # Brick Mesh Detail. Without this, swapping at quality A,
+            # swapping back to proxy, changing quality to B, and swapping
+            # again would silently reuse the quality-A render templates
+            # cached under render_root from the first swap. The cache reuse
+            # WITHIN one swap (so 50 instances of brick_2x4 share one
+            # template) still works — render_templates gets repopulated as
+            # each unique target_name is built lazily.
+            if target_mode == "render" and render_templates:
+                for stale_name, stale_template in list(render_templates.items()):
+                    try:
+                        if stale_template is not None and stale_template.IsAlive():
+                            doc.AddUndo(c4d.UNDOTYPE_DELETE, stale_template)
+                            stale_template.Remove()
+                    except Exception:
+                        pass
+                render_templates = {}
             rig_swaps = 0
             # Default per-brick rotation when the instance was created before
             # ID_BRICKIT_INSTANCE_LOGO_ROT existed: fall back to the user's
