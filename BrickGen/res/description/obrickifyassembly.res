@@ -240,7 +240,7 @@ CONTAINER obrickifyassembly
             DEFAULT 1;
             COLUMNS 1;
 
-            // Row 1: Proxy Style dropdown | Create Proxies button
+            // Row 1: Proxy Style dropdown | Brick Mesh Detail dropdown
             GROUP
             {
                 DEFAULT 1;
@@ -258,34 +258,73 @@ CONTAINER obrickifyassembly
                     }
                 }
 
-                BUTTON BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH
+                LONG BRICKIFYASSEMBLY_QUALITY
                 {
-                    NAME BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH;
+                    NAME BRICKIFYASSEMBLY_QUALITY;
+                    DEFAULT 3;
+                    SCALE_H;
+                    CYCLE
+                    {
+                        BRICKIFYASSEMBLY_QUALITY_PROXY;
+                        BRICKIFYASSEMBLY_QUALITY_DRAFT;
+                        BRICKIFYASSEMBLY_QUALITY_STANDARD;
+                        BRICKIFYASSEMBLY_QUALITY_HERO;
+                    }
                 }
             }
 
-            // Empty STATICTEXT acts as a spacer row — the description
-            // grammar doesn't have a SPACE attribute, so a blank widget
-            // is the canonical way to add vertical padding.
+            // Spacer for vertical padding between row 1 and the Create
+            // Proxies button.
             STATICTEXT BRICKIFYASSEMBLY_SPACER_4
             {
                 NAME BRICKIFYASSEMBLY_SPACER_4;
             }
 
-            // Row 2: Proxy/High Res swap | Create RS Color Material
+            // Row 2: Create Proxies button — spans the full width as a
+            // single-column inner group with SCALE_H. The button is the
+            // primary action of the Tools section, so it gets visual
+            // weight by being the only widget on its row.
+            GROUP
+            {
+                DEFAULT 1;
+                COLUMNS 1;
+                SCALE_H;
+
+                BUTTON BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH
+                {
+                    NAME BRICKIFYASSEMBLY_CREATE_PROXY_MOGRAPH;
+                    SCALE_H;
+                }
+            }
+
+            // Spacer between the Create Proxies row and the secondary
+            // actions row.
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_2
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_2;
+            }
+
+            // Row 3: Proxy/High Res swap | Create RS Color Material —
+            // each button takes half the row width, matching the visual
+            // width of the Create Proxies button above. SCALE_H on both
+            // the inner group and each button is what gets the layout
+            // engine to actually stretch them to fill 50/50.
             GROUP
             {
                 DEFAULT 1;
                 COLUMNS 2;
+                SCALE_H;
 
                 BUTTON BRICKIFYASSEMBLY_SWAP_PROXY_RENDER
                 {
                     NAME BRICKIFYASSEMBLY_SWAP_PROXY_RENDER;
+                    SCALE_H;
                 }
 
                 BUTTON BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL
                 {
                     NAME BRICKIFYASSEMBLY_CREATE_RS_COLOR_MATERIAL;
+                    SCALE_H;
                 }
             }
         }
@@ -597,25 +636,6 @@ CONTAINER obrickifyassembly
     {
         DEFAULT 1;
         COLUMNS 1;
-
-        GROUP BRICKIFYASSEMBLY_GROUP_DISPLAY
-        {
-            DEFAULT 1;
-            COLUMNS 1;
-
-            LONG BRICKIFYASSEMBLY_QUALITY
-            {
-                NAME BRICKIFYASSEMBLY_QUALITY;
-                DEFAULT 3;
-                CYCLE
-                {
-                    BRICKIFYASSEMBLY_QUALITY_PROXY;
-                    BRICKIFYASSEMBLY_QUALITY_DRAFT;
-                    BRICKIFYASSEMBLY_QUALITY_STANDARD;
-                    BRICKIFYASSEMBLY_QUALITY_HERO;
-                }
-            }
-        }
 
         GROUP BRICKIFYASSEMBLY_GROUP_PREVIEW_DEBUG
         {
