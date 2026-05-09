@@ -145,10 +145,15 @@ def Message(self, op, msg_type, data):
             except Exception:
                 pass
         elif desc_id == BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME:
-            # Invalidate everything so the next GVO bypasses the hierarchy
-            # cache, runs a full refit (which forces CSTO at fit-time when
-            # binding is on), and re-authors the bind against the current-
-            # frame deformed mesh.
+            # Invalidate the bind/fit/hierarchy caches so the next GVO
+            # re-authors the bind against the current-frame deformed mesh.
+            # IMPORTANT: do NOT clear the voxel cache. Re-voxelizing with
+            # bind on triggers a CSTO that deadlocks C4D (the source is a
+            # child of BrickIt; CSTO with doc=doc re-enters the doc
+            # evaluator while BrickIt is mid-evaluate). Reusing voxels is
+            # also semantically correct: bind freezes the fit at bind time
+            # and applies deformation as per-frame matrix updates, so the
+            # voxel grid never needs to track per-frame source shape.
             self._source_cache_key = None
             self._source_cache_data = None
             self._fit_cache_key = None

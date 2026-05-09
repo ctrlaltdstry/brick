@@ -6,12 +6,18 @@ proxy hierarchy at the deformed-mesh position read from the live source.
 Each frame the tag's `Execute` calls `apply_follow_surface(...)` here.
 
 This module reads the live deformed source via
-`SendModelingCommand(MCOMMAND_CURRENTSTATETOOBJECT)` — the same path the
-integrated-MoGraph live preview uses — so cloth/dynamics on the source
-are reflected in the proxy bricks before any RBD simulation runs.
+`baked_polygon_object_with_metadata`, which goes through
+`GetDeformCache → GetCache → CSTO` in order and merges all polygon
+children into a single PolygonObject in the source's local frame. Using
+this canonical helper (instead of raw CSTO) keeps the follower's verts
+in the SAME frame the bind records were authored against — without it,
+when CSTO returns a clone whose `GetMg()` doesn't match the source's
+own matrix, `frame_inv = ~source.GetMg()` produces verts in a wrong
+frame and the proxy carriers freeze in place or shift.
 """
 import c4d
 
+from logo_helpers import baked_polygon_object_with_metadata as _baked_polygon_object_with_metadata
 from source_geometry import polygon_object_to_arrays as _polygon_object_to_arrays
 
 
@@ -24,26 +30,15 @@ ORIENT_MODE_FOLLOW_NORMAL = 1
 
 
 def _evaluate_deformed_source(source_obj, doc):
+    if source_obj is None:
+        return None
+    baked, _meta = _baked_polygon_object_with_metadata(source_obj, doc)
+    if baked is None:
+        return None
     try:
-        result = c4d.utils.SendModelingCommand(
-            command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
-            list=[source_obj],
-            mode=c4d.MODELINGCOMMANDMODE_ALL,
-            doc=doc,
-        )
+        if baked.GetPointCount() == 0:
+            return None
     except Exception:
-        return None
-    if not result:
-        return None
-    baked = None
-    if isinstance(result, list):
-        if result and result[0] is not None:
-            baked = result[0]
-    else:
-        baked = result
-    if baked is None or not baked.CheckType(c4d.Opolygon):
-        return None
-    if baked.GetPointCount() == 0:
         return None
     try:
         frame_inv = ~source_obj.GetMg()
@@ -193,31 +188,20 @@ def apply_follow_surface(host_op, doc, source_obj, records, orient_mode, smoothi
             v1 = (1.0, 0.0, 0.0)
             v2 = (0.0, 1.0, 0.0)
             v3 = (0.0, 0.0, 1.0)
-        # Proxy carriers reference low-corner-pivoted templates, so the
-        # deformed CENTER needs to be shifted by the brick's half-extents
-        # (rotated through the orient basis when in follow-normal mode) to
-        # land the brick correctly. Records authored without `half_size`
-        # (e.g. for hypothetical center-pivoted carriers) skip this step.
-        try:
-            half_size = record.get("half_size") or None
-        except Exception:
-            half_size = None
-        if half_size and len(half_size) == 3:
-            hx, hy, hz = float(half_size[0]), float(half_size[1]), float(half_size[2])
-            shift_x = v1[0] * hx + v2[0] * hy + v3[0] * hz
-            shift_y = v1[1] * hx + v2[1] * hy + v3[1] * hz
-            shift_z = v1[2] * hx + v2[2] * hy + v3[2] * hz
-            m.off = c4d.Vector(
-                float(deformed_center[0]) - shift_x,
-                float(deformed_center[1]) - shift_y,
-                float(deformed_center[2]) - shift_z,
-            )
-        else:
-            m.off = c4d.Vector(
-                float(deformed_center[0]),
-                float(deformed_center[1]),
-                float(deformed_center[2]),
-            )
+        # Proxy carriers reference CENTER-pivot templates (since v1.0.2 —
+        # see memory `reference_proxy_template_pivot_convention.md`). The
+        # carrier matrix at proxy-creation time is set to the brick's
+        # center via `m.off = bound_center` in brickit_mograph.py. The
+        # follower must keep the same convention: deformed_center IS the
+        # carrier offset; no half-extents shift. Older code authored a
+        # `half_size` field on the records under the old low-corner
+        # convention and shifted by it here — that is now wrong, and is
+        # ignored even when present.
+        m.off = c4d.Vector(
+            float(deformed_center[0]),
+            float(deformed_center[1]),
+            float(deformed_center[2]),
+        )
         try:
             carrier.SetMl(m)
         except Exception:

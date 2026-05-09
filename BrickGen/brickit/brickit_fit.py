@@ -126,6 +126,26 @@ def _get_active_library(self, op):
     return BrickLibrary(enabled)
 
 
+def _params_include_debug_info(params):
+    """True when the fit pipeline should populate the debug-only info
+    arrays (occupancy_cells, shell_depth, etc.) the debug viz modes need.
+    Mirrored in `_make_fit_key` so toggling a viz mode that turns this
+    flag on busts the fit cache and forces a fresh fit with debug data.
+    """
+    if params.get("visualization_mode") in (
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME,
+        BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
+    ):
+        return True
+    if (
+        str(params.get("voxel_mode", "")).lower() == "shell"
+        and bool(params.get("surface_only_plates", False))
+    ):
+        return True
+    return False
+
+
 def _make_fit_key(self, op, params):
     return (
         _sources_state_key(op),
@@ -149,6 +169,9 @@ def _make_fit_key(self, op, params):
         params["enable_plates"],
         params["lib_mask"],
         params.get("mirror_x", False),
+        # Bust on debug-info toggle so switching to Shell Wireframe (etc.)
+        # forces a fresh fit that populates the debug arrays the viz needs.
+        _params_include_debug_info(params),
     )
 
 def _make_voxel_key(self, op, params, stud_size, plate_size):
@@ -182,6 +205,16 @@ def _get_cached_source_arrays(self, op, doc, force_csto=False):
     ):
         return self._source_cache_data
 
+    # Re-entrancy guard. When the deforming source is a child of BrickIt,
+    # CSTO triggers C4D's document evaluator, which can re-enter BrickIt's
+    # GVO → _refit_if_needed → _get_cached_source_arrays. Without a guard
+    # this loops until C4D hard-freezes (no status output, force-quit only).
+    # On re-entry, return the most recent source data instead of recursing;
+    # callers tolerate stale data on this single tick and the next outer
+    # GVO will refresh it.
+    if getattr(self, "_csto_in_progress", False):
+        return self._source_cache_data
+
     primary = _primary_source_child(op)
     if primary is None:
         self._source_cache_key = None
@@ -199,25 +232,24 @@ def _get_cached_source_arrays(self, op, doc, force_csto=False):
     # "Re-bind to Current Frame" would always fit to rest pose regardless of
     # the document time.
     if force_csto:
-        # Bind-to-source-deformation traces the primary Union child only
-        # (v1 scope: single deforming reference). Per-frame eval bakes
-        # the same primary via CSTO, so vertex/triangle indices line up
-        # between the bind's rest-pose cache and live frames. Multi-
-        # Union-bind is a future feature.
-        try:
-            result = c4d.utils.SendModelingCommand(
-                command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
-                list=[primary],
-                mode=c4d.MODELINGCOMMANDMODE_ALL,
-                doc=doc,
-            )
-            if result and isinstance(result, list) and result and result[0] is not None:
-                baked = result[0]
-                source_metadata = {"groups": []}
-        except Exception:
-            baked = None
-        if baked is None:
-            baked, source_metadata = _baked_polygon_object_with_metadata(primary, doc)
+        # Bind-to-source-deformation traces the primary Union child. We
+        # used to call `SendModelingCommand(MCOMMAND_CURRENTSTATETOOBJECT,
+        # doc=doc)` directly here to force the full tag chain (cloth/
+        # dynamics). That path turned out to be broken in two ways when
+        # the source is a child of BrickIt:
+        #   1) CSTO with `doc=doc` re-enters the document evaluator while
+        #      BrickIt is mid-evaluation, causing a hard freeze.
+        #   2) The CSTO clone's GetMg() does NOT match `primary.GetMg()`,
+        #      so the standard `frame_inv = ~primary.GetMg()` math puts
+        #      verts in the wrong frame — the assembly renders much
+        #      smaller and offset from the source.
+        # Use the standard cache-roots path instead. For cloth/dynamics
+        # sources whose deformation doesn't surface through GetCache(),
+        # this falls back to CSTO via the helper but with proper handling
+        # of the matrix and child polygons. The user can Re-bind at the
+        # bind-reference frame (typically frame 0 = rest pose) and that
+        # is the canonical bind workflow.
+        baked, source_metadata = _baked_polygon_object_with_metadata(primary, doc)
     else:
         per_mode = _bake_brickit_sources_per_mode(op, doc)
         union_entry = per_mode.get(_SOURCE_MODE_UNION)
@@ -469,16 +501,7 @@ def _refit_if_needed(self, op, doc, params=None):
                     pass
                 precomputed_voxels = None
 
-    include_debug_info = params.get("visualization_mode") in (
-        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_DEPTH,
-        BRICKIFYASSEMBLY_VISUALIZATION_MODE_SHELL_WIREFRAME,
-        BRICKIFYASSEMBLY_VISUALIZATION_MODE_VOXEL_DEBUG,
-    )
-    if (
-        str(params.get("voxel_mode", "")).lower() == "shell"
-        and bool(params.get("surface_only_plates", False))
-    ):
-        include_debug_info = True
+    include_debug_info = _params_include_debug_info(params)
 
     _log_first_eval_bm = not getattr(self, "_first_eval_logged", False)
     _t_bm0 = time.perf_counter() if _log_first_eval_bm else 0.0
@@ -537,6 +560,26 @@ def _refit_if_needed(self, op, doc, params=None):
         _bd["mesh_verts"] = int(len(verts))
         _bd["mesh_faces"] = int(len(faces))
         self._first_eval_stage_breakdown = _bd
+    try:
+        _brick_log(
+            "[brick] Fit completed: placements={0} grid_dims={1} stud_size={2} "
+            "studs_across={3} lib_mask={4} bind={5} voxel_mode={6} backend={7} "
+            "voxel_cache_hit={8}".format(
+                len(placements) if placements is not None else 0,
+                info.get("grid_dims"),
+                info.get("stud_size"),
+                params.get("studs_across"),
+                params.get("lib_mask"),
+                bool(params.get("bind_to_source_deformation")),
+                params.get("voxel_mode"),
+                params.get("voxel_backend"),
+                bool((info.get("voxel_backend_info") or {}).get("voxel_backend_cache_hit"))
+                if info.get("voxel_backend_info") is not None
+                else "?",
+            )
+        )
+    except Exception:
+        pass
     info["prune_auto_disabled"] = bool(params.get("prune_auto_disabled"))
     info["prune_auto_reason"] = str(params.get("prune_auto_reason") or "")
     info["prune_user"] = bool(params.get("prune_user"))

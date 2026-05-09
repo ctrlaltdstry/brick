@@ -243,6 +243,25 @@ class BrickAssembly(plugins.ObjectData):
             pass
         self._add_custom_curve_description(description)
         self._add_mograph_effectors_description(description)
+        # Dynamic MAX for the Build Step slider so the slider track spans
+        # 0..total_bricks instead of the .res-static 100000. Without this,
+        # the slider grip would barely move on assemblies with only a few
+        # hundred bricks.
+        try:
+            total_bricks = max(
+                1, int(op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] or 1)
+            )
+            step_descid = c4d.DescID(c4d.DescLevel(
+                BRICKIFYASSEMBLY_BUILD_STEP, c4d.DTYPE_REAL, 0
+            ))
+            step_bc = description.GetParameterI(step_descid, None)
+            if step_bc is not None:
+                step_bc.SetFloat(c4d.DESC_MAX, float(total_bricks))
+                step_bc.SetFloat(c4d.DESC_MAXSLIDER, float(total_bricks))
+                step_bc.SetFloat(c4d.DESC_MIN, 0.0)
+                step_bc.SetFloat(c4d.DESC_MINSLIDER, 0.0)
+        except Exception:
+            pass
         return True, flags | c4d.DESCFLAGS_DESC_LOADED
 
     def GetDEnabling(self, op, desc_id, t_data, flags, itemdesc):
@@ -279,6 +298,25 @@ class BrickAssembly(plugins.ObjectData):
                 return not bool(op[BRICKIFYASSEMBLY_USE_MANUAL_STUD_SIZE])
             except Exception:
                 return True
+        if pid == BRICKIFYASSEMBLY_SHELL_THICKNESS:
+            # Wall Thickness only applies in Shell build type — it sets
+            # the SDF band width for surface-only voxelization. In Solid
+            # mode the parameter is ignored, so grey it out for clarity.
+            try:
+                return int(op[BRICKIFYASSEMBLY_VOXEL_MODE]) == int(
+                    BRICKIFYASSEMBLY_VOXEL_MODE_SHELL
+                )
+            except Exception:
+                return True
+        if pid == BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS:
+            # Smooth Top Progress drives the smooth-top cap blend, which
+            # is only meaningful when Use Plates is on (the smooth top
+            # caps are plates substituted for the topmost brick layer).
+            # Grey the slider out otherwise.
+            try:
+                return bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
+            except Exception:
+                return False
         if pid in (
             BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT,
             BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED,
@@ -411,7 +449,7 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT] = 50.0
         op[BRICKIFYASSEMBLY_LOGO_MIX_SEED] = 0
         op[BRICKIFYASSEMBLY_BUILD_PROGRESS] = 100.0
-        op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS] = 100.0
+        op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS] = 0.0
         op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0
         op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
         op[BRICKIFYASSEMBLY_BUILD_HANG_TIME] = 0.0

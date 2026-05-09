@@ -80,22 +80,40 @@ def _update_build_info_panel(op, info, placements):
             current_step = max(0.0, float(op[BRICKIFYASSEMBLY_BUILD_STEP] or 0.0))
         except Exception:
             current_step = 0.0
-        # Auto-rescale: if the total changed, preserve the step's
-        # PROPORTION of the build instead of its absolute brick index.
-        # First-fit case (prev_total == 0) skips rescale and snaps to
-        # the new total so default scenes show a fully-built model.
+        # Rebuild rule for BUILD_STEP:
+        #   - If step was at 100% (full build) before the rebuild, snap to
+        #     the new 100% — user's mental model is "rebuild shows the
+        #     full model."
+        #   - If step was anywhere below 100% (user dragged it partway,
+        #     OR a keyframed animation curve evaluated to a fraction),
+        #     preserve the PROPORTION across the rebuild so the partial-
+        #     build state survives the brick-count change.
+        # The 100%-detection is computed against the previous-fit total
+        # because that's what the user was looking at when they last
+        # observed the slider's position.
         if prev_total == 0:
+            # First-fit case snaps to 100%.
+            current_step = float(n_bricks_total)
+        elif current_step >= float(prev_total) - 1.0e-6:
+            # Was at (or essentially at) 100% before — snap to new 100%.
             current_step = float(n_bricks_total)
         elif prev_total != n_bricks_total and prev_total > 0:
+            # Was at a fraction — preserve the proportion across rebuild.
             ratio = current_step / float(prev_total)
             current_step = ratio * float(n_bricks_total)
         current_step = max(0.0, min(current_step, float(n_bricks_total)))
+        # IMPORTANT: write PREV_TOTAL FIRST. The MSG_DESCRIPTION_POSTSETPARAMETER
+        # handler for BUILD_STEP clamps `step` against PREV_TOTAL. If we
+        # wrote BUILD_STEP first, that handler would see a STALE PREV_TOTAL
+        # (from the previous fit) and clamp our just-written step down to
+        # the previous fit's total — producing the "0.5 -> 0.4 leaves step
+        # at 128/296" symptom. Write order matters.
         try:
-            op[BRICKIFYASSEMBLY_BUILD_STEP] = current_step
+            op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] = n_bricks_total
         except Exception:
             pass
         try:
-            op[BRICKIFYASSEMBLY_BUILD_PREV_TOTAL] = n_bricks_total
+            op[BRICKIFYASSEMBLY_BUILD_STEP] = current_step
         except Exception:
             pass
         try:
@@ -109,6 +127,14 @@ def _update_build_info_panel(op, info, placements):
                 100.0 * current_step / float(max(1, n_bricks_total))
             )
             op[BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT] = "{0:.1f}%".format(pct)
+        except Exception:
+            pass
+        # Re-load the description so the Build Step slider track picks up
+        # the new MAX (total brick count) from GetDDescription. Without
+        # this, the slider grip stays scaled to the previous total and
+        # under-fills or overflows the track after a rebuild.
+        try:
+            op.SetDirty(c4d.DIRTYFLAGS_DESCRIPTION)
         except Exception:
             pass
     except Exception:

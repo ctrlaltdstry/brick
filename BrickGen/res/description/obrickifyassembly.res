@@ -809,28 +809,31 @@ CONTAINER obrickifyassembly
             COLUMNS 1;
             SCALE_H;
 
-            // Build Step (authoritative): integer stepper that maps
+            // Build Step (authoritative): REAL stepper + slider that maps
             // 1:1 to bricks placed so far. Range [0, total_bricks];
             // step==0 → no bricks visible, step==total → full build.
-            // The percent and total-bricks fields are derived
-            // read-only displays sharing this row. Plain LONG (no
-            // CUSTOMGUI) renders as a number field with up/down arrows
-            // — no slider track.
+            // CUSTOMGUI REALSLIDER renders both the editable number AND
+            // a slider track, so the user can scrub for assemblies with
+            // many bricks. The MAX is 100000 as a placeholder — the
+            // runtime clamps the value to total_bricks on commit.
+            REAL BRICKIFYASSEMBLY_BUILD_STEP
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_STEP;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                ANIM ON;
+                MIN 0.0;
+                MAX 100000.0;
+                STEP 0.01;
+                DEFAULT 0.0;
+            }
+
+            // Progress + Total Bricks read-out row, below the stepper+slider.
             GROUP
             {
                 DEFAULT 1;
-                COLUMNS 3;
+                COLUMNS 2;
                 SCALE_H;
-
-                REAL BRICKIFYASSEMBLY_BUILD_STEP
-                {
-                    NAME BRICKIFYASSEMBLY_BUILD_STEP;
-                    ANIM ON;
-                    MIN 0.0;
-                    MAX 100000.0;
-                    STEP 0.01;
-                    DEFAULT 0.0;
-                }
 
                 STRING BRICKIFYASSEMBLY_BUILD_PROGRESS_PCT
                 {
@@ -853,7 +856,7 @@ CONTAINER obrickifyassembly
                 MIN 0.0;
                 MAX 100.0;
                 STEP 0.01;
-                DEFAULT 100.0;
+                DEFAULT 0.0;
             }
 
             REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET

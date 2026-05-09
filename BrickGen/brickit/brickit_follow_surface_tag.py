@@ -184,6 +184,24 @@ def _bake_keyframes(tag):
     except Exception:
         pass
 
+    # Capture the proxy Fracture's effector-evaluated colors onto the
+    # carriers BEFORE Instance→polygon conversion. Without this, any
+    # color mutation from a Plain effector (with Random Field, gradient,
+    # etc.) sitting on the Fracture's effector list lives only in the
+    # Fracture's per-frame MoData and gets thrown away when the Fracture
+    # is removed during bake. Stamping the evaluated color onto each
+    # carrier's `ID_BASEOBJECT_COLOR` lets `_convert_instance_to_polygon`
+    # carry it onto the polygon, where any material set up to read the
+    # display color (e.g. RS Color User Data → "Display Color") picks
+    # it up correctly post-bake.
+    effector_color_stamped = _stamp_fracture_effector_colors(host, carriers.values())
+    if effector_color_stamped > 0:
+        _brick_log(
+            "[brick] FollowSurface bake: stamped effector colors onto {0} carriers".format(
+                effector_color_stamped
+            )
+        )
+
     # Make every brick instance editable (real polygon mesh). C4D PBD
     # doesn't simulate InstanceObjects directly; converting them gives
     # each brick its own polygon for collision-shape generation.
@@ -220,6 +238,140 @@ def _bake_keyframes(tag):
     except Exception:
         pass
     return True
+
+
+def _find_proxy_fracture(host):
+    """Return the proxy Fracture under `host` (the Make-Proxies handoff
+    creates exactly one Omgfracture). None if not found."""
+    if host is None:
+        return None
+    fracture_type = getattr(c4d, "Omgfracture", None)
+    if fracture_type is None:
+        return None
+    stack = [host]
+    while stack:
+        n = stack.pop()
+        try:
+            if n.GetType() == fracture_type:
+                return n
+        except Exception:
+            pass
+        c = n.GetDown()
+        while c:
+            stack.append(c)
+            c = c.GetNext()
+    return None
+
+
+def _read_fracture_effectors(fracture):
+    """Return the Fracture's effectors as an InExcludeData (the format
+    `_evaluate_native_mograph` accepts), or None if empty / unavailable."""
+    if fracture is None:
+        return None
+    try:
+        in_exclude = fracture[c4d.ID_MG_MOTIONGENERATOR_EFFECTORLIST]
+    except Exception:
+        return None
+    if in_exclude is None:
+        return None
+    try:
+        count = int(in_exclude.GetObjectCount())
+    except Exception:
+        return None
+    if count <= 0:
+        return None
+    return in_exclude
+
+
+def _stamp_fracture_effector_colors(host, carriers):
+    """Evaluate the proxy Fracture's effector list against the current
+    carriers and stamp the per-clone color onto each carrier's
+    ID_BASEOBJECT_COLOR. Returns the number of carriers stamped, or 0 if
+    no effector evaluation was applicable.
+
+    Uses the BrickIt native MoGraph evaluator tag the integrated path
+    already relies on, which honors Plain effector color modes + Field
+    color sampling exactly the way the live preview does.
+    """
+    fracture = _find_proxy_fracture(host)
+    if fracture is None:
+        return 0
+    effectors = _read_fracture_effectors(fracture)
+    if effectors is None:
+        return 0
+    carriers = list(carriers or [])
+    if not carriers:
+        return 0
+    # Sort by bind index so the matrices/colors order matches what each
+    # carrier expects to receive back.
+    indexed = []
+    for c in carriers:
+        try:
+            idx = int(c[c4d.ID_USERDATA, 1] or 0)
+        except Exception:
+            idx = 0
+        # Bind index is stored +1 (0 = sentinel "not set"); skip sentinels.
+        if idx > 0:
+            indexed.append((idx - 1, c))
+    if not indexed:
+        return 0
+    indexed.sort(key=lambda t: t[0])
+
+    matrices = []
+    colors = []
+    for _idx, c in indexed:
+        try:
+            matrices.append(c.GetMl())
+        except Exception:
+            matrices.append(c4d.Matrix())
+        try:
+            col = c[c4d.ID_BASEOBJECT_COLOR]
+            colors.append(col if col is not None else c4d.Vector(1, 1, 1))
+        except Exception:
+            colors.append(c4d.Vector(1, 1, 1))
+
+    # The integrated MoGraph evaluator helper lives in the generator
+    # module; it expects `op` to be the generator that "owns" the clones,
+    # which here is the Fracture itself. Effectors interpret matrices as
+    # local to op_mg, and our carrier matrices are already in fracture-
+    # local space (carriers are direct children of the Fracture in the
+    # proxy hierarchy), so no frame_matrix conversion is needed.
+    try:
+        from .brickit_mograph_generator import _evaluate_native_mograph
+    except Exception as exc:
+        _brick_log(
+            "[brick] FollowSurface bake: native evaluator import failed: {0}".format(exc)
+        )
+        return 0
+    try:
+        _out_mats, out_colors, _out_visible = _evaluate_native_mograph(
+            fracture,
+            matrices,
+            colors,
+            effectors,
+            skip_field_override=True,
+            label="bake_proxy",
+            frame_matrix=None,
+        )
+    except Exception as exc:
+        _brick_log(
+            "[brick] FollowSurface bake: effector eval failed: {0}".format(exc)
+        )
+        return 0
+    if out_colors is None or len(out_colors) != len(indexed):
+        return 0
+
+    stamped = 0
+    for (idx_in_records, carrier), new_color in zip(indexed, out_colors):
+        if new_color is None:
+            continue
+        try:
+            carrier[c4d.ID_BASEOBJECT_USECOLOR] = c4d.ID_BASEOBJECT_USECOLOR_ALWAYS
+            carrier[c4d.ID_BASEOBJECT_COLOR] = new_color
+            stamped += 1
+        except Exception:
+            pass
+    return stamped
 
 
 def _make_carriers_editable(host, doc):
