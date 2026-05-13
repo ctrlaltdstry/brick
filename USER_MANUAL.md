@@ -435,7 +435,7 @@ collisions push them apart instead of overlapping.
 
 1. **Set up the source.** Apply your deformer/cloth/Alembic to the
    source mesh and link it as BrickIt's Source.
-2. **Bind.** On the Layout tab → Bind to Source Deformation group,
+2. **Bind.** On the Object tab → Bind to Source Deformation group,
    check **Bind Bricks to Source Deformation**. The bricks will now
    ride the surface in the live preview.
    - **Brick Orientation = Follow Surface Normal** tilts each brick to
@@ -446,6 +446,10 @@ collisions push them apart instead of overlapping.
      compresses below the threshold ratio of its rest-pose area —
      useful when the cloth bunches up tight enough that bricks would
      otherwise overlap.
+   - **Reference Frame** picks which frame's deformed pose is treated
+     as the rest pose for the bind. Leave at **0** to use whatever
+     frame is current when the fit runs; set a specific frame number
+     to lock the rest pose to that frame (changing this re-fits).
    - **Re-bind to Current Frame** re-fits and re-binds with the
      current deformed pose as the new rest pose.
 3. **Make Proxies.** Once you're happy with the binding, click

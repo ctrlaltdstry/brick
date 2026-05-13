@@ -566,6 +566,7 @@
     <ul>
       <li><strong>Brick Orientation = Follow Surface Normal</strong> tilts each brick to match the local surface orientation. <strong>Orientation Smoothing</strong> dampens per-face-normal jitter on small / heavily deformed triangles; 0.7 is a good default.</li>
       <li><strong>Stretch Cull Threshold</strong> hides bricks whose anchor triangle compresses below the threshold ratio of its rest-pose area — useful when the cloth bunches up tight enough that bricks would otherwise overlap.</li>
+      <li><strong>Reference Frame</strong> picks which frame's deformed pose is treated as the rest pose for the bind. Leave at <strong>0</strong> to use whatever frame is current when the fit runs; set a specific frame number to lock the rest pose to that frame (changing this re-fits).</li>
       <li><strong>Re-bind to Current Frame</strong> re-fits and re-binds with the current deformed pose as the new rest pose.</li>
     </ul>
   </li>

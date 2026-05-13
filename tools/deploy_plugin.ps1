@@ -167,7 +167,7 @@ if ($NoRestart) {
 } else {
     $testScene = $env:BRICK_TEST_SCENE
     if (-not $testScene) {
-        $testScene = "Z:\02_MKE\2026\BRICK\TEST FILE.c4d"
+        $testScene = "C:\Dev\BRICK\TEST FILE.c4d"
     }
     $running = Get-Process -Name 'Cinema 4D*' -ErrorAction SilentlyContinue
     if ($running) {

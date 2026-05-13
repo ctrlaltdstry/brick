@@ -15,7 +15,7 @@ Attribute Manager UI in Cinema 4D.
 
 This module is referenced from your Cinema 4D SDK `custom_paths.txt` as:
 
-- `MODULE Z:/02_MKE/2026/BRICK/brick/native/bricklibrary.inline_gui`
+- `MODULE C:/dev/BRICK/brick/native/bricklibrary.inline_gui`
 
 Configure and build from the SDK root:
 

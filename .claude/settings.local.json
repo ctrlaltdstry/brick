@@ -1,11 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Read(///10.10.10.2/01_Projects/02_MKE/2026/BRICK/**)",
+      "Read(//C/dev/BRICK/**)",
       "Bash(python tools/export_pyp_brick.py --width 2 --depth 3 --height 3)",
       "Bash(python tools/export_hires_brick.py --tag before)",
-      "Bash(rm \"\\\\\\\\\\\\\\\\10.10.10.2\\\\\\\\01_Projects\\\\\\\\02_MKE\\\\\\\\2026\\\\\\\\BRICK\\\\\\\\brickify\\\\\\\\brick_2x3_h3_filletfix.obj\")",
-      "Read(///10.10.10.2/01_Projects/02_MKE/2026/BRICK/brickify/**)",
+      "Read(//C/dev/BRICK/brickify/**)",
       "Bash(python tools/export_hires_brick.py --tag fillet_v2)",
       "Bash(python tools/export_hires_brick.py --width 2 --depth 3 --height 3 --quality standard --tag bottomfillet)",
       "Bash(python tools/export_hires_brick.py --width 2 --depth 3 --height 3 --quality hero --tag bottomfillet)",

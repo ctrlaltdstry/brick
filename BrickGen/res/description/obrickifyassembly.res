@@ -229,6 +229,11 @@ CONTAINER obrickifyassembly
                 DEFAULT 0;
             }
 
+            STATICTEXT BRICKIFYASSEMBLY_SPACER_5
+            {
+                NAME BRICKIFYASSEMBLY_SPACER_5;
+            }
+
             BUTTON BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME
             {
                 NAME BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME;
