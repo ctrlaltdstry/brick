@@ -544,15 +544,31 @@ def GetVirtualObjects(self, op, hh):
     )
     bind_per_frame_key = None
     if params.get("bind_to_source_deformation"):
+        # Deformation shows up as DATA/CACHE dirty (and a frame change
+        # during playback). Do NOT include DIRTYFLAGS_MATRIX here: that
+        # flag also trips when the user drags the whole BrickIt rig with
+        # the source parented under it, which would bust the bind cache
+        # and force a per-frame re-evaluation every viewport tick. We
+        # instead capture the source's pose *relative* to BrickIt, so a
+        # rig-wide move leaves the key stable while a source moving
+        # independently of BrickIt still invalidates. (Mirrors the
+        # relative-matrix fix in brickit_sources._matrix_key.)
         src_dirty = 0
         try:
             src_dirty = int(
-                source_obj.GetDirty(
-                    c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE | c4d.DIRTYFLAGS_MATRIX
-                )
+                source_obj.GetDirty(c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE)
             )
         except Exception:
             src_dirty = 0
+        src_rel_matrix = None
+        try:
+            mg = ~op.GetMg() * source_obj.GetMg()
+            src_rel_matrix = (
+                round(float(mg.off.x), 4), round(float(mg.off.y), 4), round(float(mg.off.z), 4),
+                round(float(mg.v1.x), 4), round(float(mg.v2.y), 4), round(float(mg.v3.z), 4),
+            )
+        except Exception:
+            src_rel_matrix = None
         try:
             doc_for_frame = op.GetDocument()
             frame = (
@@ -562,7 +578,7 @@ def GetVirtualObjects(self, op, hh):
             )
         except Exception:
             frame = 0
-        bind_per_frame_key = (src_dirty, frame)
+        bind_per_frame_key = (src_dirty, src_rel_matrix, frame)
     # Animation-only values can be applied by mutating the existing Source
     # hierarchy's matrices/colors/visibility instead of rebuilding objects.
     animation_hierarchy_key = (

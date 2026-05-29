@@ -412,9 +412,26 @@ def bake_brickit_sources(brickit_op, doc):
     return per_mode, all_groups
 
 
-def _matrix_key(obj):
+def _matrix_key(obj, relative_to=None):
+    """Quantized matrix key for cache invalidation.
+
+    When `relative_to` (the BrickIt op) is given, key on the source's
+    matrix *relative* to the BrickIt object rather than its global
+    matrix. The fit is computed in the source's local frame
+    (frame_inv = ~primary.GetMg() in brickit_fit.py), so the brick
+    layout is invariant to where the whole rig sits in the world — only
+    the source's transform relative to BrickIt matters. Keying on the
+    global matrix here meant dragging BrickIt (with the source parented
+    under it) busted the cache every viewport tick and forced a full
+    rebuild per frame. The relative matrix stays constant when the rig
+    moves as a unit, so the cache stays warm; moving/deforming a source
+    independently of BrickIt still changes it and invalidates correctly.
+    """
     try:
-        mg = obj.GetMg()
+        if relative_to is not None:
+            mg = ~relative_to.GetMg() * obj.GetMg()
+        else:
+            mg = obj.GetMg()
         return (
             round(float(mg.off.x), 6),
             round(float(mg.off.y), 6),
@@ -433,7 +450,7 @@ def _matrix_key(obj):
         return ()
 
 
-def _child_state_key(child, mode):
+def _child_state_key(child, mode, brickit_op=None):
     if child is None:
         return (None, mode)
     try:
@@ -444,7 +461,7 @@ def _child_state_key(child, mode):
         dirty = int(child.GetDirty(c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE))
     except Exception:
         dirty = 0
-    return (guid, dirty, _matrix_key(child), int(mode))
+    return (guid, dirty, _matrix_key(child, relative_to=brickit_op), int(mode))
 
 
 def bake_brickit_sources_per_mode(brickit_op, doc):
@@ -786,6 +803,6 @@ def sources_state_key(brickit_op):
     tuple so changing a row's Mode does invalidate it.
     """
     pairs = enumerate_brickit_sources(brickit_op)
-    keyed = [_child_state_key(c, m) for (c, m) in pairs]
+    keyed = [_child_state_key(c, m, brickit_op) for (c, m) in pairs]
     keyed.sort(key=lambda t: (t[0] if t[0] is not None else -1))
     return tuple(keyed)

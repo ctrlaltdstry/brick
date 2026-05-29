@@ -62,16 +62,50 @@ class _FakePolygon(object):
         return self._point_count
 
 
+class _V(object):
+    def __init__(self, x=0.0, y=0.0, z=0.0):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+class _FakeMatrix(object):
+    """Translation-only matrix stub supporting ~ (invert) and * (compose).
+
+    Enough to exercise brickit_sources._matrix_key's relative-matrix
+    path (~brickit_op.GetMg() * child.GetMg()) without numpy or c4d.
+    Rotation is fixed to identity; only the offset moves, which is all
+    the relative-pose cache key needs to distinguish.
+    """
+
+    def __init__(self, ox=0.0, oy=0.0, oz=0.0):
+        self.off = _V(ox, oy, oz)
+        self.v1 = _V(1.0, 0.0, 0.0)
+        self.v2 = _V(0.0, 1.0, 0.0)
+        self.v3 = _V(0.0, 0.0, 1.0)
+
+    def __invert__(self):
+        return _FakeMatrix(-self.off.x, -self.off.y, -self.off.z)
+
+    def __mul__(self, other):
+        return _FakeMatrix(
+            self.off.x + other.off.x,
+            self.off.y + other.off.y,
+            self.off.z + other.off.z,
+        )
+
+
 class _FakeChild(object):
     _next_guid = 1000
 
-    def __init__(self, name, point_count=8, polygon_count=12):
+    def __init__(self, name, point_count=8, polygon_count=12, mg=None):
         self._name = name
         self._point_count = point_count
         self._polygon_count = polygon_count
         self._guid = _FakeChild._next_guid
         _FakeChild._next_guid += 1
         self._next = None
+        self._mg = mg if mg is not None else _FakeMatrix()
 
     def GetGUID(self):
         return self._guid
@@ -86,17 +120,7 @@ class _FakeChild(object):
         return 0
 
     def GetMg(self):
-        class _M(object):
-            class _V(object):
-                def __init__(self, x=0.0, y=0.0, z=0.0):
-                    self.x = x
-                    self.y = y
-                    self.z = z
-            off = _V()
-            v1 = _V(1.0, 0.0, 0.0)
-            v2 = _V(0.0, 1.0, 0.0)
-            v3 = _V(0.0, 0.0, 1.0)
-        return _M()
+        return self._mg
 
 
 class _FakeInExclude(object):
@@ -117,9 +141,13 @@ class _FakeInExclude(object):
 
 
 class _FakeBrickitOp(object):
-    def __init__(self, sources_data):
+    def __init__(self, sources_data, mg=None):
         self._sources_data = sources_data
         self._first_child = None
+        self._mg = mg if mg is not None else _FakeMatrix()
+
+    def GetMg(self):
+        return self._mg
 
     def __getitem__(self, key):
         from c4d_symbols import BRICKIFYASSEMBLY_SOURCES
@@ -204,6 +232,39 @@ def main():
     op_alt.add_children(sphere, cube)
     k3 = sources_state_key(op_alt)
     assert k1 != k3, "state key must change when a child's Mode changes"
+
+    # Relative-matrix cache key (the viewport-drag perf fix):
+    # moving the whole rig (BrickIt + its children) as a unit must NOT
+    # change the key — the bricks are layout-invariant to world position
+    # — so the GVO cache stays warm during a drag.
+    rig_sphere = _FakeChild("Sphere", mg=_FakeMatrix(10.0, 0.0, 0.0))
+    rig_cube = _FakeChild("Cube", mg=_FakeMatrix(20.0, 0.0, 0.0))
+    rig_incl = _FakeInExclude()
+    rig_incl.AppendObject(rig_sphere, BRICKIFYASSEMBLY_SOURCE_MODE_UNION)
+    rig_incl.AppendObject(rig_cube, BRICKIFYASSEMBLY_SOURCE_MODE_SUBTRACT)
+    rig_op = _FakeBrickitOp(rig_incl, mg=_FakeMatrix(0.0, 0.0, 0.0))
+    rig_op.add_children(rig_sphere, rig_cube)
+    key_before_move = sources_state_key(rig_op)
+
+    # Translate BrickIt and both children by +100 X (a rigid rig move).
+    rig_op._mg = _FakeMatrix(100.0, 0.0, 0.0)
+    rig_sphere._mg = _FakeMatrix(110.0, 0.0, 0.0)
+    rig_cube._mg = _FakeMatrix(120.0, 0.0, 0.0)
+    key_after_move = sources_state_key(rig_op)
+    assert key_before_move == key_after_move, (
+        "moving the whole rig must NOT bust the cache key "
+        "(relative pose unchanged): {0} != {1}".format(
+            key_before_move, key_after_move
+        )
+    )
+
+    # But moving a source INDEPENDENTLY of BrickIt (child moves, op
+    # stays put) changes its relative pose and MUST invalidate.
+    rig_sphere._mg = _FakeMatrix(115.0, 0.0, 0.0)  # child only
+    key_after_independent = sources_state_key(rig_op)
+    assert key_after_move != key_after_independent, (
+        "moving a source relative to BrickIt must bust the cache key"
+    )
 
     print("OK: brickit_sources Phase 1 smoke test passed")
     _phase2_compose_smoke()
