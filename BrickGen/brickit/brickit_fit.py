@@ -1,4 +1,5 @@
 """BrickIt library selection and pipeline refit helpers."""
+import os
 import time
 
 import c4d
@@ -347,6 +348,22 @@ def _refit_if_needed(self, op, doc, params=None):
     if self._fit_cache_key == fit_key and self._fit_placements is not None:
         return True
 
+    # Per-refit profiler. Unlike the first-eval breakdown (which logs
+    # once), this fires on EVERY refit when BRICKIT_PROFILE_FIT is set,
+    # so we can watch per-stage cost while dragging a multi-source /
+    # boolean scene. Stage times are wall-clock seconds.
+    _prof_on = os.environ.get("BRICKIT_PROFILE_FIT", "").strip().lower() not in (
+        "", "0", "false", "no"
+    )
+    _prof = {} if _prof_on else None
+    _prof_t0 = time.perf_counter() if _prof_on else 0.0
+
+    def _prof_mark(stage, t_start):
+        if _prof is not None:
+            _prof[stage] = _prof.get(stage, 0.0) + (time.perf_counter() - t_start)
+
+    _t_src0 = time.perf_counter() if _prof_on else 0.0
+
     active_library = self._get_active_library(op)
     try:
         has_bricks = bool(getattr(active_library, "bricks", []))
@@ -379,6 +396,13 @@ def _refit_if_needed(self, op, doc, params=None):
         baked, verts, faces = source_data
         frame_inv = None
         source_islands = None
+    _prof_mark("source_bake", _t_src0)
+    if _prof is not None:
+        try:
+            from .brickit_sources import enumerate_brickit_sources as _enum_src
+            _prof["n_sources"] = len(list(_enum_src(op)))
+        except Exception:
+            _prof["n_sources"] = -1
 
     precomputed_voxels = None
     call_stud_size = params["stud_size"]
@@ -425,9 +449,12 @@ def _refit_if_needed(self, op, doc, params=None):
                     ).format(original_volume_s, original_sample_s)
                 ).strip()
                 precomputed_voxels = (occupancy, colors, origin, backend_info)
+                if _prof is not None:
+                    _prof["voxel_cache_hit"] = 1
             else:
                 _log_first_eval = not getattr(self, "_first_eval_logged", False)
                 _t_vox0 = time.perf_counter() if _log_first_eval else 0.0
+                _t_voxp = time.perf_counter() if _prof_on else 0.0
                 precomputed_voxels = _voxelize_brickit_sources(
                     op,
                     doc,
@@ -437,6 +464,9 @@ def _refit_if_needed(self, op, doc, params=None):
                     BRICKIT_DEFAULT_RGB,
                     frame_inv=frame_inv,
                 )
+                _prof_mark("voxelize", _t_voxp)
+                if _prof is not None:
+                    _prof["voxel_cache_hit"] = 0
                 if _log_first_eval:
                     _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}
                     _bd["voxelize"] = (
@@ -481,6 +511,7 @@ def _refit_if_needed(self, op, doc, params=None):
                 resolved_stud_size = auto_stud_size(verts, params["studs_across"])
             resolved_plate_size = resolved_stud_size * PLATE_RATIO
             try:
+                _t_voxp = time.perf_counter() if _prof_on else 0.0
                 precomputed_voxels = _voxelize_brickit_sources(
                     op,
                     doc,
@@ -490,6 +521,7 @@ def _refit_if_needed(self, op, doc, params=None):
                     BRICKIT_DEFAULT_RGB,
                     frame_inv=frame_inv,
                 )
+                _prof_mark("voxelize_carve", _t_voxp)
                 if precomputed_voxels is not None:
                     call_stud_size = resolved_stud_size
             except Exception as exc:
@@ -515,6 +547,7 @@ def _refit_if_needed(self, op, doc, params=None):
         except Exception:
             pass
 
+    _t_bmp = time.perf_counter() if _prof_on else 0.0
     try:
         _status_progress("starting", 1)
         placements, info = brick_mesh(
@@ -550,7 +583,7 @@ def _refit_if_needed(self, op, doc, params=None):
         # build finishes; see _clear_brick_status below. We intentionally
         # don't clear here because the caller has more work to do that
         # the user should see progress for.
-        pass
+        _prof_mark("brick_mesh", _t_bmp)
     if _log_first_eval_bm:
         _bd = getattr(self, "_first_eval_stage_breakdown", None) or {}
         _bd["brick_mesh"] = (
@@ -560,6 +593,32 @@ def _refit_if_needed(self, op, doc, params=None):
         _bd["mesh_verts"] = int(len(verts))
         _bd["mesh_faces"] = int(len(faces))
         self._first_eval_stage_breakdown = _bd
+    if _prof is not None:
+        _prof["total"] = time.perf_counter() - _prof_t0
+        try:
+            vox_s = float(_prof.get("voxelize", 0.0)) + float(
+                _prof.get("voxelize_carve", 0.0)
+            )
+            _brick_log(
+                "[brick][PROFILE] refit total={0:.3f}s | source_bake={1:.3f} "
+                "voxelize={2:.3f} brick_mesh={3:.3f} | n_sources={4} "
+                "studs_across={5} backend={6} vox_cache_hit={7} "
+                "preview={8} verts={9} placements={10}".format(
+                    float(_prof.get("total", 0.0)),
+                    float(_prof.get("source_bake", 0.0)),
+                    vox_s,
+                    float(_prof.get("brick_mesh", 0.0)),
+                    int(_prof.get("n_sources", -1)),
+                    params.get("studs_across"),
+                    params.get("voxel_backend"),
+                    _prof.get("voxel_cache_hit", "n/a"),
+                    bool(params.get("interactive_preview", False)),
+                    int(len(verts)),
+                    len(placements) if placements is not None else 0,
+                )
+            )
+        except Exception:
+            pass
     try:
         _brick_log(
             "[brick] Fit completed: placements={0} grid_dims={1} stud_size={2} "
