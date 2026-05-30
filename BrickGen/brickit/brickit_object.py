@@ -308,15 +308,6 @@ class BrickAssembly(plugins.ObjectData):
                 )
             except Exception:
                 return True
-        if pid == BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS:
-            # Smooth Top Progress drives the smooth-top cap blend, which
-            # is only meaningful when Use Plates is on (the smooth top
-            # caps are plates substituted for the topmost brick layer).
-            # Grey the slider out otherwise.
-            try:
-                return bool(op[BRICKIFYASSEMBLY_ENABLE_PLATES])
-            except Exception:
-                return False
         if pid in (
             BRICKIFYASSEMBLY_HEIGHT_VARIATION_AMOUNT,
             BRICKIFYASSEMBLY_HEIGHT_VARIATION_SEED,
@@ -449,7 +440,6 @@ class BrickAssembly(plugins.ObjectData):
         op[BRICKIFYASSEMBLY_LOGO_MIX_AMOUNT] = 50.0
         op[BRICKIFYASSEMBLY_LOGO_MIX_SEED] = 0
         op[BRICKIFYASSEMBLY_BUILD_PROGRESS] = 100.0
-        op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS] = 0.0
         op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET] = 25.0
         op[BRICKIFYASSEMBLY_BUILD_STAGGER] = 10.0
         op[BRICKIFYASSEMBLY_BUILD_HANG_TIME] = 0.0

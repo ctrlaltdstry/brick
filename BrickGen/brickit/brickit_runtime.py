@@ -584,8 +584,6 @@ def GetVirtualObjects(self, op, hh):
     animation_hierarchy_key = (
         round(float(params.get("build_progress", 1.0)), 6),
         round(float(params.get("build_progress_time", params.get("build_progress", 1.0))), 6),
-        round(float(params.get("smooth_top_progress", 1.0)), 6),
-        round(float(params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0))), 6),
         round(float(params.get("build_y_offset", 25.0)), 3),
         round(float(params.get("build_stagger", 0.10)), 5),
         round(float(params.get("build_hang_time", 0.0)), 5),

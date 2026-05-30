@@ -378,15 +378,6 @@ def _resolve_params(self, op, source_obj):
         BRICKIFYASSEMBLY_BUILD_STEP,
         build_progress,
     )
-    smooth_top_progress_raw = op[BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS]
-    if smooth_top_progress_raw is None:
-        smooth_top_progress_raw = 100.0
-    smooth_top_progress = max(0.0, min(1.0, float(smooth_top_progress_raw) / 100.0))
-    smooth_top_progress_time = _param_linear_timeline(
-        op,
-        BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS,
-        smooth_top_progress,
-    )
     build_y_offset_raw = op[BRICKIFYASSEMBLY_BUILD_Y_OFFSET]
     if build_y_offset_raw is None:
         build_y_offset_raw = 25.0
@@ -562,8 +553,6 @@ def _resolve_params(self, op, source_obj):
         "logo_mix_seed": logo_mix_seed,
         "build_progress": build_progress,
         "build_progress_time": build_progress_time,
-        "smooth_top_progress": smooth_top_progress,
-        "smooth_top_progress_time": smooth_top_progress_time,
         "build_y_offset": build_y_offset,
         "build_stagger": build_stagger,
         "build_hang_time": build_hang_time,

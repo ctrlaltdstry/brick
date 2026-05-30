@@ -384,11 +384,6 @@ BRICKIT_HELP = {
         "Keyframe this for a build animation. Bricks appear in stagger "
         "order driven by the other Animate-tab parameters."
     ),
-    "BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS": (
-        "Smooth Top Progress\n\n"
-        "Reveals the smooth-top cap separately from the body (0 -> 1). "
-        "Has no effect unless Smooth Top Surfaces is on."
-    ),
     "BRICKIFYASSEMBLY_BUILD_Y_OFFSET": (
         "Lift Height\n\n"
         "How far above its final position each brick starts, in scene "

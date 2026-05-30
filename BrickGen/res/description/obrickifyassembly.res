@@ -853,17 +853,6 @@ CONTAINER obrickifyassembly
                 }
             }
 
-            REAL BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS
-            {
-                NAME BRICKIFYASSEMBLY_SMOOTH_TOP_PROGRESS;
-                CUSTOMGUI REALSLIDER;
-                SCALE_H;
-                MIN 0.0;
-                MAX 100.0;
-                STEP 0.01;
-                DEFAULT 0.0;
-            }
-
             REAL BRICKIFYASSEMBLY_BUILD_Y_OFFSET
             {
                 NAME BRICKIFYASSEMBLY_BUILD_Y_OFFSET;

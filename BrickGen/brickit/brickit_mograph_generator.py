@@ -504,8 +504,11 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         placements,
         params.get("build_progress", 1.0),
         time_progress=params.get("build_progress_time", params.get("build_progress", 1.0)),
-        top_progress=params.get("smooth_top_progress", 1.0),
-        top_time_progress=params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0)),
+        # top_progress=None -> top caps auto-sequence off the single Build
+        # Step via Top Finish Starts At / Duration (the separate manual
+        # "Smooth Top Progress" timeline was removed as redundant).
+        top_progress=None,
+        top_time_progress=None,
         top_cap_ids=smooth_cap_ids,
         top_surface_start=params.get("top_surface_start", 0.85),
         top_surface_phase=params.get("top_surface_phase", 0.15),
@@ -1161,8 +1164,11 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         animation_placements,
         params.get("build_progress", 1.0),
         time_progress=params.get("build_progress_time", params.get("build_progress", 1.0)),
-        top_progress=params.get("smooth_top_progress", 1.0),
-        top_time_progress=params.get("smooth_top_progress_time", params.get("smooth_top_progress", 1.0)),
+        # top_progress=None -> top caps auto-sequence off the single Build
+        # Step via Top Finish Starts At / Duration (the separate manual
+        # "Smooth Top Progress" timeline was removed as redundant).
+        top_progress=None,
+        top_time_progress=None,
         top_cap_ids=smooth_cap_ids,
         top_surface_start=params.get("top_surface_start", 0.85),
         top_surface_phase=params.get("top_surface_phase", 0.15),
