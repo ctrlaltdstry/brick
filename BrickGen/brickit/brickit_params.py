@@ -422,7 +422,6 @@ def _resolve_params(self, op, source_obj):
     build_tilt_amount = max(0.0, min(360.0, float(build_tilt_amount_raw)))
     build_custom_curve = op[BRICKIFYASSEMBLY_BUILD_CUSTOM_CURVE]
     build_custom_curve_key = custom_curve_signature(build_custom_curve)
-    top_surface_start = 0.35
     top_surface_phase = 0.15
     top_surface_blend = bool(op[BRICKIFYASSEMBLY_TOP_SURFACE_BLEND])
     top_surface_coverage_raw = op[BRICKIFYASSEMBLY_TOP_SURFACE_COVERAGE]
@@ -563,7 +562,6 @@ def _resolve_params(self, op, source_obj):
         "build_tilt_amount": build_tilt_amount,
         "build_custom_curve": build_custom_curve,
         "build_custom_curve_key": build_custom_curve_key,
-        "top_surface_start": top_surface_start,
         "top_surface_phase": top_surface_phase,
         "top_surface_blend": top_surface_blend,
         "top_surface_coverage": top_surface_coverage,

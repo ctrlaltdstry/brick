@@ -223,13 +223,11 @@ BRICKIT_HELP = {
     ),
     "BRICKIFYASSEMBLY_TOP_SURFACE_BLEND": (
         "Blend Top Finish\n\n"
-        "Cross-fade the smooth-top reveal so plates ease in and out "
-        "rather than popping on at a single threshold."
-    ),
-    "BRICKIFYASSEMBLY_TOP_SURFACE_START": (
-        "Top Finish Starts At\n\n"
-        "Fraction of Build Progress at which the smooth-top reveal "
-        "begins. 0.85 means the body finishes before the cap starts."
+        "Each smooth-top plate follows the brick beneath it: it eases in "
+        "and settles just as its support lands, so the top finish builds "
+        "as a wave up the model (low plates first, peak plates last) "
+        "instead of all at the end. Turn off for a single late finish "
+        "phase after the body completes."
     ),
     "BRICKIFYASSEMBLY_TOP_SURFACE_PHASE": (
         "Top Finish Duration\n\n"

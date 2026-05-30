@@ -924,7 +924,7 @@ CONTAINER obrickifyassembly
             BOOL BRICKIFYASSEMBLY_TOP_SURFACE_BLEND
             {
                 NAME BRICKIFYASSEMBLY_TOP_SURFACE_BLEND;
-                DEFAULT 0;
+                DEFAULT 1;
             }
 
             BOOL BRICKIFYASSEMBLY_BUILD_SUBTLE_ROTATION

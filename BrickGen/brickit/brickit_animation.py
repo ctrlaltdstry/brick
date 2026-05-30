@@ -1736,7 +1736,6 @@ def phased_build_animation_states(
     top_progress=None,
     top_time_progress=None,
     top_cap_ids=None,
-    top_surface_start=None,
     top_surface_phase=0.0,
     blend_top_surface=False,
     y_offset=BUILD_ANIMATION_DEFAULT_Y_OFFSET,
@@ -1824,11 +1823,7 @@ def phased_build_animation_states(
     else:
         structural_progress = p
         structural_time_progress = clock_p
-        cap_start = _clamp01(
-            BUILD_ANIMATION_BLEND_TOP_START
-            if top_surface_start is None
-            else top_surface_start
-        )
+        cap_start = _clamp01(BUILD_ANIMATION_BLEND_TOP_START)
         cap_duration = max(0.0001, cap_phase)
         cap_progress = _clamp01((p - cap_start) / cap_duration)
         cap_time_progress = _clamp01((clock_p - cap_start) / cap_duration)

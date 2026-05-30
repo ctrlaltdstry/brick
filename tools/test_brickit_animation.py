@@ -645,7 +645,6 @@ def test_final_blended_cap_bounce_has_pre_end_rebound_window():
             [support, cap],
             progress,
             top_cap_ids={id(cap)},
-            top_surface_start=0.35,
             top_surface_phase=0.65,
             blend_top_surface=True,
             y_offset=10.0,
@@ -1237,7 +1236,11 @@ def test_top_surface_phase_builds_caps_last():
     assert 0.0 < by_name["cap_b"].local_progress < 1.0
 
 
-def test_top_surface_start_overlaps_structural_build():
+def test_top_caps_overlap_structural_build_low_before_high():
+    # Caps interleave with the structural build (the top finish is a wave,
+    # not a phase after the body): a low cap comes in before a high cap,
+    # and each follows its own support rather than waiting for the whole
+    # body to finish.
     brick_a = _p("brick_a", 0, 0, 0, h=3)
     brick_b = _p("brick_b", 1, 1, 0, h=3)
     cap_a = _cap("cap_a", 0, 3, 0)
@@ -1245,36 +1248,39 @@ def test_top_surface_start_overlaps_structural_build():
     placements = [cap_b, brick_b, cap_a, brick_a]
     cap_ids = {id(cap_a), id(cap_b)}
 
-    before_caps = phased_build_animation_states(
-        placements,
-        0.30,
-        top_cap_ids=cap_ids,
-        top_surface_start=0.40,
-        top_surface_phase=0.30,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-    )
-    by_name = {state.placement.name: state for state in before_caps}
-    assert by_name["cap_a"].local_progress == 0.0
-    assert by_name["cap_b"].local_progress == 0.0
-    assert by_name["brick_a"].local_progress > 0.0
-    assert by_name["brick_b"].local_progress < 1.0
+    def _frame(progress):
+        states = phased_build_animation_states(
+            placements,
+            progress,
+            top_cap_ids=cap_ids,
+            top_surface_phase=0.30,
+            blend_top_surface=True,
+            y_offset=10.0,
+            stagger=0.0,
+        )
+        return {state.placement.name: state for state in states}
 
-    overlapping = phased_build_animation_states(
-        placements,
-        0.55,
-        top_cap_ids=cap_ids,
-        top_surface_start=0.40,
-        top_surface_phase=0.30,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-    )
-    by_name = {state.placement.name: state for state in overlapping}
-    assert 0.0 < by_name["cap_a"].local_progress < 1.0
-    assert math.isclose(by_name["cap_b"].local_progress, 0.0, abs_tol=1.0e-9)
-    assert by_name["brick_b"].local_progress < 1.0
+    # Sweep the build: the low cap (cap_a) must reach a non-zero progress
+    # at an earlier or equal build progress than the high cap (cap_b) —
+    # the wave climbs the model.
+    cap_a_appears = None
+    cap_b_appears = None
+    for step in range(1, 101):
+        frame = _frame(step / 100.0)
+        if cap_a_appears is None and frame["cap_a"].local_progress > 0.0:
+            cap_a_appears = step
+        if cap_b_appears is None and frame["cap_b"].local_progress > 0.0:
+            cap_b_appears = step
+    assert cap_a_appears is not None and cap_b_appears is not None
+    assert cap_a_appears <= cap_b_appears
+
+    # Neither cap fully lands before its supporting brick.
+    for step in range(1, 101):
+        frame = _frame(step / 100.0)
+        if frame["cap_a"].local_progress >= 1.0 - 1.0e-9:
+            assert frame["brick_a"].local_progress >= 1.0 - 1.0e-9
+        if frame["cap_b"].local_progress >= 1.0 - 1.0e-9:
+            assert frame["brick_b"].local_progress >= 1.0 - 1.0e-9
 
 
 def test_blended_top_caps_use_varied_speeds():
@@ -1294,7 +1300,6 @@ def test_blended_top_caps_use_varied_speeds():
         placements,
         0.53,
         top_cap_ids=cap_ids,
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -1319,7 +1324,6 @@ def test_blended_top_caps_varied_speeds_still_land_at_end():
         [support, cap],
         1.0,
         top_cap_ids={id(cap)},
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -1349,7 +1353,6 @@ def test_top_surface_caps_wait_for_support_to_land():
             placements,
             progress,
             top_cap_ids={id(cap)},
-            top_surface_start=0.35,
             top_surface_phase=0.65,
             blend_top_surface=True,
             y_offset=10.0,
@@ -1414,7 +1417,6 @@ def test_blended_top_caps_start_from_zero_for_late_supports():
             placements,
             progress,
             top_cap_ids={id(cap)},
-            top_surface_start=0.35,
             top_surface_phase=0.65,
             blend_top_surface=True,
             y_offset=10.0,
@@ -1450,7 +1452,6 @@ def test_blended_top_caps_require_full_footprint_support():
         placements,
         1.0,
         top_cap_ids={id(wide_cap)},
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -1471,7 +1472,6 @@ def test_existing_smooth_top_plates_stay_in_structural_timeline():
         placements,
         1.0,
         top_cap_ids={id(existing_plate)},
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -1492,7 +1492,6 @@ def test_blended_existing_smooth_top_plates_follow_smooth_top_progress():
         1.0,
         top_progress=0.0,
         top_cap_ids={id(existing_plate)},
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -1503,7 +1502,6 @@ def test_blended_existing_smooth_top_plates_follow_smooth_top_progress():
         1.0,
         top_progress=1.0,
         top_cap_ids={id(existing_plate)},
-        top_surface_start=0.35,
         top_surface_phase=0.65,
         blend_top_surface=True,
         y_offset=10.0,
@@ -2081,7 +2079,7 @@ def main():
     test_shell_targets_include_fitted_open_top_without_voxel_column_match()
     test_top_surface_coverage_can_use_random_order()
     test_top_surface_phase_builds_caps_last()
-    test_top_surface_start_overlaps_structural_build()
+    test_top_caps_overlap_structural_build_low_before_high()
     test_blended_top_caps_use_varied_speeds()
     test_blended_top_caps_varied_speeds_still_land_at_end()
     test_top_surface_caps_wait_for_support_to_land()
