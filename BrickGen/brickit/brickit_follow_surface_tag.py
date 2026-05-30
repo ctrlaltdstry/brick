@@ -747,9 +747,9 @@ def _swap_baked_to_hero(tag):
         brickit_op = None
     if brickit_op is None:
         _brick_log(
-            "[brick] FollowSurface Swap to Hero: BrickIt link is empty — "
-            "the hero builder needs the original BrickIt object's brick "
-            "library and params. Re-link it via the tag's 'Source BrickIt' "
+            "[brick] FollowSurface Swap to Hero: Cubify link is empty — "
+            "the hero builder needs the original Cubify object's brick "
+            "library and params. Re-link it via the tag's 'Source Cubify' "
             "field, or re-run Make Proxies."
         )
         return False

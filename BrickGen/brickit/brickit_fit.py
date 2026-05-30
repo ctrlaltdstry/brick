@@ -542,7 +542,7 @@ def _refit_if_needed(self, op, doc, params=None):
         # C4D status bar lives on the bottom of the main UI. Setting bar
         # AND text gives the user both visual progress and a stage label.
         try:
-            c4d.StatusSetText("BrickIt: {0}...".format(stage))
+            c4d.StatusSetText("Cubify: {0}...".format(stage))
             c4d.StatusSetBar(int(max(0, min(100, pct))))
         except Exception:
             pass

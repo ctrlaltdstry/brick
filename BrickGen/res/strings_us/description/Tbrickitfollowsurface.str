@@ -1,6 +1,6 @@
 STRINGTABLE Tbrickitfollowsurface
 {
-    Tbrickitfollowsurface "BrickIt Follow Surface";
+    Tbrickitfollowsurface "Cubify Follow Surface";
     BRICKIT_FOLLOW_SURFACE_ENABLED "Enabled";
     BRICKIT_FOLLOW_SURFACE_SOURCE "Source Mesh";
     BRICKIT_FOLLOW_SURFACE_RECORDS "Bind Records (JSON)";
@@ -14,5 +14,5 @@ STRINGTABLE Tbrickitfollowsurface
     BRICKIT_FOLLOW_SURFACE_SWAP_QUALITY_DRAFT "Draft";
     BRICKIT_FOLLOW_SURFACE_SWAP_QUALITY_STANDARD "Standard";
     BRICKIT_FOLLOW_SURFACE_SWAP_QUALITY_HERO "Hero";
-    BRICKIT_FOLLOW_SURFACE_BRICKIT_OP "Source BrickIt";
+    BRICKIT_FOLLOW_SURFACE_BRICKIT_OP "Source Cubify";
 }

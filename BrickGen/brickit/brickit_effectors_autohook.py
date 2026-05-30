@@ -387,7 +387,7 @@ def register():
     try:
         ok = register_fn(
             id=ID_BRICKIT_EFFECTORS_AUTOHOOK,
-            str="BrickIt Effectors AutoHook",
+            str="Cubify Effectors AutoHook",
             info=0,
             dat=BrickItEffectorsAutoHook(),
         )

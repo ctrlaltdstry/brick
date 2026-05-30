@@ -133,9 +133,9 @@ class BrickLibraryPickerDialog(c4d.gui.GeDialog):
         except Exception:
             name = ""
         self._last_target_name = name
-        title = "Brick Library Picker"
+        title = "Cubit Library Picker"
         if name:
-            title = "Brick Library Picker - {0}".format(name)
+            title = "Cubit Library Picker - {0}".format(name)
         try:
             self.SetTitle(title)
         except Exception:
@@ -158,7 +158,7 @@ class BrickLibraryPickerDialog(c4d.gui.GeDialog):
                 pass
 
     def CreateLayout(self):
-        self.SetTitle("Brick Library Picker")
+        self.SetTitle("Cubit Library Picker")
         if not self.GroupBegin(999, c4d.BFH_SCALEFIT, cols=1):
             return True
         hero_bc = c4d.BaseContainer()

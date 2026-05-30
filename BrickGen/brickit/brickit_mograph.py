@@ -35,7 +35,7 @@ from quality_presets import QUALITY_HERO
 from source_geometry import source_axis_local_matrix
 
 
-_BIND_FOLLOWER_TAG_NAME = "BrickIt Follow Surface"
+_BIND_FOLLOWER_TAG_NAME = "Cubify Follow Surface"
 
 
 def _stamp_carrier_bind_index(carrier, idx):

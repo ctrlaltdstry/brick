@@ -1,4 +1,4 @@
-# Deploy the Brick plugin to Cinema 4D's user plugins folder.
+# Deploy the Cubit plugin to Cinema 4D's user plugins folder.
 # Run from anywhere:  powershell -ExecutionPolicy Bypass -File tools\deploy_plugin.ps1
 #
 # By default this also restarts Cinema 4D and reopens the test scene so
@@ -42,7 +42,7 @@ if ($env:BRICK_C4D_ROOT -and (Test-Path $env:BRICK_C4D_ROOT)) {
 }
 $c4dPlugins    = Join-Path $c4dRoot "plugins"
 $backupRoot    = Join-Path $c4dRoot "plugin_backups"
-$target        = Join-Path $c4dPlugins "Brick"
+$target        = Join-Path $c4dPlugins "Cubit"
 $targetCore    = Join-Path $target "brick"
 $targetVendor  = Join-Path $target "vendor"
 $nativeGuiName = "bricklibrary.inline_gui"
@@ -105,6 +105,7 @@ if ($nativeGuiSource) {
 # plugins root before deploying to avoid duplicate plugin registration.
 Get-ChildItem -Path $c4dPlugins -Directory |
     Where-Object {
+        $_.Name -like "Cubit.bak_*" -or
         $_.Name -like "Brick.bak_*" -or
         $_.Name -like "BrickGen.bak_*" -or
         $_.Name -like "BrickGenerator.bak_*" -or
@@ -117,7 +118,10 @@ Get-ChildItem -Path $c4dPlugins -Directory |
         Move-Item $_.FullName $dest
     }
 
-Move-PluginFolderToBackup -Path $target -Label "Brick"
+Move-PluginFolderToBackup -Path $target -Label "Cubit"
+# Old pre-rename install folder — relocate so it doesn't double-register
+# alongside the new Cubit folder.
+Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "Brick") -Label "Brick"
 Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGen") -Label "BrickGen"
 Move-PluginFolderToBackup -Path (Join-Path $c4dPlugins "BrickGenerator") -Label "BrickGenerator"
 
@@ -154,6 +158,7 @@ Write-Host ""
 Write-Host "Plugin root layout:"
 Get-ChildItem -Path $c4dPlugins -Directory |
     Where-Object {
+        $_.Name -eq "Cubit" -or
         $_.Name -eq "Brick" -or
         $_.Name -eq "BrickGen" -or
         $_.Name -eq "BrickGenerator" -or

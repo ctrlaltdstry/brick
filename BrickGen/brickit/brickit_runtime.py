@@ -459,7 +459,7 @@ def GetVirtualObjects(self, op, hh):
                 pass
         try:
             placeholder = c4d.BaseObject(c4d.Onull)
-            placeholder.SetName("BrickIt (loading...)")
+            placeholder.SetName("Cubify (loading...)")
             return placeholder
         except Exception:
             return None

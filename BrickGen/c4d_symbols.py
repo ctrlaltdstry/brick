@@ -1,4 +1,4 @@
-IDS_BRICKGENERATOR = "Brick"
+IDS_BRICKGENERATOR = "Cubit"
 ID_BRICKGENERATOR = 1069999
 
 BRICKGENERATOR_WIDTH = 1001
@@ -29,12 +29,12 @@ BRICKGENERATOR_TYPE_PLATE = 1
 # ---------------------------------------------------------------------
 # BrickIt — mesh -> brick assembly generator
 # ---------------------------------------------------------------------
-IDS_BRICKIFYASSEMBLY = "BrickIt"
+IDS_BRICKIFYASSEMBLY = "Cubify"
 ID_BRICKIFYASSEMBLY = 1069998
-IDS_BRICKLIBRARYPANEL = "Brick Panel"
+IDS_BRICKLIBRARYPANEL = "Cubit Panel"
 ID_BRICKLIBRARYPANEL = 1069997
 ID_BRICKIT_EFFECTORS_AUTOHOOK = 1069995
-IDS_BRICKIT_FOLLOW_SURFACE_TAG = "BrickIt Follow Surface"
+IDS_BRICKIT_FOLLOW_SURFACE_TAG = "Cubify Follow Surface"
 ID_BRICKIT_FOLLOW_SURFACE_TAG = 1069994
 
 # BrickIt Follow Surface tag parameter IDs (resource-local, used by the

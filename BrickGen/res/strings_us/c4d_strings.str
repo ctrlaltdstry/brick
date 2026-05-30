@@ -1,4 +1,4 @@
 STRINGTABLE c4d_strings
 {
-    IDS_BRICKGENERATOR "Brick";
+    IDS_BRICKGENERATOR "Cubit";
 }

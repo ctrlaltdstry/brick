@@ -1,4 +1,4 @@
-# Build a clean runtime-only Brick plugin package for distribution.
+# Build a clean runtime-only Cubit plugin package for distribution.
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1
 # Optional zip:
@@ -14,7 +14,7 @@ $repoRoot      = Split-Path -Parent $PSScriptRoot
 $pluginSource  = Join-Path $repoRoot "BrickGen"
 $corePackage   = Join-Path $repoRoot "brick"
 $distRoot      = Join-Path $repoRoot "dist"
-$packageRoot   = Join-Path $distRoot "Brick"
+$packageRoot   = Join-Path $distRoot "Cubit"
 $nativeGuiName = "bricklibrary.inline_gui"
 $vendorSource  = Join-Path $repoRoot "vendor"
 
@@ -98,7 +98,7 @@ foreach ($filter in $fileFilters) {
 }
 
 if ($Zip) {
-    $zipPath = Join-Path $distRoot "Brick.zip"
+    $zipPath = Join-Path $distRoot "Cubit.zip"
     if (Test-Path $zipPath) {
         Remove-Item $zipPath -Force
     }
