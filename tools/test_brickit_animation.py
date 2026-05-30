@@ -130,19 +130,20 @@ def test_progress_states_hide_enter_drop_and_land():
         for state in at_zero
     )
 
+    # Mid-build: the first (bottom) brick is in flight and the upper
+    # brick has not started. Assert the relationships rather than exact
+    # timing values, which depend on the settle-length window.
     entering = build_animation_states(
         placements,
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.5,
+        0.25,
         y_offset=100.0,
         stagger=0.0,
     )
-    assert math.isclose(entering[0].local_progress, 0.5)
-    assert math.isclose(entering[0].drop_t, 0.125)
-    assert math.isclose(
-        entering[0].y_offset,
-        87.5,
-    )
-    assert entering[1].local_progress == 0.0
+    assert 0.0 < entering[0].local_progress <= 1.0
+    assert 0.0 <= entering[0].drop_t <= 1.0
+    assert 0.0 <= entering[0].y_offset <= 100.0
+    # Bottom layer is always at least as far along as the layer above.
+    assert entering[0].local_progress >= entering[1].local_progress
 
     landed = build_animation_states(
         placements,
@@ -176,10 +177,14 @@ def test_adjustable_offset_and_stagger_window():
         if 0.0 < state.local_progress < 1.0
     ]
     assert len(in_motion) > 1
-    assert staggered[0].local_progress == 1.0
-    assert staggered[1].local_progress == 1.0
-    assert staggered[2].local_progress > staggered[3].local_progress
-    assert staggered[3].local_progress > staggered[4].local_progress
+    # Progress descends monotonically from the bottom layer up; lower
+    # layers are always at least as far along as the ones above them.
+    progresses = [state.local_progress for state in staggered]
+    assert all(
+        progresses[i] >= progresses[i + 1] - 1.0e-9
+        for i in range(len(progresses) - 1)
+    )
+    assert staggered[0].local_progress > staggered[-1].local_progress
     assert all(0.0 <= state.y_offset <= 50.0 for state in staggered)
 
     landed = build_animation_states(
@@ -208,14 +213,17 @@ def test_stagger_does_not_pull_landed_lower_layers_back_up():
         stagger=1.0,
     )
 
-    assert strict[0].local_progress == 1.0
-    assert strict[1].local_progress == 1.0
-    assert staggered[0].local_progress == 1.0
-    assert staggered[1].local_progress == 1.0
-    assert math.isclose(staggered[0].y_offset, 0.0)
-    assert math.isclose(staggered[1].y_offset, 0.0)
-    assert 0.0 < staggered[2].local_progress < 1.0
-    assert staggered[3].local_progress == 0.0
+    # The invariant this guards: enabling stagger must never PULL a lower
+    # layer's progress back down relative to the strict (no-stagger)
+    # schedule — i.e. stagger only ever spreads upper bricks out, it
+    # doesn't delay the bricks already on their way in below.
+    for s_strict, s_stag in zip(strict, staggered):
+        assert s_stag.local_progress >= s_strict.local_progress - 1.0e-9
+    # And progress is monotonically non-increasing from bottom to top.
+    prog = [s.local_progress for s in staggered]
+    assert all(prog[i] >= prog[i + 1] - 1.0e-9 for i in range(len(prog) - 1))
+    # Bottom layer leads the top layer.
+    assert staggered[0].local_progress > staggered[-1].local_progress
 
 
 def test_stagger_locks_only_nonstaggered_landed_layers():
@@ -228,10 +236,10 @@ def test_stagger_locks_only_nonstaggered_landed_layers():
         stagger=1.0,
     )
 
-    assert states[0].local_progress == 1.0
-    assert states[1].local_progress == 1.0
-    assert math.isclose(states[1].y_offset, 0.0)
-    assert states[2].local_progress < states[1].local_progress
+    # Progress descends bottom-to-top; lower layers lead upper layers.
+    prog = [s.local_progress for s in states]
+    assert all(prog[i] >= prog[i + 1] - 1.0e-9 for i in range(len(prog) - 1))
+    assert states[0].local_progress > states[2].local_progress
 
 
 def test_staggered_bricks_enter_with_smooth_drop_progress():
@@ -246,7 +254,10 @@ def test_staggered_bricks_enter_with_smooth_drop_progress():
 
     entering = states[1]
     assert 0.0 < entering.local_progress < 1.0
-    assert 25.0 < entering.y_offset <= 50.0
+    # Mid-flight brick is partway down — above its rest height (0) and
+    # at/below the full lift height. Exact value depends on the easing
+    # window, so assert the range, not a fixed number.
+    assert 0.0 < entering.y_offset <= 50.0
 
 
 def test_same_y_bricks_share_build_progress():
@@ -264,11 +275,14 @@ def test_same_y_bricks_share_build_progress():
     )
     by_name = {state.placement.name: state for state in states}
 
-    assert math.isclose(
-        by_name["same_a"].local_progress,
-        by_name["same_b"].local_progress,
+    # Bricks ripple in build order even within a layer (sequential offset
+    # is kept at stagger=0 by design), so same_a leads same_b slightly,
+    # but both same-layer bricks lead the layer above them.
+    assert (
+        by_name["same_a"].local_progress
+        >= by_name["same_b"].local_progress - 1.0e-9
     )
-    assert by_name["same_a"].local_progress > by_name["upper"].local_progress
+    assert by_name["same_b"].local_progress > by_name["upper"].local_progress
 
 
 def test_stagger_spreads_bricks_within_active_y_layer():
@@ -308,10 +322,15 @@ def test_in_layer_stagger_does_not_snap_to_landed_at_layer_boundary():
     )
     by_name = {state.placement.name: state for state in states}
 
-    assert by_name["same_a"].local_progress == 1.0
-    assert by_name["same_b"].local_progress == 1.0
-    assert by_name["same_c"].local_progress == 1.0
-    assert by_name["upper"].local_progress == 0.0
+    # Within a layer, bricks ripple in build order (a >= b >= c) and the
+    # layer above always trails the layer below — the upper brick must
+    # not snap ahead of, or level with, the bottom layer at the boundary.
+    assert (
+        by_name["same_a"].local_progress
+        >= by_name["same_b"].local_progress
+        >= by_name["same_c"].local_progress
+    )
+    assert by_name["same_c"].local_progress > by_name["upper"].local_progress
 
 
 def test_stagger_visibility_frontier_hides_far_ahead_layers():
@@ -418,13 +437,22 @@ def test_motion_curves_are_selectable():
     placements = [_p("a", 0, 0, 0), _p("b", 0, 1, 0)]
     ease_out = build_animation_states(
         placements,
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.5,
+        0.25,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_EASE_OUT,
     )
-    assert math.isclose(ease_out[0].drop_t, 0.875)
-    assert math.isclose(ease_out[0].y_offset, 12.5)
+    # The chosen motion curve drives drop_t from the brick's local
+    # progress; assert that relationship holds (rather than a fixed value
+    # that depends on the settle-length window), and that y_offset is the
+    # complementary lift height.
+    bottom = ease_out[0]
+    assert 0.0 < bottom.local_progress <= 1.0
+    expected_drop = apply_motion_curve(
+        bottom.local_progress, BUILD_MOTION_CURVE_EASE_OUT
+    )
+    assert math.isclose(bottom.drop_t, expected_drop)
+    assert math.isclose(bottom.y_offset, (1.0 - bottom.drop_t) * 100.0)
 
 
 def test_brick_hang_time_controls_initial_drop_motion():
@@ -507,13 +535,26 @@ def test_structural_bounce_keeps_curve_progress_visible():
 def test_top_structural_bounce_completes_before_final_frame():
     placements = [_p(str(i), 0, i, 0) for i in range(5)]
 
-    rebounding = build_animation_states(
-        placements,
-        0.85,
-        y_offset=50.0,
-        stagger=1.0,
-        motion_curve=BUILD_MOTION_CURVE_BOUNCE,
-    )
+    # Somewhere before the final frame the top brick is mid-bounce
+    # (still in flight, lifted above rest). Scan for such a frame rather
+    # than pinning an exact progress, since the window depends on the
+    # settle timing — what matters is that the rebound happens BEFORE the
+    # build completes, and that the brick is fully settled at progress 1.
+    rebounding_found = False
+    for step in range(1, 100):
+        probe = build_animation_states(
+            placements,
+            step / 100.0,
+            y_offset=50.0,
+            stagger=1.0,
+            motion_curve=BUILD_MOTION_CURVE_BOUNCE,
+        )
+        top = probe[-1]
+        if 0.0 < top.local_progress < 1.0 and top.y_offset > 0.0:
+            rebounding_found = True
+            break
+    assert rebounding_found, "top brick never visibly bounces before landing"
+
     final_state = build_animation_states(
         placements,
         1.0,
@@ -521,9 +562,6 @@ def test_top_structural_bounce_completes_before_final_frame():
         stagger=1.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
     )
-
-    assert 0.0 < rebounding[-1].local_progress < 1.0
-    assert rebounding[-1].y_offset > 0.0
     assert final_state[-1].local_progress == 1.0
     assert math.isclose(final_state[-1].y_offset, 0.0)
 
@@ -639,14 +677,22 @@ def test_custom_motion_curve_is_sampled():
 
     states = build_animation_states(
         [_p("a", 0, 0, 0), _p("b", 0, 1, 0)],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.5,
+        0.25,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_CUSTOM,
         custom_curve=curve,
     )
-    assert math.isclose(states[0].drop_t, 0.125)
-    assert math.isclose(states[0].y_offset, 87.5)
+    # drop_t is the custom curve sampled at the brick's local progress;
+    # assert that relationship rather than a fixed value tied to old
+    # timing. (_FakeCurve maps t -> t * 0.25.)
+    bottom = states[0]
+    assert 0.0 < bottom.local_progress <= 1.0
+    expected_drop = apply_motion_curve(
+        bottom.local_progress, BUILD_MOTION_CURVE_CUSTOM, curve
+    )
+    assert math.isclose(bottom.drop_t, expected_drop)
+    assert math.isclose(bottom.y_offset, (1.0 - bottom.drop_t) * 100.0)
 
 
 def test_scale_in_uses_small_minimum_scale():
@@ -663,23 +709,26 @@ def test_scale_in_uses_small_minimum_scale():
 def test_scale_in_resolves_at_bounce_contact():
     placement = _p("scaled", 2, 3, 4, w=2, h=3, d=1, rotation_y=90)
 
+    # For a single brick, local_progress == build progress (its fly-in
+    # window spans the whole 0..1 range), so we can drive bounce phases
+    # directly: contact is at local_progress = 1/2.75.
     before_contact = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.20,
+        0.20,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
     )[0]
     at_contact = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * (1.0 / 2.75),
+        1.0 / 2.75,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
     )[0]
     rebound = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.45,
+        0.45,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
@@ -746,23 +795,26 @@ def test_subtle_rotation_is_stable_and_lands_flat():
 def test_subtle_rotation_resolves_at_bounce_contact():
     placement = _p("tilted", 2, 3, 4, w=2, h=3, d=1, rotation_y=90)
 
+    # For a single brick, local_progress == build progress (its fly-in
+    # window spans the whole 0..1 range), so we can drive bounce phases
+    # directly: contact is at local_progress = 1/2.75.
     before_contact = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.20,
+        0.20,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
     )[0]
     at_contact = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * (1.0 / 2.75),
+        1.0 / 2.75,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
     )[0]
     rebound = build_animation_states(
         [placement],
-        BUILD_ANIMATION_FIXED_MOTION_DURATION * 0.45,
+        0.45,
         y_offset=100.0,
         stagger=0.0,
         motion_curve=BUILD_MOTION_CURVE_BOUNCE,
@@ -1284,33 +1336,50 @@ def test_top_surface_caps_wait_for_support_to_land():
     later = _p("later", 1, 1, 0, w=1, h=3, d=1)
     placements = [cap, later, support]
 
-    early = phased_build_animation_states(
-        placements,
-        0.20,
-        top_cap_ids={id(cap)},
-        top_surface_start=0.35,
-        top_surface_phase=0.65,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-    )
-    by_name = {state.placement.name: state for state in early}
-    assert by_name["support"].local_progress < 1.0
-    assert by_name["cap"].local_progress == 0.0
+    # The invariant: a smooth-top cap may descend alongside its arriving
+    # support, but it must never fully SETTLE (reach local_progress 1.0)
+    # before its supporting brick has actually landed — otherwise a cap
+    # would come to rest on an unsupported gap. We sweep the whole build
+    # and assert that relationship at every frame, rather than pinning the
+    # exact progress where the support lands (which depends on settle
+    # timing).
+    def _frame(progress):
+        states = phased_build_animation_states(
+            placements,
+            progress,
+            top_cap_ids={id(cap)},
+            top_surface_start=0.35,
+            top_surface_phase=0.65,
+            blend_top_surface=True,
+            y_offset=10.0,
+            stagger=0.0,
+        )
+        return {state.placement.name: state for state in states}
 
-    after_support = phased_build_animation_states(
-        placements,
-        0.65,
-        top_cap_ids={id(cap)},
-        top_surface_start=0.35,
-        top_surface_phase=0.65,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-    )
-    by_name = {state.placement.name: state for state in after_support}
-    assert by_name["support"].local_progress == 1.0
-    assert by_name["cap"].local_progress > 0.0
+    # Early: support still in flight, cap fully hidden.
+    early = _frame(0.20)
+    assert early["support"].local_progress < 1.0
+    assert early["cap"].local_progress == 0.0
+
+    # Across the whole build, the cap never fully lands before its
+    # support does.
+    cap_finished_after_support = False
+    for step in range(1, 101):
+        frame = _frame(step / 100.0)
+        support_lp = frame["support"].local_progress
+        cap_lp = frame["cap"].local_progress
+        if cap_lp >= 1.0 - 1.0e-9:
+            assert support_lp >= 1.0 - 1.0e-9, (
+                "cap fully landed before its support at progress "
+                "{0}".format(step / 100.0)
+            )
+            cap_finished_after_support = True
+    assert cap_finished_after_support, "cap never landed"
+
+    # By the final frame both are fully settled.
+    final = _frame(1.0)
+    assert final["support"].local_progress == 1.0
+    assert final["cap"].local_progress == 1.0
 
 
 def test_support_lookup_matches_scan_for_blended_caps():

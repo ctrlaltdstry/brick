@@ -53,6 +53,11 @@ BUILD_ANIMATION_SETTLE_MAX_FACTOR = 28.0
 # last brick before the next layer begins (keeps the build bottom-up
 # without serializing layers when settle windows are long).
 BUILD_ANIMATION_LAYER_BARRIER_FACTOR = 3.0
+# A smooth-top cap may descend alongside its arriving support but must not
+# fully settle before the support has landed. Until the support lands, the
+# cap's local progress is capped here (it can fly most of the way in, then
+# completes its settle only once the brick beneath it has arrived).
+BUILD_ANIMATION_CAP_PRELAND_MAX = 0.85
 BUILD_ANIMATION_VISIBLE_AHEAD_LAYERS = 2.0
 BUILD_ANIMATION_Y_OFFSET_VARIATION = 0.45
 BUILD_ANIMATION_MIN_HANG_EXPONENT = 0.35
@@ -1975,6 +1980,17 @@ def phased_build_animation_states(
         )
         cap_motion_p = clock_p if int(motion_curve) == BUILD_MOTION_CURVE_BOUNCE else p
         local_progress = _clamp01((cap_motion_p - cap_start) / cap_duration)
+        # The index-based `support_ready` estimate (above) gives the cap a
+        # head start so it has room to fly in. But under long settle
+        # windows that estimate can let the cap fully LAND before its
+        # support has actually arrived — a cap resting on an unsupported
+        # gap. So the cap may descend alongside its arriving support, but
+        # it must not finish ahead of it: cap them just below 1.0 until
+        # every support has truly landed (local_progress >= 1.0). This
+        # keeps the cap's animation window intact while preventing it from
+        # settling before the brick beneath it.
+        if not supports_landed:
+            local_progress = min(local_progress, BUILD_ANIMATION_CAP_PRELAND_MAX)
         if p >= 1.0 and supports_landed:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, cap_hang_time)
