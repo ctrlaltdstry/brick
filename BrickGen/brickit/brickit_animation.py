@@ -53,11 +53,13 @@ BUILD_ANIMATION_SETTLE_MAX_FACTOR = 28.0
 # last brick before the next layer begins (keeps the build bottom-up
 # without serializing layers when settle windows are long).
 BUILD_ANIMATION_LAYER_BARRIER_FACTOR = 3.0
-# A smooth-top cap may descend alongside its arriving support but must not
-# fully settle before the support has landed. Until the support lands, the
-# cap's local progress is capped here (it can fly most of the way in, then
-# completes its settle only once the brick beneath it has arrived).
-BUILD_ANIMATION_CAP_PRELAND_MAX = 0.85
+# Smooth-top caps follow their support's ACTUAL landing: a cap maps the
+# last fraction of its support's drop (this band) onto its own full fly-in,
+# so it chases the support down and settles just as the brick beneath it
+# arrives — no hovering ahead of an absent support. Larger = the cap starts
+# dropping earlier in the support's approach (looser follow); smaller = the
+# cap hugs the support's landing more tightly.
+BUILD_ANIMATION_CAP_FOLLOW_SUPPORT_BAND = 0.5
 BUILD_ANIMATION_VISIBLE_AHEAD_LAYERS = 2.0
 BUILD_ANIMATION_Y_OFFSET_VARIATION = 0.45
 BUILD_ANIMATION_MIN_HANG_EXPONENT = 0.35
@@ -1956,42 +1958,30 @@ def phased_build_animation_states(
                 )
             continue
 
-        support_ready = max(
-            _animation_finish_progress(
-                structural_layer_index[id(support)],
-                structural_layer_count,
-                stagger,
+        # Each cap rides its OWN support, gated on the support's ACTUAL
+        # landing progress (not an index-based estimate). The cap does not
+        # begin to drop until its support is nearly landed, then it
+        # follows the support down so it settles JUST after the brick
+        # beneath it arrives — low plates come in early, peak plates last,
+        # and no plate hovers in place waiting for an absent support.
+        #
+        # support_progress = how far along the slowest support is (0..1).
+        # We map the support's final approach (the last
+        # CAP_FOLLOW_SUPPORT_BAND of its travel) onto the cap's full
+        # 0..1 drop, so the cap chases the support in and lands with it.
+        support_progress = min(
+            (
+                structural_state_by_obj[id(support)].local_progress
+                if structural_state_by_obj.get(id(support)) is not None
+                else 0.0
             )
             for support in supports
         )
-        auto_start = _clamp01(
-            BUILD_ANIMATION_BLEND_TOP_START
-            if top_surface_start is None
-            else top_surface_start
+        band = max(1.0e-4, BUILD_ANIMATION_CAP_FOLLOW_SUPPORT_BAND)
+        local_progress = _clamp01(
+            (support_progress - (1.0 - band)) / band
         )
-        cap_duration_target = BUILD_ANIMATION_BLEND_TOP_DURATION * _cap_speed_multiplier(state.placement)
-        if int(motion_curve) == BUILD_MOTION_CURVE_BOUNCE:
-            cap_start = min(max(auto_start, support_ready), max(0.0, 1.0 - cap_duration_target))
-        else:
-            cap_start = max(auto_start, support_ready)
-        cap_duration = min(
-            cap_duration_target,
-            max(0.0001, 1.0 - cap_start),
-        )
-        cap_motion_p = clock_p if int(motion_curve) == BUILD_MOTION_CURVE_BOUNCE else p
-        local_progress = _clamp01((cap_motion_p - cap_start) / cap_duration)
-        # The index-based `support_ready` estimate (above) gives the cap a
-        # head start so it has room to fly in. But under long settle
-        # windows that estimate can let the cap fully LAND before its
-        # support has actually arrived — a cap resting on an unsupported
-        # gap. So the cap may descend alongside its arriving support, but
-        # it must not finish ahead of it: cap them just below 1.0 until
-        # every support has truly landed (local_progress >= 1.0). This
-        # keeps the cap's animation window intact while preventing it from
-        # settling before the brick beneath it.
-        if not supports_landed:
-            local_progress = min(local_progress, BUILD_ANIMATION_CAP_PRELAND_MAX)
-        if p >= 1.0 and supports_landed:
+        if supports_landed:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, cap_hang_time)
         # Default style now decelerates into rest (easeOutQuint). The

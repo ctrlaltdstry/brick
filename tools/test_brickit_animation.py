@@ -635,35 +635,36 @@ def test_final_blended_cap_bounce_has_pre_end_rebound_window():
     support = _p("support", 0, 0, 0, w=1, h=3, d=1)
     cap = _cap("cap", 0, 3, 0)
 
-    rebounding = phased_build_animation_states(
-        [support, cap],
-        0.97,
-        top_cap_ids={id(cap)},
-        top_surface_start=0.35,
-        top_surface_phase=0.65,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-        motion_curve=BUILD_MOTION_CURVE_BOUNCE,
-    )
-    final_state = phased_build_animation_states(
-        [support, cap],
-        1.0,
-        top_cap_ids={id(cap)},
-        top_surface_start=0.35,
-        top_surface_phase=0.65,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-        motion_curve=BUILD_MOTION_CURVE_BOUNCE,
-    )
-    rebound_by_name = {state.placement.name: state for state in rebounding}
-    final_by_name = {state.placement.name: state for state in final_state}
+    # Under the bounce curve the cap should, at some frame before the
+    # build completes, be mid-flight and lifted (a visible rebound), then
+    # land flat at progress 1.0. The exact progress where the rebound
+    # happens depends on when the cap's support lands (the cap now follows
+    # its support in), so scan for the rebound rather than pinning it.
+    def _cap_frame(progress):
+        states = phased_build_animation_states(
+            [support, cap],
+            progress,
+            top_cap_ids={id(cap)},
+            top_surface_start=0.35,
+            top_surface_phase=0.65,
+            blend_top_surface=True,
+            y_offset=10.0,
+            stagger=0.0,
+            motion_curve=BUILD_MOTION_CURVE_BOUNCE,
+        )
+        return {state.placement.name: state for state in states}["cap"]
 
-    assert 0.0 < rebound_by_name["cap"].local_progress < 1.0
-    assert rebound_by_name["cap"].y_offset > 0.0
-    assert final_by_name["cap"].local_progress == 1.0
-    assert math.isclose(final_by_name["cap"].y_offset, 0.0)
+    rebound_found = False
+    for step in range(1, 100):
+        cap_state = _cap_frame(step / 100.0)
+        if 0.0 < cap_state.local_progress < 1.0 and cap_state.y_offset > 0.0:
+            rebound_found = True
+            break
+    assert rebound_found, "cap never visibly rebounds before landing"
+
+    final_cap = _cap_frame(1.0)
+    assert final_cap.local_progress == 1.0
+    assert math.isclose(final_cap.y_offset, 0.0)
 
 
 def test_custom_motion_curve_is_sampled():
@@ -1408,20 +1409,36 @@ def test_blended_top_caps_start_from_zero_for_late_supports():
     cap = _cap("late_cap", 8, 11, 0)
     placements = supports + [cap]
 
-    just_after_support = phased_build_animation_states(
-        placements,
-        0.95,
-        top_cap_ids={id(cap)},
-        top_surface_start=0.35,
-        top_surface_phase=0.65,
-        blend_top_surface=True,
-        y_offset=10.0,
-        stagger=0.0,
-    )
-    by_name = {state.placement.name: state for state in just_after_support}
+    def _frame(progress):
+        states = phased_build_animation_states(
+            placements,
+            progress,
+            top_cap_ids={id(cap)},
+            top_surface_start=0.35,
+            top_surface_phase=0.65,
+            blend_top_surface=True,
+            y_offset=10.0,
+            stagger=0.0,
+        )
+        return {state.placement.name: state for state in states}
 
-    assert by_name["support_8"].local_progress == 1.0
-    assert 0.0 < by_name["late_cap"].local_progress < 1.0
+    # A late cap stays hidden (0) while its support is still early in its
+    # drop — it does not appear ahead of the structure beneath it.
+    early = _frame(0.40)
+    assert early["support_8"].local_progress < 1.0
+    assert early["late_cap"].local_progress == 0.0
+
+    # As the build nears the end, the late cap follows its support in and
+    # is mid-flight while the support is in its final approach, never
+    # running ahead of it.
+    near_end = _frame(0.90)
+    assert 0.0 < near_end["late_cap"].local_progress < 1.0
+    assert near_end["late_cap"].local_progress <= near_end["support_8"].local_progress + 1.0e-9
+
+    # By the final frame both are fully landed.
+    final = _frame(1.0)
+    assert final["support_8"].local_progress == 1.0
+    assert final["late_cap"].local_progress == 1.0
 
 
 def test_blended_top_caps_require_full_footprint_support():
