@@ -42,6 +42,17 @@ BUILD_ANIMATION_IN_LAYER_STAGGER = 0.35
 # 1..BUILD_ANIMATION_IN_FLIGHT_MAX. Stagger=0 → strict one-at-a-time,
 # stagger=1 → loose swarm (~20 bricks falling at once).
 BUILD_ANIMATION_IN_FLIGHT_MAX = 20
+# Settle Length -> per-brick fly-in duration as a multiple of the
+# inter-brick start spacing (= concurrency = how many bricks decelerate
+# in flight at once). Sized relative to spacing so the visible fly-in
+# fraction is invariant to brick count. settle=0 -> short/snappy,
+# settle=1 -> long, clearly-decelerating glide-in.
+BUILD_ANIMATION_SETTLE_MIN_FACTOR = 2.0
+BUILD_ANIMATION_SETTLE_MAX_FACTOR = 28.0
+# Layer barrier waits this many start-spacings after the prior layer's
+# last brick before the next layer begins (keeps the build bottom-up
+# without serializing layers when settle windows are long).
+BUILD_ANIMATION_LAYER_BARRIER_FACTOR = 3.0
 BUILD_ANIMATION_VISIBLE_AHEAD_LAYERS = 2.0
 BUILD_ANIMATION_Y_OFFSET_VARIATION = 0.45
 BUILD_ANIMATION_MIN_HANG_EXPONENT = 0.35
@@ -1123,6 +1134,27 @@ def custom_curve_signature(curve_data, samples=11):
     )
 
 
+def apply_landing_ease(local_t):
+    """easeOutQuint: 1 - (1 - t)^5.
+
+    Applied to a brick's LOCAL fly-in progress (0..1 over its individual
+    flight window) to give a visibly cushioned, decelerating landing with
+    NO overshoot or bounce. Research (Penner / easings.net) picks quint as
+    the ease-out with the longest *visible* settle tail — the brick covers
+    most of its travel early then eases gently into rest. (easeOutExpo
+    snaps to rest too early to read as cushioned; quart/cubic are softer
+    but shorter-tailed.)
+
+    This is the deceleration character; the Settle Length control sizes the
+    WINDOW this curve plays over (longer window = the same ease but slower
+    and far more readable). The two together are what make the landing
+    visible without lengthening the overall timeline.
+    """
+    t = _clamp01(local_t)
+    inv = 1.0 - t
+    return _clamp01(1.0 - inv * inv * inv * inv * inv)
+
+
 def apply_motion_curve(t, curve=BUILD_MOTION_CURVE_SLAM, custom_curve=None):
     """Map local progress through the selected build motion curve."""
     t = _clamp01(t)
@@ -1277,6 +1309,7 @@ def build_animation_states(
     hang_time=1.0,
     motion_curve=BUILD_MOTION_CURVE_SLAM,
     custom_curve=None,
+    settle_length=0.5,
     order_offset=0,
 ):
     """Return per-placement animation states in chronological order."""
@@ -1290,6 +1323,7 @@ def build_animation_states(
         hang_time=hang_time,
         motion_curve=motion_curve,
         custom_curve=custom_curve,
+        settle_length=settle_length,
         order_offset=order_offset,
     )
 
@@ -1304,6 +1338,7 @@ def _build_animation_states_for_ordered(
     hang_time=1.0,
     motion_curve=BUILD_MOTION_CURVE_SLAM,
     custom_curve=None,
+    settle_length=0.5,
     order_offset=0,
 ):
     n = len(ordered)
@@ -1319,6 +1354,7 @@ def _build_animation_states_for_ordered(
         hang_time=hang_time,
         motion_curve=motion_curve,
         custom_curve=custom_curve,
+        settle_length=settle_length,
         order_offset=order_offset,
         use_y_variation=True,
     )
@@ -1334,6 +1370,7 @@ def _build_fixed_motion_states_for_ordered(
     hang_time=1.0,
     motion_curve=BUILD_MOTION_CURVE_SLAM,
     custom_curve=None,
+    settle_length=0.5,
     order_offset=0,
     use_y_variation=True,
 ):
@@ -1352,22 +1389,44 @@ def _build_fixed_motion_states_for_ordered(
     #
     # Two independent timing concepts:
     #
-    # - `duration` = how many cursor ticks each brick's individual drop
-    #   takes. Constant per build so the fall is always visible no
-    #   matter what stagger is set to.
+    # - `duration` = how many cursor ticks each brick's individual fly-in
+    #   takes. This is the KEY to visible deceleration: it is sized as a
+    #   multiple of `step_size` (the inter-brick spacing) via the Settle
+    #   Length control, NOT a fixed constant. Sizing it relative to
+    #   step_size means a brick's fly-in stays the SAME fraction of the
+    #   whole timeline no matter how many bricks there are — so each
+    #   brick always gets a readable, decelerating landing instead of its
+    #   window collapsing to a snap as the count grows. (This is the
+    #   standard staggered-build model: fixed per-element duration, with
+    #   overlap/concurrency = duration / step_size absorbing the count.)
     #
     # - `step_size` = how many cursor ticks pass between consecutive
     #   bricks starting. Driven by stagger:
-    #     stagger=0  → step_size == duration   (strict sequential, no
-    #                                           in-flight overlap)
-    #     stagger=1  → step_size == 1          (max overlap, swarm)
+    #     stagger=0  → minimal overlap   (more sequential)
+    #     stagger=1  → max overlap       (loose swarm)
+    #
+    # - `settle_factor` = duration / step_size = how many bricks are in
+    #   flight at once = how long each brick visibly decelerates. Driven
+    #   by the Settle Length slider (`settle` 0..1). At settle=0 the
+    #   fly-in is short/snappy; at settle=1 each brick glides in over a
+    #   long, clearly-decelerating window.
     #
     # The per-layer barrier additionally jumps the cursor when the Y
     # changes so layer N+1's first brick can't start until layer N's
-    # last brick has finished its drop — even at stagger=1.
+    # last brick has (mostly) finished its drop, keeping the build
+    # bottom-up. The barrier gap scales with the settle window but is
+    # capped so long settle times don't blow the timeline apart.
     effective_stagger = _effective_stagger(stagger)
-    duration = float(BUILD_ANIMATION_IN_FLIGHT_MAX)
-    step_size = max(1.0, duration - effective_stagger * (duration - 1.0))
+    step_size = max(1.0, BUILD_ANIMATION_IN_FLIGHT_MAX * (1.0 - effective_stagger) + 1.0 * effective_stagger)
+    # Settle Length maps 0..1 -> concurrency 2..~28 bricks in flight.
+    settle = _clamp01(settle_length)
+    settle_factor = BUILD_ANIMATION_SETTLE_MIN_FACTOR + settle * (
+        BUILD_ANIMATION_SETTLE_MAX_FACTOR - BUILD_ANIMATION_SETTLE_MIN_FACTOR
+    )
+    duration = max(1.0, step_size * settle_factor)
+    # Layer barrier waits only a fraction of the (now possibly long)
+    # fly-in so high settle values overlap layers instead of serializing.
+    barrier_gap = min(duration, step_size * BUILD_ANIMATION_LAYER_BARRIER_FACTOR)
 
     start_ticks = [0.0] * n
     cursor_pos = 0.0
@@ -1376,10 +1435,12 @@ def _build_fixed_motion_states_for_ordered(
     for i, placement in enumerate(ordered):
         layer = int(getattr(placement, "y", 0))
         if prev_layer is not None and layer != prev_layer:
-            # New layer: wait for the previous layer's last-started
-            # brick to finish its drop. That brick started at
-            # last_brick_in_layer_start and lands `duration` later.
-            cursor_pos = last_brick_in_layer_start + duration
+            # New layer: wait `barrier_gap` ticks after the previous
+            # layer's last brick STARTED before this layer begins. The
+            # gap is a fraction of the fly-in (not the full duration) so
+            # long settle windows overlap layers smoothly instead of
+            # serializing them and blowing out the timeline.
+            cursor_pos = last_brick_in_layer_start + barrier_gap
         start_ticks[i] = cursor_pos
         last_brick_in_layer_start = cursor_pos
         cursor_pos += step_size
@@ -1402,7 +1463,13 @@ def _build_fixed_motion_states_for_ordered(
         if motion_p >= 1.0 or local_progress >= 1.0 - 1.0e-9:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, hang_time)
-        drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
+        # Default style now decelerates into rest (easeOutQuint). The
+        # Settle Length window above gives it room to be visible. Explicit
+        # Motion Style choices keep their own character.
+        if int(motion_curve) == BUILD_MOTION_CURVE_SLAM:
+            drop_t = apply_landing_ease(motion_progress)
+        else:
+            drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
         contact_progress = _contact_progress_for_motion(
             local_progress,
             motion_progress,
@@ -1438,6 +1505,7 @@ def _build_smooth_top_states_for_ordered(
     hang_time,
     motion_curve,
     custom_curve=None,
+    settle_length=0.5,
     order_offset=0,
     min_start_by_obj=None,
 ):
@@ -1461,7 +1529,13 @@ def _build_smooth_top_states_for_ordered(
         if p >= 1.0 or local_progress >= 1.0 - 1.0e-9:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, hang_time)
-        drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
+        # Default style now decelerates into rest (easeOutQuint). The
+        # Settle Length window above gives it room to be visible. Explicit
+        # Motion Style choices keep their own character.
+        if int(motion_curve) == BUILD_MOTION_CURVE_SLAM:
+            drop_t = apply_landing_ease(motion_progress)
+        else:
+            drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
         contact_progress = _contact_progress_for_motion(
             local_progress,
             motion_progress,
@@ -1663,6 +1737,7 @@ def phased_build_animation_states(
     hang_time=1.0,
     motion_curve=BUILD_MOTION_CURVE_SLAM,
     custom_curve=None,
+    settle_length=0.5,
 ):
     """Animate structural placements with optional overlapping top caps."""
     top_cap_ids = set(top_cap_ids or ())
@@ -1681,6 +1756,7 @@ def phased_build_animation_states(
             hang_time=hang_time,
             motion_curve=motion_curve,
             custom_curve=custom_curve,
+            settle_length=settle_length,
         )
 
     if blend_top_surface:
@@ -1716,6 +1792,7 @@ def phased_build_animation_states(
             hang_time=hang_time,
             motion_curve=motion_curve,
             custom_curve=custom_curve,
+            settle_length=settle_length,
         )
 
     p = _clamp01(progress)
@@ -1757,6 +1834,7 @@ def phased_build_animation_states(
         hang_time=hang_time,
         motion_curve=motion_curve,
         custom_curve=custom_curve,
+        settle_length=settle_length,
         order_offset=0,
     )
     cap_hang_time = (
@@ -1812,6 +1890,7 @@ def phased_build_animation_states(
             hang_time=cap_hang_time,
             motion_curve=motion_curve,
             custom_curve=custom_curve,
+            settle_length=settle_length,
             order_offset=len(structural),
             min_start_by_obj=min_cap_start_by_obj,
         )
@@ -1826,6 +1905,7 @@ def phased_build_animation_states(
             hang_time=cap_hang_time,
             motion_curve=motion_curve,
             custom_curve=custom_curve,
+            settle_length=settle_length,
             order_offset=len(structural),
         )
     gated_cap_states = []
@@ -1898,7 +1978,13 @@ def phased_build_animation_states(
         if p >= 1.0 and supports_landed:
             local_progress = 1.0
         motion_progress = _apply_brick_hang_time(local_progress, cap_hang_time)
-        drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
+        # Default style now decelerates into rest (easeOutQuint). The
+        # Settle Length window above gives it room to be visible. Explicit
+        # Motion Style choices keep their own character.
+        if int(motion_curve) == BUILD_MOTION_CURVE_SLAM:
+            drop_t = apply_landing_ease(motion_progress)
+        else:
+            drop_t = apply_motion_curve(motion_progress, motion_curve, custom_curve)
         contact_progress = _contact_progress_for_motion(
             local_progress,
             motion_progress,

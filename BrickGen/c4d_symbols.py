@@ -164,6 +164,8 @@ BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING = 2309
 # Intersect) is stored in this InExcludeData parameter.
 BRICKIFYASSEMBLY_SOURCES = 2314
 BRICKIFYASSEMBLY_MIRROR_X = 2317
+# Motion Damping: 0..100 build-animation smoothing slider (50 = neutral).
+BRICKIFYASSEMBLY_BUILD_DAMPING = 2319
 
 # Build Info stats panel — read-only string fields populated after each
 # rebuild from the `info` dict returned by brickify_mesh. Updated by

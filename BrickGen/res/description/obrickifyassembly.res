@@ -915,6 +915,17 @@ CONTAINER obrickifyassembly
                 }
             }
 
+            REAL BRICKIFYASSEMBLY_BUILD_DAMPING
+            {
+                NAME BRICKIFYASSEMBLY_BUILD_DAMPING;
+                CUSTOMGUI REALSLIDER;
+                SCALE_H;
+                MIN 0.0;
+                MAX 100.0;
+                STEP 0.1;
+                DEFAULT 50.0;
+            }
+
             BOOL BRICKIFYASSEMBLY_BUILD_SCALE_IN
             {
                 NAME BRICKIFYASSEMBLY_BUILD_SCALE_IN;

@@ -515,6 +515,7 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         hang_time=params.get("build_hang_time", 0.0),
         motion_curve=params.get("build_motion_curve", 4),
         custom_curve=params.get("build_custom_curve"),
+        settle_length=params.get("build_settle_length", 0.5),
     )
     animation_state_by_obj = {
         id(state.placement): state for state in animation_states
@@ -1171,6 +1172,7 @@ def _apply_integrated_mograph_animation_fast_path(self, op, params=None):
         hang_time=params.get("build_hang_time", 0.0),
         motion_curve=params.get("build_motion_curve", 4),
         custom_curve=params.get("build_custom_curve"),
+        settle_length=params.get("build_settle_length", 0.5),
     )
     animation_state_by_obj = {
         id(anim_state.placement): anim_state

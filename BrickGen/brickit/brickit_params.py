@@ -399,6 +399,15 @@ def _resolve_params(self, op, source_obj):
     if build_hang_time_raw is None:
         build_hang_time_raw = 0.0
     build_hang_time = max(0.0, min(1.0, float(build_hang_time_raw) / 100.0))
+    # Motion Damping: 0..100 UI slider -> 0..1. 50 (=0.5) is the neutral
+    # midpoint that leaves motion unchanged; <0.5 snappier, >0.5 smoother.
+    # Settle Length: 0..100 UI -> 0..1. Sizes each brick's fly-in window
+    # (= how long/slow the decelerating landing is). None (legacy scenes
+    # from before this param existed) reads as the mid default.
+    build_settle_length_raw = op[BRICKIFYASSEMBLY_BUILD_DAMPING]
+    if build_settle_length_raw is None:
+        build_settle_length_raw = 50.0
+    build_settle_length = max(0.0, min(1.0, float(build_settle_length_raw) / 100.0))
     build_motion_curve = int(
         op[BRICKIFYASSEMBLY_BUILD_MOTION_CURVE]
         or BRICKIFYASSEMBLY_BUILD_MOTION_CURVE_SLAM
@@ -558,6 +567,7 @@ def _resolve_params(self, op, source_obj):
         "build_y_offset": build_y_offset,
         "build_stagger": build_stagger,
         "build_hang_time": build_hang_time,
+        "build_settle_length": build_settle_length,
         "build_motion_curve": build_motion_curve,
         "build_scale_in": build_scale_in,
         "build_subtle_rotation": build_subtle_rotation,
