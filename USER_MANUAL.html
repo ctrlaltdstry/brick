@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Brick — User Manual</title>
+<title>Cubit — User Manual</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; }
@@ -153,17 +153,17 @@
 <body>
 
 <aside>
-  <h2>Brick</h2>
+  <h2>Cubit</h2>
   <div class="tagline">Cinema 4D plugin — user manual</div>
   <nav>
     <a href="#install" class="section">Install</a>
 
-    <a href="#brick" class="section">Brick — single-brick generator</a>
+    <a href="#brick" class="section">Cubit — single-brick generator</a>
     <a href="#brick-add" class="sub">Adding it</a>
     <a href="#brick-params" class="sub">Parameters</a>
     <a href="#brick-logo" class="sub">Stud Logo (optional)</a>
 
-    <a href="#brickit" class="section">BrickIt — mesh-to-brick assembly</a>
+    <a href="#brickit" class="section">Cubify — mesh-to-brick assembly</a>
     <a href="#brickit-quick" class="sub">Quick start</a>
     <a href="#tab-object" class="sub">Object tab</a>
       <a href="#object-shape" class="sub2">Shape group</a>
@@ -205,13 +205,13 @@
 
 <main>
 
-<h1>Brick — User Manual</h1>
+<h1>Cubit — User Manual</h1>
 <p class="subtitle">Cinema 4D plugin suite for generating LEGO-style bricks and assemblies.</p>
 
 <p>Two objects ship in the same plugin:</p>
 <ul>
-  <li><strong>Brick</strong> — a single parametric brick.</li>
-  <li><strong>BrickIt</strong> — converts one or more source meshes into a structurally-buildable brick assembly. Supports multi-source compositions (Union / Subtract / Intersect), MoGraph effectors, build animation, deforming-mesh binding, and per-brick color in Redshift.</li>
+  <li><strong>Cubit</strong> — a single parametric brick.</li>
+  <li><strong>Cubify</strong> — converts one or more source meshes into a structurally-buildable brick assembly. Supports multi-source compositions (Union / Subtract / Intersect), MoGraph effectors, build animation, deforming-mesh binding, and per-brick color in Redshift.</li>
 </ul>
 
 <hr>
@@ -222,12 +222,12 @@
   <li>In Cinema 4D, open <strong>Edit → Preferences</strong> and click <strong>Open Preferences Folder...</strong> at the bottom-left. That opens your per-instance C4D folder (something like <code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_&lt;hash&gt;\</code>).</li>
   <li>Close Cinema 4D.</li>
   <li>Inside that folder, open <code>plugins\</code> and unzip the release so the plugin ends up at:
-    <pre><code>...\Maxon Cinema 4D 2026_&lt;hash&gt;\plugins\Brick\</code></pre>
+    <pre><code>...\Maxon Cinema 4D 2026_&lt;hash&gt;\plugins\Cubit\</code></pre>
   </li>
   <li>Start Cinema 4D. Both objects appear under the plugin menu:
     <ul>
-      <li><code>Brick</code> — single brick generator.</li>
-      <li><code>BrickIt</code> — source-mesh-to-brick assembly.</li>
+      <li><code>Cubit</code> — single brick generator.</li>
+      <li><code>Cubify</code> — source-mesh-to-brick assembly.</li>
     </ul>
   </li>
 </ol>
@@ -235,11 +235,11 @@
 
 <hr>
 
-<h2 id="brick">Brick — single-brick generator</h2>
+<h2 id="brick">Cubit — single-brick generator</h2>
 <p>Use this when you want a clean parametric brick (for stills, beauty shots, hero set dressing, or as the source for your own MoGraph cloner).</p>
 
 <h3 id="brick-add">Adding it</h3>
-<p>Object menu → <strong>Brick</strong>. The default is a 2×4 brick.</p>
+<p>Object menu → <strong>Cubit</strong>. The default is a 2×4 brick.</p>
 
 <h3 id="brick-params">Parameters</h3>
 <ul>
@@ -271,17 +271,17 @@
 
 <hr>
 
-<h2 id="brickit">BrickIt — mesh-to-brick assembly</h2>
-<p>Drop in one or more polygon objects as sources, and BrickIt voxelizes them and tiles the result with bricks. Real-time preview, animation, MoGraph effectors, Redshift per-brick color all work on the live output. Multiple sources can be combined boolean-style (Union / Subtract / Intersect) for additive and carved compositions.</p>
+<h2 id="brickit">Cubify — mesh-to-brick assembly</h2>
+<p>Drop in one or more polygon objects as sources, and Cubify voxelizes them and tiles the result with bricks. Real-time preview, animation, MoGraph effectors, Redshift per-brick color all work on the live output. Multiple sources can be combined boolean-style (Union / Subtract / Intersect) for additive and carved compositions.</p>
 
 <h3 id="brickit-quick">Quick start</h3>
 <ol>
-  <li>Object menu → <strong>BrickIt</strong>.</li>
-  <li>Parent a polygon object under the BrickIt in the Object Manager — it auto-appears in the <strong>Sources</strong> list and the source mesh hides itself in the viewport (the brick output replaces it).</li>
+  <li>Object menu → <strong>Cubify</strong>.</li>
+  <li>Parent a polygon object under the Cubify in the Object Manager — it auto-appears in the <strong>Sources</strong> list and the source mesh hides itself in the viewport (the brick output replaces it).</li>
   <li>Adjust <strong>Resolution</strong> in the Shape group until the silhouette matches what you want. Lower = chunkier bricks; higher = finer detail.</li>
   <li>Switch <strong>Brick Mesh Detail</strong> (Look tab) to <strong>Hero</strong> for a final render.</li>
 </ol>
-<p>The BrickIt object's parameters are organized into five tabs:</p>
+<p>The Cubify object's parameters are organized into five tabs:</p>
 <ul>
   <li><strong>Object</strong> — Shape (voxelization, sizing), Sources list, Bind to Source Deformation, Tools.</li>
   <li><strong>Bricks</strong> — which brick sizes to use, plate-stack rules, surface finishing, smooth-top, per-brick variation.</li>
@@ -303,28 +303,28 @@
     </ul>
   </li>
   <li><strong>Resolution</strong> — slider 0.1–1.0 controlling voxel density. Lower = chunkier bricks, faster builds. Higher = finer detail, slower. Greys out when <strong>Use Custom Scale</strong> is on (the two are mutually exclusive sizing controls).</li>
-  <li><strong>Use Custom Scale</strong> + <strong>Stud Size</strong> — when on, you set the absolute physical stud size in scene units instead of letting BrickIt derive it from the source bounds. Useful when the brickified output needs to match a specific real-world scale. Stud Size greys out when Custom Scale is off.</li>
+  <li><strong>Use Custom Scale</strong> + <strong>Stud Size</strong> — when on, you set the absolute physical stud size in scene units instead of letting Cubify derive it from the source bounds. Useful when the brickified output needs to match a specific real-world scale. Stud Size greys out when Custom Scale is off.</li>
   <li><strong>Build Type</strong> — Solid (fill the whole interior with bricks) or Shell (only place bricks within Wall Thickness of the surface — lighter, hollow inside).</li>
   <li><strong>Wall Thickness</strong> — only meaningful for Shell. Number of brick layers inward from the surface.</li>
   <li><strong>Clean Small Details</strong> — removes stray single-brick protrusions that read as noise rather than detail (0–4 levels of cleanup).</li>
   <li><strong>Keep Tiny Gaps</strong> — preserves narrow gaps in the source by allowing smaller bricks; off by default for cleaner output.</li>
-  <li><strong>Make Physically Accurate</strong> — when ON, the assembly must be a single connected structure (drops floating clusters; you can build it with real bricks). When OFF, BrickIt prioritizes silhouette accuracy and fills boundary cells with 1×1s as needed; physically separate islands are kept.</li>
+  <li><strong>Make Physically Accurate</strong> — when ON, the assembly must be a single connected structure (drops floating clusters; you can build it with real bricks). When OFF, Cubify prioritizes silhouette accuracy and fills boundary cells with 1×1s as needed; physically separate islands are kept.</li>
   <li><strong>Rebuild Now</strong> + <strong>Live Update</strong> — when Live Update is on (default), the assembly rebuilds after every parameter change. When off, sliders only update cached state and Rebuild Now commits. Useful on heavy scenes when scrubbing feels sluggish.</li>
 </ul>
 
 <h4 id="object-sources">Sources list</h4>
-<p>BrickIt accepts <em>multiple</em> source meshes and combines them with boolean-style modes. The Sources list is rendered as a Volume-Builder-style inset panel with one row per source, each carrying an icon (matching the OM), the object name, and a Mode control (Union / Subtract / Intersect).</p>
+<p>Cubify accepts <em>multiple</em> source meshes and combines them with boolean-style modes. The Sources list is rendered as a Volume-Builder-style inset panel with one row per source, each carrying an icon (matching the OM), the object name, and a Mode control (Union / Subtract / Intersect).</p>
 
 <p><strong>Adding sources — two paths:</strong></p>
 <ul>
-  <li><strong>Parent under BrickIt.</strong> Drop the polygon object as a child of the BrickIt in the Object Manager. It auto-appears in the Sources list and the source mesh hides itself in the viewport (the bricked output represents it now).</li>
+  <li><strong>Parent under Cubify.</strong> Drop the polygon object as a child of the Cubify in the Object Manager. It auto-appears in the Sources list and the source mesh hides itself in the viewport (the bricked output represents it now).</li>
   <li><strong>Drag-drop into the list.</strong> Drag any OM object directly onto the sources panel. The cursor changes to "accept" when valid; on drop the row appears at the bottom and the source mesh hides. Drag-dropped sources keep their original parentage in the OM — they're <em>references</em> rather than children.</li>
 </ul>
 
 <p><strong>Removing sources:</strong></p>
 <ul>
-  <li><strong>Click a row, then press Delete</strong> (or right-click → "Remove from list"). If the object was a direct child of the BrickIt, it's also deleted from the scene; if it was drag-dropped from elsewhere, only the list link goes away and the scene object survives. Both cases unhide the source.</li>
-  <li><strong>Un-parent in the OM.</strong> Dragging a child out from under the BrickIt removes it from the list (and unhides it). Drag-dropped references stay even if you reparent the object elsewhere.</li>
+  <li><strong>Click a row, then press Delete</strong> (or right-click → "Remove from list"). If the object was a direct child of the Cubify, it's also deleted from the scene; if it was drag-dropped from elsewhere, only the list link goes away and the scene object survives. Both cases unhide the source.</li>
+  <li><strong>Un-parent in the OM.</strong> Dragging a child out from under the Cubify removes it from the list (and unhides it). Drag-dropped references stay even if you reparent the object elsewhere.</li>
   <li><strong>Delete the object from the scene.</strong> The list entry self-prunes on the next eval.</li>
 </ul>
 
@@ -337,7 +337,7 @@
   <li><strong>Intersect</strong> — keeps only cells that are also inside this source.</li>
 </ul>
 
-<p><strong>Cycle protection:</strong> a BrickIt cannot be a source of itself or another BrickIt; an ancestor of the BrickIt cannot be a source either (would freeze C4D on bake). The list rejects invalid drops with a console message.</p>
+<p><strong>Cycle protection:</strong> a Cubify cannot be a source of itself or another Cubify; an ancestor of the Cubify cannot be a source either (would freeze C4D on bake). The list rejects invalid drops with a console message.</p>
 
 <h4 id="object-bind">Bind to Source Deformation</h4>
 <p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), this group locks each brick to the closest triangle on the source so the brick assembly rides the deformation per frame.</p>
@@ -360,7 +360,7 @@
 <p>The <strong>Open User Manual</strong> button at the bottom of the tab opens this document.</p>
 
 <h3 id="tab-bricks">Bricks tab</h3>
-<p>Controls <em>which</em> brick sizes BrickIt is allowed to use, how surfaces are finished, and per-brick variation.</p>
+<p>Controls <em>which</em> brick sizes Cubify is allowed to use, how surfaces are finished, and per-brick variation.</p>
 
 <h4 id="bricks-choose">Choose Bricks</h4>
 <p>A thumbnail picker showing the 15 stock brick sizes (1×1 through 2×8 plus 3×3, 3×4, 3×6, 3×8). Click a thumbnail to toggle that size in/out of the active library. The current selection is the search space the fitter draws from.</p>
@@ -377,7 +377,7 @@
 <p>Two-column row:</p>
 <ul>
   <li><strong>Use Plates</strong> — when ON, the fitter can use 1-plate-tall bricks (plates) in addition to 3-plate bricks. Lets the assembly hug curves more tightly at the cost of more total pieces.</li>
-  <li id="bricks-style"><strong>Brick Size Style</strong> — how aggressively BrickIt picks larger bricks vs smaller ones:
+  <li id="bricks-style"><strong>Brick Size Style</strong> — how aggressively Cubify picks larger bricks vs smaller ones:
     <ul>
       <li><strong>Simple</strong> — favors larger brick sizes; fewest pieces.</li>
       <li><strong>Balanced</strong> — default mix.</li>
@@ -434,7 +434,7 @@
 </ul>
 
 <h4 id="look-logo">Custom Logo</h4>
-<p>Replace the flat top-of-stud with a custom embossed logo across every brick in the assembly. Same base controls as the single Brick object (Logo Source Mesh, Logo Rotation, Logo Fill %, Logo Height, Logo Blend, Logo Sink), plus per-brick rotation mixing for variety:</p>
+<p>Replace the flat top-of-stud with a custom embossed logo across every brick in the assembly. Same base controls as the single Cubit object (Logo Source Mesh, Logo Rotation, Logo Fill %, Logo Height, Logo Blend, Logo Sink), plus per-brick rotation mixing for variety:</p>
 <ul>
   <li><strong>Mix Logo Orientation</strong> — when ON, individual bricks rotate their logos by a random amount on top of the base Logo Rotation. Off = every logo points the same way (CNC-perfect). On = looks like a hand-built model where bricks were placed at slightly different orientations.</li>
   <li><strong>Mix Amount %</strong> — fraction of bricks that get a non-base rotation. 0 = all bricks at the base rotation; 100 = every brick gets rotated.</li>
@@ -465,8 +465,7 @@
 
 <h4 id="animate-core">Core sliders</h4>
 <ul>
-  <li><strong>Build Progress</strong> — 0 → 1 reveals the assembly. 0 = empty, 1 = fully built. Keyframe this for a "build" animation.</li>
-  <li><strong>Smooth Top Progress</strong> — 0 → 1 reveals the smooth-top cap separately from the body. Has no effect unless Smooth Top Surfaces is on.</li>
+  <li><strong>Build Step</strong> (Build Progress) — 0 → 1 reveals the assembly. 0 = empty, 1 = fully built. Keyframe this for a "build" animation. This single slider drives the whole build, including the smooth-top plates.</li>
 </ul>
 
 <h4 id="animate-physics">Drop physics</h4>
@@ -482,6 +481,7 @@
       <li><strong>Custom Curve</strong> — use the <strong>Custom Motion Curve</strong> field to draw your own.</li>
     </ul>
   </li>
+  <li><strong>Settle Length</strong> — how long each brick's fly-in takes, which controls how visible the decelerating landing is. Low = quick, snappy bricks; high = each brick glides in over a longer, clearly-decelerating window so the landing is readable without lengthening the overall timeline. The stagger auto-adjusts so the build still completes at Build Step 1.</li>
 </ul>
 
 <h4 id="animate-polish">Polish</h4>
@@ -491,19 +491,14 @@
   <li><strong>Tilt Amount</strong> — how strong the tumble is. Keyframeable.</li>
 </ul>
 
-<h4 id="animate-topfinish">Top finish timing</h4>
-<p>(Only matters with Smooth Top Surfaces on.)</p>
-<ul>
-  <li><strong>Top Finish Starts At</strong> — fraction of Build Progress at which the cap starts revealing.</li>
-  <li><strong>Top Finish Duration</strong> — how long the cap reveal takes.</li>
-  <li><strong>Smooth Top Coverage</strong>, <strong>Randomize Top Finish</strong> — already covered on the Bricks tab (Smooth Top Surfaces section).</li>
-</ul>
+<h4 id="animate-topfinish">Top finish</h4>
+<p>(Only matters with Smooth Top Surfaces on.) The smooth-top plates sequence automatically off the single Build Step — each plate follows the brick beneath it and settles just as that brick lands, so the finish builds as a wave up the model (low plates first, peak plates last). See <strong>Blend Top Finish</strong> / <strong>Randomize Top Finish</strong> on the Bricks tab (Smooth Top Surfaces section).</p>
 
 <h3 id="tab-effectors">Effectors tab</h3>
-<p>BrickIt accepts standard Cinema 4D MoGraph effectors and drives per-brick matrix and color from them.</p>
+<p>Cubify accepts standard Cinema 4D MoGraph effectors and drives per-brick matrix and color from them.</p>
 
 <h4 id="effectors-list">Effectors list</h4>
-<p>The list at the top is an InExclude that stores which effectors apply to this BrickIt. Drag effectors in manually, or rely on auto-link: when you <strong>create</strong> a new MoGraph effector while a BrickIt object is selected, that new effector is automatically appended to BrickIt's Effectors list. (Pre-existing effectors are not auto-added — only newly-created ones.)</p>
+<p>The list at the top is an InExclude that stores which effectors apply to this Cubify. Drag effectors in manually, or rely on auto-link: when you <strong>create</strong> a new MoGraph effector while a Cubify object is selected, that new effector is automatically appended to Cubify's Effectors list. (Pre-existing effectors are not auto-added — only newly-created ones.)</p>
 
 <h4 id="effectors-supported">Supported effectors</h4>
 <p>Plain, Random, Shader, Delay, Formula, Step, Sound, Time, Push Apart, Inheritance, Python, ReEffector, Effector Target, Weight Effector, plus anything that derives from the C4D base effector class. They all can drive:</p>
@@ -514,7 +509,7 @@
 </ul>
 
 <h4 id="effectors-color">Per-brick color in Redshift</h4>
-<p>Effectors that set color need a material that reads it. Click <strong>Create RS Color Material</strong> (Object tab → Tools) and BrickIt builds and assigns <code>BrickIt_PerBrick_Color</code> — a Redshift node graph wired to the <code>RSObjectColor</code> user data attribute. After that, any color set by an effector (or by the source mesh sampling) shows up at render time.</p>
+<p>Effectors that set color need a material that reads it. Click <strong>Create RS Color Material</strong> (Object tab → Tools) and Cubify builds and assigns <code>BrickIt_PerBrick_Color</code> (the auto-generated material) — a Redshift node graph wired to the <code>RSObjectColor</code> user data attribute. After that, any color set by an effector (or by the source mesh sampling) shows up at render time.</p>
 <p>If you build the material yourself, the only requirement is a <code>Color User Data</code> node with <strong>Attribute Name</strong> = <code>RSObjectColor</code> (the case-sensitive attribute string Redshift maps the per-instance color to). The "Object Color" preset works because it stores <code>RSObjectColor</code> under the hood.</p>
 
 <p>The action buttons (<strong>Create Proxies</strong>, <strong>Proxy / High Res</strong>, <strong>Create RS Color Material</strong>) live on the Object tab; see the <a href="#object-tools">Tools section</a> above. Source-mesh visibility is now managed automatically — adding an object to the Sources list hides it; removing it unhides it. There is no longer a manual "Hide Source Mesh" button.</p>
@@ -525,7 +520,7 @@
 
 <h3 id="recipe-hero">Render a hero shot</h3>
 <ol>
-  <li>Drop a BrickIt, parent your source mesh under it (or drag-drop into the Sources list).</li>
+  <li>Drop a Cubify, parent your source mesh under it (or drag-drop into the Sources list).</li>
   <li>On the Object tab → Shape, <strong>Algorithm = Detailed</strong>.</li>
   <li>On the Bricks tab, pick the brick sizes you want and a sensible variation.</li>
   <li>On the Look tab, <strong>Brick Mesh Detail = Hero</strong>.</li>
@@ -535,16 +530,15 @@
 
 <h3 id="recipe-build">Set up a build animation</h3>
 <ol>
-  <li>With BrickIt configured to your liking on the Shape and Bricks tabs:</li>
-  <li>Animate tab → keyframe <strong>Build Progress</strong> from 0 (start of timeline) to 1 (end of timeline).</li>
-  <li>Pick a Motion Style (Slam is the default LEGO drop). Adjust <strong>Lift Height</strong> and <strong>Stagger Amount</strong> to taste.</li>
-  <li>If you have Smooth Top Surfaces on, also keyframe <strong>Smooth Top Progress</strong> so the cap finishes after the body builds.</li>
+  <li>With Cubify configured to your liking on the Shape and Bricks tabs:</li>
+  <li>Animate tab → keyframe <strong>Build Step</strong> from 0 (start of timeline) to 1 (end of timeline). This one slider drives the whole build, including the smooth-top plates.</li>
+  <li>Pick a Motion Style (Slam is the default LEGO drop). Adjust <strong>Lift Height</strong>, <strong>Stagger Amount</strong>, and <strong>Settle Length</strong> (how slow/visible each landing is) to taste.</li>
   <li>Render with Brick Mesh Detail at Hero. (For animation playback, switch to Proxy quality first.)</li>
 </ol>
 
 <h3 id="recipe-field">Field-driven color and visibility</h3>
 <ol>
-  <li>Drop a BrickIt with at least one source, and a Plain effector. The Plain auto-links into BrickIt's Effectors list.</li>
+  <li>Drop a Cubify with at least one source, and a Plain effector. The Plain auto-links into Cubify's Effectors list.</li>
   <li>On the Plain effector, set <strong>Color Mode = Field</strong> and add a Field (e.g. Random Field, Spherical Field) under Falloff.</li>
   <li><strong>Create RS Color Material</strong> (Object tab → Tools) to wire the per-brick color path.</li>
   <li>To hide bricks the field touches: enable <strong>Visibility</strong> on the Plain effector and set Field strength such that touched clones turn off. Hidden bricks fall completely out of the scene rather than scaling to zero, so a moving Field is much lighter to interact with.</li>
@@ -559,9 +553,9 @@
 </ol>
 
 <h3 id="recipe-deformation">Bricks that follow a deforming mesh + collide with each other</h3>
-<p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), BrickIt can lock each brick to the closest triangle on the source and ride the deformation per frame. Combined with C4D's Rigid Body Dynamics, you can have the bricks track the mesh while collisions push them apart instead of overlapping.</p>
+<p>When the source is deforming (cloth dynamics, an Alembic point cache, deformer chains), Cubify can lock each brick to the closest triangle on the source and ride the deformation per frame. Combined with C4D's Rigid Body Dynamics, you can have the bricks track the mesh while collisions push them apart instead of overlapping.</p>
 <ol>
-  <li><strong>Set up the source.</strong> Apply your deformer/cloth/Alembic to the source mesh and parent it under the BrickIt (or drag-drop it into the Sources list).</li>
+  <li><strong>Set up the source.</strong> Apply your deformer/cloth/Alembic to the source mesh and parent it under the Cubify (or drag-drop it into the Sources list).</li>
   <li><strong>Bind.</strong> On the Object tab → Bind to Source Deformation group, check <strong>Bind Bricks to Source Deformation</strong>. The bricks ride the surface in the live preview.
     <ul>
       <li><strong>Brick Orientation = Follow Surface Normal</strong> tilts each brick to match the local surface orientation. <strong>Orientation Smoothing</strong> dampens per-face-normal jitter on small / heavily deformed triangles; 0.7 is a good default.</li>
@@ -570,7 +564,7 @@
       <li><strong>Re-bind to Current Frame</strong> re-fits and re-binds with the current deformed pose as the new rest pose.</li>
     </ul>
   </li>
-  <li><strong>Make Proxies.</strong> Once you're happy with the binding, click <strong>Create Proxies</strong> (Object tab → Tools) to spawn a real proxy hierarchy under a <code>BrickIt_ProxySim_&lt;source&gt;</code> Null. The proxies follow the deformation via a <strong>BrickIt Follow Surface</strong> tag added to that Null automatically.</li>
+  <li><strong>Make Proxies.</strong> Once you're happy with the binding, click <strong>Create Proxies</strong> (Object tab → Tools) to spawn a real proxy hierarchy under a <code>BrickIt_ProxySim_&lt;source&gt;</code> (the auto-generated Null name) Null. The proxies follow the deformation via a <strong>Cubify Follow Surface</strong> tag added to that Null automatically.</li>
   <li><strong>Set the timeline preview range</strong> to the frames you want to bake.</li>
   <li><strong>Bake to Keyframes.</strong> Select the Follow Surface tag and click <strong>Bake to Keyframes (Preview Range)</strong>. The bake writes per-brick keyframes, converts each instance into a real polygon mesh, flattens the hierarchy under a single <code>bricks</code> Null, adds a Rigid Body tag to each brick with Follow Position/Rotation set high, and disables the Follow Surface tag.</li>
   <li><strong>Run the simulation.</strong> Scrub or play — the per-brick RBD pulls each brick toward its keyframed target while collisions push neighbors apart. <strong>Cache the simulation</strong> so playback is stable.</li>
@@ -578,7 +572,7 @@
 </ol>
 <p><strong>Notes</strong></p>
 <ul>
-  <li>The Source BrickIt must still exist when you click Swap Quality — the swap looks up the original BrickIt's brick library and template builder via a hidden link on the Follow Surface tag. Don't delete the BrickIt object until after your final render.</li>
+  <li>The Source Cubify must still exist when you click Swap Quality — the swap looks up the original Cubify's brick library and template builder via a hidden link on the Follow Surface tag. Don't delete the Cubify object until after your final render.</li>
   <li>The bake is a one-shot per preview range. To rebake at a different range, re-do the workflow from Make Proxies.</li>
   <li>Cloth + Bullet PBD doesn't read scripted matrices as Follow targets, which is why Bake to Keyframes is required — it materializes the follower's per-frame transforms into animation tracks the simulator can read.</li>
 </ul>
@@ -589,7 +583,7 @@
 
 <p><strong>Bricks render flat black in Redshift.</strong> Wire a Redshift material with a Color User Data node, Attribute Name = <code>RSObjectColor</code>. The <strong>Create RS Color Material</strong> button does this for you. Don't use the literal string "Object Color" — Redshift maps it via the underlying attribute string, not the menu label.</p>
 
-<p><strong>The assembly jumps when I add a MoGraph effector.</strong> This is fixed in the current build (effectors now anchor correctly to the source mesh's world position even when BrickIt sits at a different transform). If you see it, you're probably running an older build — update to the latest preview.</p>
+<p><strong>The assembly jumps when I add a MoGraph effector.</strong> This is fixed in the current build (effectors now anchor correctly to the source mesh's world position even when Cubify sits at a different transform). If you see it, you're probably running an older build — update to the latest preview.</p>
 
 <p><strong>Animation is sluggish when an effector is active.</strong> Drop to Proxy quality on the Look tab while you scrub, switch back to Hero for the render. The effector-active fast path rebuilds carrier instances each frame; Proxy geometry makes that ~10× cheaper.</p>
 

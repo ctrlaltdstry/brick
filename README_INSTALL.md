@@ -1,4 +1,4 @@
-# Brick Plugin Install
+# Cubit Plugin Install
 
 Supported package: Windows + Cinema 4D 2026 (any 2026.x point release —
 tested on 2026.0 and 2026.1).
@@ -10,11 +10,11 @@ tested on 2026.0 and 2026.1).
    C4D folder (something like
    `%APPDATA%\Maxon\Maxon Cinema 4D 2026_<hash>\`).
 2. Close Cinema 4D.
-3. In that folder, open `plugins\` and copy the entire `Brick` folder into it.
+3. In that folder, open `plugins\` and copy the entire `Cubit` folder into it.
    The final layout should be:
 
    ```text
-   ...\Maxon Cinema 4D 2026_<hash>\plugins\Brick\
+   ...\Maxon Cinema 4D 2026_<hash>\plugins\Cubit\
        c4d_brick_generator.pyp
        brick\
        brickit\
@@ -25,8 +25,8 @@ tested on 2026.0 and 2026.1).
 
 4. Start Cinema 4D.
 5. Add either object from the plugin menu:
-   - `Brick` for a single brick generator.
-   - `BrickIt` for a source-mesh-to-brick assembly generator.
+   - `Cubit` for a single brick generator.
+   - `Cubify` for a source-mesh-to-brick assembly generator.
 
 ## Included Runtime
 
@@ -34,10 +34,10 @@ This package is self-contained for the supported Windows Cinema 4D 2026 build.
 It includes:
 
 - The Cinema 4D Python plugin files.
-- The core `brick` geometry/fitting package.
-- The BrickIt assembly package.
+- The core geometry/fitting package.
+- The mesh-to-assembly (Cubify) package.
 - Cinema 4D resources and icons.
-- The native Brick library GUI when available.
+- The native brick-library GUI when available.
 - Vendored Windows Python 3.11 builds of `numpy` and `scipy`.
 
 You should not need to install Python packages manually for this supported
@@ -45,9 +45,9 @@ package.
 
 ## Notes
 
-Do not rename files inside the `Brick` folder. Cinema 4D resource names,
+Do not rename files inside the `Cubit` folder. Cinema 4D resource names,
 plugin IDs, and parameter IDs are intentionally stable so existing scenes can
 load correctly.
 
 The bundled third-party dependency license metadata is included under
-`Brick/vendor/*.dist-info/`.
+`Cubit/vendor/*.dist-info/`.
