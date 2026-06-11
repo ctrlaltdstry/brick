@@ -238,6 +238,14 @@ CONTAINER obrickifyassembly
             {
                 NAME BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME;
             }
+
+            // Bake the per-frame fit cache. Auto-creates a "Cubify Cache" tag
+            // on the object that holds the cache and drives playback; delete
+            // or disable that tag to clear/bypass the cache.
+            BUTTON BRICKIFYASSEMBLY_BAKE_FIT_CACHE
+            {
+                NAME BRICKIFYASSEMBLY_BAKE_FIT_CACHE;
+            }
         }
 
         GROUP BRICKIFYASSEMBLY_GROUP_LIBRARY

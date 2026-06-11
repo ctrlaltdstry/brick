@@ -37,6 +37,16 @@ ID_BRICKIT_EFFECTORS_AUTOHOOK = 1069995
 IDS_BRICKIT_FOLLOW_SURFACE_TAG = "Cubify Follow Surface"
 ID_BRICKIT_FOLLOW_SURFACE_TAG = 1069994
 
+# Cubify Cache tag — auto-created by Bake Fit Cache; holds the per-frame fit
+# cache blob. Its presence (enabled) is what turns the cached reflow on.
+ID_CUBIFY_CACHE_TAG = 1069993
+IDS_CUBIFY_CACHE_TAG = "Cubify Cache"
+# Tag parameter IDs (resource-local; start at 2000 to clear the Texpression
+# base block 1000-1999).
+CUBIFY_CACHE_ENABLED = 2000
+CUBIFY_CACHE_BLOB = 2001
+CUBIFY_CACHE_INFO = 2002
+
 # BrickIt Follow Surface tag parameter IDs (resource-local, used by the
 # .res description and the TagData class). IDs start at 2000 to avoid
 # collisions with the Texpression base-tag block (1000-1999).
@@ -166,6 +176,13 @@ BRICKIFYASSEMBLY_SOURCES = 2314
 BRICKIFYASSEMBLY_MIRROR_X = 2317
 # Motion Damping: 0..100 build-animation smoothing slider (50 = neutral).
 BRICKIFYASSEMBLY_BUILD_DAMPING = 2319
+# Per-frame fit cache (prototype): re-fit every frame against the deforming
+# source and cache per-frame layouts, baked via the Bake Fit Cache button.
+BRICKIFYASSEMBLY_PER_FRAME_FIT = 2320
+BRICKIFYASSEMBLY_BAKE_FIT_CACHE = 2321
+# Hidden string param: serialized per-frame fit cache, persisted with the
+# scene (binary + zlib + base64). Not shown in the UI.
+BRICKIFYASSEMBLY_FRAME_FIT_CACHE_DATA = 2322
 
 # Build Info stats panel — read-only string fields populated after each
 # rebuild from the `info` dict returned by brickify_mesh. Updated by

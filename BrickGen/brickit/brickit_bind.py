@@ -126,6 +126,24 @@ def _closest_point_on_triangle(p, a, b, c):
     return a + ab * v + ac * w, (1.0 - v - w, v, w)
 
 
+def _shortest_arc_basis(np, normal):
+    """Twist-stable (tangent, normal, bitangent) basis from a unit normal,
+    via the shortest-arc rotation that maps world-Y to `normal`. This matches
+    the orient basis used during deformed evaluation, so storing a brick's
+    offset in this basis at bind time and replaying it at eval time is a
+    consistent round-trip (exact at the rest frame)."""
+    ny = float(normal[1]); nx = float(normal[0]); nz = float(normal[2])
+    if ny > 0.999999:
+        t = np.array([1.0, 0.0, 0.0]); btan = np.array([0.0, 0.0, 1.0])
+    elif ny < -0.999999:
+        t = np.array([1.0, 0.0, 0.0]); btan = np.array([0.0, 0.0, -1.0])
+    else:
+        inv = 1.0 / (1.0 + ny)
+        t = np.array([1.0 - nx * nx * inv, -nx, -nx * nz * inv])
+        btan = np.array([-nx * nz * inv, -nz, 1.0 - nz * nz * inv])
+    return t, np.asarray(normal, dtype=float), btan
+
+
 def bind_placements_to_source(self, params):
     """Compute and cache bind records for `self._fit_placements`.
 
@@ -188,13 +206,28 @@ def bind_placements_to_source(self, params):
             continue
         d, tri_idx, bary, closest = best
         normal = normals[tri_idx]
-        normal_offset = float(np.dot(center - closest, normal))
+        # Store the FULL offset (center - closest) in the triangle's tangent/
+        # normal/bitangent basis, not just the normal component. The old code
+        # kept only the normal projection, discarding the in-plane part, which
+        # snapped each brick onto its anchor triangle's surface and shifted it
+        # sideways — visible even at rest as floating bricks / gaps / inter-
+        # sections. Storing all three components makes the rest-frame round-
+        # trip exact (bind ON == bind OFF at zero deformation).
+        delta = center - closest
+        t, n, btan = _shortest_arc_basis(np, normal)
+        local_offset = (
+            float(np.dot(delta, t)),
+            float(np.dot(delta, n)),
+            float(np.dot(delta, btan)),
+        )
         rest_area = float(areas[tri_idx])
         bind_records.append(
             {
                 "tri_idx": int(tri_idx),
                 "bary": (float(bary[0]), float(bary[1]), float(bary[2])),
-                "normal_offset": normal_offset,
+                # Kept for back-compat / diagnostics; eval prefers local_offset.
+                "normal_offset": local_offset[1],
+                "local_offset": local_offset,
                 "rest_area": rest_area,
                 "residual": d,
             }
@@ -380,7 +413,16 @@ def deformed_centers_for_frame(self, op, source_obj, doc, params):
         else:
             normal = cross / norm_len
             current_area = norm_len * 0.5
-        deformed_center = on_surface + normal * float(record["normal_offset"])
+        # Replay the FULL stored offset in the deformed triangle's basis (so
+        # the in-plane component is preserved). Falls back to normal-only for
+        # old records that predate local_offset.
+        local_offset = record.get("local_offset")
+        if local_offset is not None:
+            t, n, btan = _shortest_arc_basis(np, normal)
+            ox, oy, oz = local_offset
+            deformed_center = on_surface + t * ox + n * oy + btan * oz
+        else:
+            deformed_center = on_surface + normal * float(record["normal_offset"])
         centers.append(
             (float(deformed_center[0]), float(deformed_center[1]), float(deformed_center[2]))
         )

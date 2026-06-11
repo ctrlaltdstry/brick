@@ -11,6 +11,26 @@ from plugin_bootstrap import (
 )
 
 
+def _per_frame_fit_current_frame(op):
+    """Current document frame as an int (for per-frame-fit cache keying)."""
+    try:
+        d = op.GetDocument()
+        return int(d.GetTime().GetFrame(d.GetFps())) if d is not None else 0
+    except Exception:
+        return 0
+
+
+def _has_enabled_cache_tag(op):
+    """True if the object carries an enabled Cubify Cache tag with data."""
+    try:
+        tag = op.GetTag(ID_CUBIFY_CACHE_TAG)
+        if tag is None or not tag[CUBIFY_CACHE_ENABLED]:
+            return False
+        return bool(tag[CUBIFY_CACHE_BLOB])
+    except Exception:
+        return False
+
+
 def _has_mograph_effectors_for_runtime(effectors):
     if effectors is None:
         return False
@@ -337,11 +357,17 @@ def _sync_source_visibility(self, op):
     self._auto_hidden_guids = new_set
 
 
-def _maybe_rebind(self, params):
+def _maybe_rebind(self, op, params):
     """Run the source-deformation bind step when needed."""
     from .brickit_bind import bind_placements_to_source, make_bind_cache_key
 
     if not params.get("bind_to_source_deformation"):
+        return
+    # Cubify Cache and bind are mutually exclusive at playback: the cache
+    # already supplies a freshly-fitted layout for THIS frame, so the bind
+    # (which locks one layout and rides the deformation) must NOT run on top —
+    # otherwise it overrides the baked reflow with normal bind movement.
+    if _has_enabled_cache_tag(op):
         return
     bind_key = make_bind_cache_key(self, params)
     if (
@@ -541,6 +567,12 @@ def GetVirtualObjects(self, op, hh):
         cap_subset_key,
         bool(params.get("bind_to_source_deformation", False)),
         int(params.get("bind_orientation_mode", 0)),
+        # NOTE: the per-frame Cubify Cache frame is intentionally NOT in the
+        # topology key. Keeping topology STABLE across cache frames lets the
+        # cache-playback repopulate path run (reuse root/templates, just
+        # rewrite instance matrices/colors) instead of a full rebuild every
+        # frame. The frame lives in the ANIMATION key (per_frame_fit_key)
+        # below, so each frame still re-runs the cheap repopulate.
     )
     bind_per_frame_key = None
     if params.get("bind_to_source_deformation"):
@@ -579,6 +611,12 @@ def GetVirtualObjects(self, op, hh):
         except Exception:
             frame = 0
         bind_per_frame_key = (src_dirty, src_rel_matrix, frame)
+
+    # Per-frame fit cache (prototype): also fold the frame into the animation
+    # key for completeness (the topology key above already forces the rebuild).
+    per_frame_fit_key = (
+        _per_frame_fit_current_frame(op) if _has_enabled_cache_tag(op) else None
+    )
     # Animation-only values can be applied by mutating the existing Source
     # hierarchy's matrices/colors/visibility instead of rebuilding objects.
     animation_hierarchy_key = (
@@ -603,6 +641,7 @@ def GetVirtualObjects(self, op, hh):
         round(float(params.get("bind_stretch_cull_ratio", 0.6)), 4),
         round(float(params.get("bind_orient_smoothing", 0.7)), 4),
         bind_per_frame_key,
+        per_frame_fit_key,
     )
     hierarchy_key = (topology_hierarchy_key, animation_hierarchy_key)
 
@@ -633,6 +672,10 @@ def GetVirtualObjects(self, op, hh):
         and self._hierarchy_cache_key[1] != animation_hierarchy_key
         and params.get("visualization_mode") == BRICKIFYASSEMBLY_VISUALIZATION_MODE_SOURCE
         and getattr(self, "_fast_cap_state", None) is not None
+        # The animation fast path re-animates a FIXED captured placement set;
+        # cache playback has a DIFFERENT placement set per frame, so it must
+        # take the carrier-reuse build path instead (handled below).
+        and not _has_enabled_cache_tag(op)
     )
     if animation_fast_path_eligible:
         try:
@@ -677,13 +720,24 @@ def GetVirtualObjects(self, op, hh):
             pass
         raise
     refit_seconds = time.perf_counter() - t0
-    _maybe_rebind(self, params)
+    _maybe_rebind(self, op, params)
 
-    try:
-        c4d.StatusSetText("BrickIt: building hierarchy...")
-        c4d.StatusSetBar(95)
-    except Exception:
-        pass
+    # During cache playback every frame rebuilds geometry; the status bar and
+    # per-build logging would flicker/churn on every frame. Stay silent when
+    # this build is a cache-frame replay (a tag-driven per-frame fit).
+    is_cache_playback = _has_enabled_cache_tag(op)
+    # Let the hierarchy builder know to stay quiet too (per-frame log spam),
+    # and to take the carrier-REUSE path (reuse the prior frame's hierarchy
+    # instead of rebuilding ~2600 InstanceObjects every frame).
+    self._suppress_build_log = is_cache_playback
+    self._cache_playback_active = is_cache_playback
+
+    if not is_cache_playback:
+        try:
+            c4d.StatusSetText("BrickIt: building hierarchy...")
+            c4d.StatusSetBar(95)
+        except Exception:
+            pass
 
     t0 = time.perf_counter()
     try:
@@ -694,26 +748,30 @@ def GetVirtualObjects(self, op, hh):
     finally:
         # Always clear the status bar — whether the build succeeded,
         # returned None, or raised. Otherwise the bar is left "stuck" and
-        # the next non-BrickIt operation inherits a confusing label.
+        # the next non-BrickIt operation inherits a confusing label. We clear
+        # even during cache playback (clearing an already-clear bar is a
+        # no-op / invisible) so a leftover "building output..." from the bake
+        # or an out-of-range live fit can't get stuck on screen.
         try:
             c4d.StatusClear()
         except Exception:
             pass
     hierarchy_seconds = time.perf_counter() - t0
     total_seconds = time.perf_counter() - t_build0
-    try:
-        _brick_log(
-            "[brick] Build timings: total={0:.3f}s, refit={1:.3f}s, "
-            "hierarchy={2:.3f}s, placements={3}, interactive_preview={4}".format(
-                float(total_seconds),
-                float(refit_seconds),
-                float(hierarchy_seconds),
-                len(self._fit_placements or []),
-                bool(params.get("interactive_preview", False)),
+    if not is_cache_playback:
+        try:
+            _brick_log(
+                "[brick] Build timings: total={0:.3f}s, refit={1:.3f}s, "
+                "hierarchy={2:.3f}s, placements={3}, interactive_preview={4}".format(
+                    float(total_seconds),
+                    float(refit_seconds),
+                    float(hierarchy_seconds),
+                    len(self._fit_placements or []),
+                    bool(params.get("interactive_preview", False)),
+                )
             )
-        )
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     # Update the read-only Build Info panel from the most recent pipeline
     # info. Cosmetic only — wrapped to never affect the build result.

@@ -163,6 +163,18 @@ def Message(self, op, msg_type, data):
             self._fast_cap_state = None
             self._force_rebuild = True
             _dirty(op)
+        elif desc_id == BRICKIFYASSEMBLY_BAKE_FIT_CACHE:
+            # Pre-compute a fresh fit for every frame of the preview range
+            # against the deforming source, so playback reads cached
+            # per-frame layouts (the model re-bricks itself each frame).
+            try:
+                self._bake_frame_fit_cache(op)
+            except Exception:
+                pass
+            self._fit_cache_key = None
+            self._hierarchy_cache_key = None
+            self._force_rebuild = True
+            _dirty(op)
         elif desc_id == BRICKIFYASSEMBLY_OPEN_LIBRARY_PICKER:
             self._open_library_picker(op)
         elif desc_id in (
