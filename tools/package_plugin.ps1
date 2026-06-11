@@ -67,22 +67,39 @@ if (Test-Path $vendorSource) {
     }
 }
 
-# The native GUI is a Windows-compiled C++ plugin (build-win64). It cannot run
-# on macOS, so only bundle it for win/all targets. (The Python plugin degrades
-# gracefully without it: the inline library panel just is not available.)
-if ($Platform -ne "mac") {
-    $nativeGuiCandidates = @()
+# The native GUI is a platform-specific compiled C++ plugin. It is REQUIRED:
+# the object .res references its custom GUIs (CUSTOMGUIBRICKSOURCES /
+# CUSTOMGUIBRICKLIBRARY), and without it C4D drops the whole object description
+# -> an EMPTY Attribute Manager (geometry still generates from Python). So each
+# platform's zip must carry the matching native build. The Windows build comes
+# from build-win64; the macOS build (see native/.../README.md) must be set via
+# BRICK_NATIVE_GUI_MAC_SOURCE.
+$nativeGuiCandidates = @()
+if ($Platform -eq "mac") {
+    if ($env:BRICK_NATIVE_GUI_MAC_SOURCE) {
+        $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_MAC_SOURCE
+    }
+} else {
     if ($env:BRICK_NATIVE_GUI_SOURCE) {
         $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
     }
     $nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
+}
 
-    foreach ($candidate in $nativeGuiCandidates) {
-        if ($candidate -and (Test-Path $candidate)) {
-            Copy-Item -Path $candidate -Destination (Join-Path $packageRoot $nativeGuiName) -Recurse -Force
-            Write-Host "Included native GUI: $candidate"
-            break
-        }
+$nativeGuiIncluded = $false
+foreach ($candidate in $nativeGuiCandidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+        Copy-Item -Path $candidate -Destination (Join-Path $packageRoot $nativeGuiName) -Recurse -Force
+        Write-Host "Included native GUI: $candidate"
+        $nativeGuiIncluded = $true
+        break
+    }
+}
+if (-not $nativeGuiIncluded) {
+    if ($Platform -eq "mac") {
+        Write-Warning "No macOS native GUI included. The Cubify Attribute Manager will be EMPTY on Mac. Build native/bricklibrary.inline_gui for macOS (see its README.md) and set BRICK_NATIVE_GUI_MAC_SOURCE to the built bundle."
+    } else {
+        Write-Warning "No native GUI found for this build."
     }
 }
 
