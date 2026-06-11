@@ -1,6 +1,7 @@
 """Bootstrap and logging helpers shared by BrickGen plugin modules."""
 import importlib
 import os
+import platform
 import site
 import sys
 import tempfile
@@ -63,6 +64,29 @@ def brick_log(message):
         pass
 
 
+def _vendor_platform_subdir():
+    """Which vendor/<subdir> holds this OS+arch's numpy/scipy wheels.
+
+    The vendored deps are native binaries and platform-specific: Windows wheels
+    crash on macOS (os.add_dll_directory is Windows-only) and vice-versa. We
+    bundle per-platform subdirs and pick the right one here. Returns None for
+    unknown platforms (bootstrap then falls back to a flat vendor/, if any).
+    """
+    try:
+        machine = platform.machine().lower()
+    except Exception:
+        machine = ""
+    if sys.platform == "win32":
+        return "win_amd64"
+    if sys.platform == "darwin":
+        if machine in ("arm64", "aarch64"):
+            return "macos_arm64"
+        if machine in ("x86_64", "amd64"):
+            return "macos_x86_64"
+        return None
+    return None
+
+
 def ensure_brick_on_path():
     """Make sure the brick package is importable."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -74,11 +98,20 @@ def ensure_brick_on_path():
 
     # Prefer a bundled `brick/` package beside the installed plugin before
     # falling back to development paths.
+    vendor_subdir = _vendor_platform_subdir()
     walk = here
     for _ in range(6):
         vendor_dir = os.path.join(walk, "vendor")
         if os.path.isdir(vendor_dir):
-            candidates.append(vendor_dir)
+            # New per-platform layout: vendor/<win_amd64|macos_arm64|...>.
+            # Fall back to a flat vendor/ (legacy / single-platform) layout.
+            platform_dir = (
+                os.path.join(vendor_dir, vendor_subdir) if vendor_subdir else None
+            )
+            if platform_dir and os.path.isdir(platform_dir):
+                candidates.append(platform_dir)
+            else:
+                candidates.append(vendor_dir)
         pkg_init = os.path.join(walk, "brick", "__init__.py")
         if os.path.isfile(pkg_init):
             candidates.append(walk)

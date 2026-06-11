@@ -1,11 +1,15 @@
 # Build a clean runtime-only Cubit plugin package for distribution.
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1
-# Optional zip:
-#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Zip
+# Per-platform (separate Windows / Mac plugin zips):
+#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Platform win -Zip
+#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Platform mac -Zip
+# -Platform all (default) bundles every platform's vendor in one zip.
 
 param(
-    [switch]$Zip
+    [switch]$Zip,
+    [ValidateSet("win", "mac", "all")]
+    [string]$Platform = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,9 +18,22 @@ $repoRoot      = Split-Path -Parent $PSScriptRoot
 $pluginSource  = Join-Path $repoRoot "BrickGen"
 $corePackage   = Join-Path $repoRoot "brick"
 $distRoot      = Join-Path $repoRoot "dist"
-$packageRoot   = Join-Path $distRoot "Cubit"
+# Per-platform builds get their own package dir + zip name so they don't clobber.
+$packageName   = switch ($Platform) {
+    "win" { "Cubit-Windows" }
+    "mac" { "Cubit-macOS" }
+    default { "Cubit" }
+}
+$packageRoot   = Join-Path $distRoot $packageName
 $nativeGuiName = "bricklibrary.inline_gui"
 $vendorSource  = Join-Path $repoRoot "vendor"
+
+# Which vendor subdirs to include for each platform target.
+$vendorSubdirs = switch ($Platform) {
+    "win" { @("win_amd64") }
+    "mac" { @("macos_arm64", "macos_x86_64") }
+    default { @("win_amd64", "macos_arm64", "macos_x86_64") }
+}
 
 if (-not (Test-Path (Join-Path $pluginSource "c4d_brick_generator.pyp"))) {
     throw "Plugin source not found: $pluginSource"
@@ -35,21 +52,37 @@ if (-not (Test-Path $distRoot)) {
 Copy-Item -Path $pluginSource -Destination $packageRoot -Recurse -Force
 Copy-Item -Path $corePackage -Destination (Join-Path $packageRoot "brick") -Recurse -Force
 
+# Bundle only the requested platform(s)' vendored deps.
 if (Test-Path $vendorSource) {
-    Copy-Item -Path $vendorSource -Destination (Join-Path $packageRoot "vendor") -Recurse -Force
+    $vendorDest = Join-Path $packageRoot "vendor"
+    New-Item -ItemType Directory -Path $vendorDest -Force | Out-Null
+    foreach ($sub in $vendorSubdirs) {
+        $src = Join-Path $vendorSource $sub
+        if (Test-Path $src) {
+            Copy-Item -Path $src -Destination (Join-Path $vendorDest $sub) -Recurse -Force
+            Write-Host "Bundled vendor/$sub"
+        } elseif ($Platform -ne "all") {
+            Write-Warning "vendor/$sub not found. Run the matching vendor script first (tools\vendor_$(if($Platform -eq 'mac'){'mac'}else{'c4d'})_deps.ps1)"
+        }
+    }
 }
 
-$nativeGuiCandidates = @()
-if ($env:BRICK_NATIVE_GUI_SOURCE) {
-    $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
-}
-$nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
+# The native GUI is a Windows-compiled C++ plugin (build-win64). It cannot run
+# on macOS, so only bundle it for win/all targets. (The Python plugin degrades
+# gracefully without it: the inline library panel just is not available.)
+if ($Platform -ne "mac") {
+    $nativeGuiCandidates = @()
+    if ($env:BRICK_NATIVE_GUI_SOURCE) {
+        $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
+    }
+    $nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
 
-foreach ($candidate in $nativeGuiCandidates) {
-    if ($candidate -and (Test-Path $candidate)) {
-        Copy-Item -Path $candidate -Destination (Join-Path $packageRoot $nativeGuiName) -Recurse -Force
-        Write-Host "Included native GUI: $candidate"
-        break
+    foreach ($candidate in $nativeGuiCandidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            Copy-Item -Path $candidate -Destination (Join-Path $packageRoot $nativeGuiName) -Recurse -Force
+            Write-Host "Included native GUI: $candidate"
+            break
+        }
     }
 }
 
@@ -98,7 +131,7 @@ foreach ($filter in $fileFilters) {
 }
 
 if ($Zip) {
-    $zipPath = Join-Path $distRoot "Cubit.zip"
+    $zipPath = Join-Path $distRoot "$packageName.zip"
     if (Test-Path $zipPath) {
         Remove-Item $zipPath -Force
     }
