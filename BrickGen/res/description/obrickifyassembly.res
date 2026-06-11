@@ -11,13 +11,13 @@ CONTAINER obrickifyassembly
         //   the rest of the voxel/shape options follow. The Sources list
         //   is rendered by the native BrickSources custom GUI plugin.
         //
-        // Two-column flat layout — widgets stream directly into the
+        // Two-column flat layout - widgets stream directly into the
         // parent's column slots row-by-row. This is the pattern Maxon's
         // own `ohairsdkgen.res` uses for COLUMNS 2 layouts, and it's the
         // only structure where the layout engine actually splits the AM
         // width 50/50. Nested inner-GROUPs with SCALE_H were tried and
         // produced a left-aligned non-responsive layout regardless of
-        // SCALE_H/LAYOUTGROUP combinations — the engine treats each
+        // SCALE_H/LAYOUTGROUP combinations - the engine treats each
         // inner group as one cell and sizes it to its widest child.
         //
         // Row order is the layout:
@@ -293,7 +293,7 @@ CONTAINER obrickifyassembly
                 NAME BRICKIFYASSEMBLY_SPACER_4;
             }
 
-            // Row 2: Create Proxies button — spans the full width as a
+            // Row 2: Create Proxies button - spans the full width as a
             // single-column inner group with SCALE_H. The button is the
             // primary action of the Tools section, so it gets visual
             // weight by being the only widget on its row.
@@ -317,7 +317,7 @@ CONTAINER obrickifyassembly
                 NAME BRICKIFYASSEMBLY_SPACER_2;
             }
 
-            // Row 3: Proxy/High Res swap | Create RS Color Material —
+            // Row 3: Proxy/High Res swap | Create RS Color Material -
             // each button takes half the row width, matching the visual
             // width of the Create Proxies button above. SCALE_H on both
             // the inner group and each button is what gets the layout
@@ -384,11 +384,11 @@ CONTAINER obrickifyassembly
             }
         }
 
-        // User manual sits last on the Object tab — peripheral action,
+        // User manual sits last on the Object tab - peripheral action,
         // doesn't compete with the brick-pipeline controls above. Wrapped
         // in its own COLUMNS 1 group so it picks up the same left edge as
         // every other top-level group on the tab. One empty STATICTEXT
-        // above the button adds ~22px of vertical breathing room — the
+        // above the button adds ~22px of vertical breathing room - the
         // description grammar doesn't have a SPACE attribute (dialog-only),
         // so empty parameter rows are the canonical spacer.
         GROUP
@@ -466,7 +466,7 @@ CONTAINER obrickifyassembly
             }
         }
 
-        // Brick Selection — flat 2-column layout. Use Plates (boolean
+        // Brick Selection - flat 2-column layout. Use Plates (boolean
         // toggle) on the left, Brick Size Style (3-way dropdown) on the
         // right since they're related selection-shaping options. Both
         // widgets get SCALE_H so the columns claim their 50/50 share
@@ -498,7 +498,7 @@ CONTAINER obrickifyassembly
             }
         }
 
-        // Brick Height — original 1-column layout. Tried pairing the
+        // Brick Height - original 1-column layout. Tried pairing the
         // preset buttons inline with the Brick Height field but the
         // nested-COLUMNS-3 sub-group inside a flat COLUMNS 2 parent
         // either overflowed to a full-width row underneath or, with
@@ -584,7 +584,7 @@ CONTAINER obrickifyassembly
             }
         }
 
-        // Per-Brick Variation — Humanize Bricks gates the entire group
+        // Per-Brick Variation - Humanize Bricks gates the entire group
         // including Brick Separation. Per user direction: when Humanize
         // is off, no per-brick variation should be active, so all sub-
         // options (Brick Separation, Humanize Seed, Position Variation,
@@ -824,10 +824,10 @@ CONTAINER obrickifyassembly
 
             // Build Step (authoritative): REAL stepper + slider that maps
             // 1:1 to bricks placed so far. Range [0, total_bricks];
-            // step==0 → no bricks visible, step==total → full build.
+            // step==0 -> no bricks visible, step==total -> full build.
             // CUSTOMGUI REALSLIDER renders both the editable number AND
             // a slider track, so the user can scrub for assemblies with
-            // many bricks. The MAX is 100000 as a placeholder — the
+            // many bricks. The MAX is 100000 as a placeholder - the
             // runtime clamps the value to total_bricks on commit.
             REAL BRICKIFYASSEMBLY_BUILD_STEP
             {
