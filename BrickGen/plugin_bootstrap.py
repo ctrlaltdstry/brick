@@ -17,7 +17,7 @@ USER_MANUAL_FALLBACK_URL = (
     # Served as text/html (raw.githubusercontent serves text/plain; a GitHub
     # "blob" URL renders the HTML as source). Only hit if the bundled local
     # copy is missing.
-    "https://raw.githack.com/ctrlaltdstry/brick/main/USER_MANUAL.html"
+    "https://raw.githack.com/ctrlaltdstry/cubit/main/USER_MANUAL.html"
 )
 
 
