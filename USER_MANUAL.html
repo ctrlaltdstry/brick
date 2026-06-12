@@ -169,6 +169,7 @@
       <a href="#object-shape" class="sub2">Shape group</a>
       <a href="#object-sources" class="sub2">Sources list</a>
       <a href="#object-bind" class="sub2">Bind to Source Deformation</a>
+      <a href="#object-cache" class="sub2">Cubify Cache (per-frame fit)</a>
       <a href="#object-tools" class="sub2">Tools</a>
     <a href="#tab-bricks" class="sub">Bricks tab</a>
       <a href="#bricks-choose" class="sub2">Choose Bricks</a>
@@ -217,12 +218,18 @@
 <hr>
 
 <h2 id="install">Install</h2>
-<p>Supported package: Windows + Cinema 4D 2026 (any 2026.x point release — tested on 2026.0 and 2026.1).</p>
+<p>Supported packages: <strong>Windows</strong> and <strong>macOS</strong> (Apple Silicon) + Cinema 4D 2026 (any 2026.x point release — tested on 2026.0 and 2026.1). The download contains separate <strong>Windows</strong> and <strong>MacOS</strong> folders; use the one that matches your operating system.</p>
 <ol>
-  <li>In Cinema 4D, open <strong>Edit → Preferences</strong> and click <strong>Open Preferences Folder...</strong> at the bottom-left. That opens your per-instance C4D folder (something like <code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_&lt;hash&gt;\</code>).</li>
+  <li>In Cinema 4D, open <strong>Edit → Preferences</strong> and click <strong>Open Preferences Folder...</strong> at the bottom-left. That opens your per-instance C4D folder. The path looks like:
+    <ul>
+      <li>Windows: <code>%APPDATA%\Maxon\Maxon Cinema 4D 2026_&lt;hash&gt;\</code></li>
+      <li>macOS: <code>~/Library/Preferences/Maxon/Maxon Cinema 4D 2026_&lt;hash&gt;/</code></li>
+    </ul>
+  </li>
   <li>Close Cinema 4D.</li>
-  <li>Inside that folder, open <code>plugins\</code> and unzip the release so the plugin ends up at:
-    <pre><code>...\Maxon Cinema 4D 2026_&lt;hash&gt;\plugins\Cubit\</code></pre>
+  <li>Inside that folder, open <code>plugins</code> and unzip the <em>matching</em> platform's <code>Cubit</code> folder so the plugin ends up at:
+    <pre><code>Windows:  ...\Maxon Cinema 4D 2026_&lt;hash&gt;\plugins\Cubit\
+macOS:    .../Maxon Cinema 4D 2026_&lt;hash&gt;/plugins/Cubit/</code></pre>
   </li>
   <li>Start Cinema 4D. Both objects appear under the plugin menu:
     <ul>
@@ -231,7 +238,7 @@
     </ul>
   </li>
 </ol>
-<p>The package is self-contained — Python dependencies (numpy, scipy) are vendored. You should not need to install anything yourself.</p>
+<p>The package is self-contained — Python dependencies (numpy, scipy) are vendored for your platform. You should not need to install anything yourself.</p>
 
 <hr>
 
@@ -349,7 +356,17 @@
   <li><strong>Reference Frame</strong> — frame number used as the rest pose. 0 means "use current at fit time."</li>
   <li><strong>Re-bind to Current Frame</strong> — re-fits and re-binds with the current deformed pose as the new rest pose.</li>
 </ul>
-<p>For the full simulation + render pipeline (Make Proxies → Bake to Keyframes → RBD → Swap Quality), see the <a href="#recipe-deformation">deforming-mesh recipe</a> below.</p>
+<p>For the full simulation + render pipeline (Make Proxies → Bake to Keyframes → RBD → Swap Quality), see the <a href="#recipe-deformation">deforming-mesh recipe</a> below. For heavy deforming scenes where you want the bricks to re-flow (re-fit) every frame rather than ride a single locked layout, bake the result — see <a href="#object-cache">Cubify Cache</a> below.</p>
+
+<h4 id="object-cache">Cubify Cache (per-frame fit)</h4>
+<p><strong>Bind</strong> locks one brick layout and rides the deformation. <strong>Cubify Cache</strong> does something different: it re-runs the brick fit on <em>every frame</em>, so the model "re-bricks itself" as it deforms — bricks reflow to suit each pose. Re-fitting live every frame would be far too slow, so you <em>bake</em> it once and play back the cached result.</p>
+<ul>
+  <li><strong>Bake Fit Cache (Preview Range)</strong> — pre-computes the brick layout for every frame in the current preview range. A progress dialog shows the bake; press <em>Esc</em> or <em>Cancel</em> to stop. When it finishes, a <strong>Cubify Cache</strong> tag is automatically added to the Cubify object holding the per-frame layouts.</li>
+  <li><strong>The Cubify Cache tag</strong> — while this tag is present and its <strong>Enabled</strong> toggle is on, Cubify plays back the cached per-frame reflow instead of re-fitting live (fast, smooth scrubbing and rendering). Its info field reads "Empty — run Bake Fit Cache" until you bake. Turn <strong>Enabled</strong> off, or delete the tag, to fall back to normal live behavior.</li>
+  <li><strong>Persists with the scene</strong> — the cache is stored inside the <code>.c4d</code> file, so it survives saving and reopening the project. No need to re-bake after a reload.</li>
+  <li><strong>Brick detail stays live</strong> — you can change <strong>Brick Mesh Detail</strong> (Proxy / Draft / Hero) while a cache is playing; detail is applied at draw time and does not require re-baking. Re-bake only if you change settings that affect the <em>fit</em> itself (brick selection, stud size, resolution, etc.).</li>
+</ul>
+<p><strong>Tip:</strong> bake at the brick detail you want to scrub with; bump detail up just for the final render. If you change which bricks are allowed or the resolution, re-bake to refresh the cache.</p>
 
 <h4 id="object-tools">Tools</h4>
 <ul>

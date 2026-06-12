@@ -7,13 +7,17 @@ import sys
 import tempfile
 import time
 import webbrowser
+from pathlib import Path
 
 import c4d
 
 
 BRICK_LOG_PATH = os.path.join(tempfile.gettempdir(), "brickgen.log")
 USER_MANUAL_FALLBACK_URL = (
-    "https://github.com/ctrlaltdstry/brick/blob/main/USER_MANUAL.html"
+    # Served as text/html (raw.githubusercontent serves text/plain; a GitHub
+    # "blob" URL renders the HTML as source). Only hit if the bundled local
+    # copy is missing.
+    "https://raw.githack.com/ctrlaltdstry/brick/main/USER_MANUAL.html"
 )
 
 
@@ -34,7 +38,13 @@ def open_user_manual():
         try:
             normalized = os.path.normpath(path)
             if os.path.isfile(normalized):
-                webbrowser.open("file:///" + normalized.replace("\\", "/"))
+                # Path.as_uri() builds a valid file:// URI on BOTH Windows and
+                # macOS and URL-encodes spaces (the install dir is "Cubit x.y.z").
+                # The old "file:///" + path concat produced four slashes on
+                # macOS (path already starts with "/") and left spaces unescaped
+                # on both, so the local manual silently failed and fell back to
+                # the web.
+                webbrowser.open(Path(normalized).as_uri())
                 return True
         except Exception:
             continue
