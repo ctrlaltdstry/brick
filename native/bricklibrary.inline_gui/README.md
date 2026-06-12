@@ -38,34 +38,38 @@ module. `source/main.cpp` is platform-agnostic C4D SDK code (no Windows-only
 APIs), and `projectdefinition.txt` already declares `Platform=Win64;OSX;Linux`,
 so it compiles on macOS without source changes.
 
-This step requires a **Mac** with Xcode + Command Line Tools and the **macOS**
-Cinema 4D 2026 C++ SDK (the Windows SDK cannot cross-compile a Mac plugin).
+This step requires a **Mac** (the Windows SDK cannot cross-compile a Mac
+plugin), but — verified 2026-06-11 — neither full Xcode nor a portal download:
 
-1. Get the macOS C4D 2026 SDK on the Mac and point its `custom_paths.txt` at
-   this module (adjust the path to where the repo is cloned on the Mac):
+- The macOS C++ SDK ships **inside the app**:
+  `/Applications/Maxon Cinema 4D 2026/sdk.zip` (matches the installed build
+  exactly). Extract to `~/Dev/c4d_sdk_2026`.
+- Command Line Tools + portable cmake/ninja are enough; the Ninja generator
+  replaces the Xcode-requiring `macos_universal_xcode` preset.
+
+The whole flow (configure, build, install into the user plugin folder) is
+scripted: `tools/build_native_mac.sh`. What it encodes, for reference:
+
+1. Point the SDK's `custom_paths.txt` at this module:
 
    ```
    MODULE /Users/you/Dev/BRICK/brick/native/bricklibrary.inline_gui
    ```
 
-2. Configure + build with the SDK's bundled macOS preset (Xcode generator):
+2. One-line patch to the SDK extract's `cmake/sdk_compiler_helper.cmake`
+   (Ninja branch passes `"-Xarch_x86_64 -msse4.2"` as a single arg; split it
+   — see MAC_BUILD_HANDOFF.md). Re-apply after re-extracting sdk.zip.
 
-   ```bash
-   cd /path/to/c4d_sdk_2026
-   cmake --preset macos_universal_xcode      # generates the Xcode project
-   cmake --build --preset macos_universal_xcode --config Release
-   # (or open the generated .xcodeproj and build the bricklibrary.inline_gui
-   #  target in Release)
-   ```
+3. Configure with Ninja Multi-Config, passing the macOS system frameworks as
+   linker flags (the SDK's own framework plumbing is Xcode-generator-only),
+   then build Release. Output: `bricklibrary.inline_gui.xlib` — arm64
+   Mach-O bundle, ad-hoc linker-signed (fine locally; distribution to other
+   Macs may want Developer ID + notarization).
 
-3. The built module lands under the SDK build output, e.g.
-   `build/.../bin/Release/plugins/bricklibrary.inline_gui` (a macOS plugin
-   bundle, not a Windows .xdl64). Copy that whole `bricklibrary.inline_gui`
-   folder into the Mac plugin package next to `c4d_brick_generator.pyp`
-   (the same nested location the Windows deploy uses).
-
-4. Re-zip the Mac package and reinstall. The Cubify Attribute Manager should
-   now populate, identical to Windows.
+4. Copy the whole `bricklibrary.inline_gui` folder into the Mac plugin
+   package next to `c4d_brick_generator.pyp` (the same nested location the
+   Windows deploy uses). Restart C4D; the Cubify Attribute Manager should
+   populate, identical to Windows.
 
 Note: `tools/package_plugin.ps1 -Platform mac` currently EXCLUDES the native
 GUI (it only had a Windows build). Once a macOS build exists, set

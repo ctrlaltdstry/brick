@@ -1536,7 +1536,7 @@ public:
 	}
 };
 
-Bool RegisterBrickSourcesCustomGUI()
+static Bool RegisterBrickSourcesCustomGUI()
 {
 	static BaseCustomGuiLib customGuiLib;
 	ClearMem(&customGuiLib, sizeof(customGuiLib));
@@ -1615,7 +1615,7 @@ public:
 	}
 };
 
-Bool RegisterBrickLibraryCustomGUI()
+static Bool RegisterBrickLibraryCustomGUI()
 {
 	static BaseCustomGuiLib customGuiLib;
 	ClearMem(&customGuiLib, sizeof(customGuiLib));
@@ -1630,7 +1630,7 @@ Bool RegisterBrickLibraryCustomGUI()
 	return true;
 }
 
-Bool RegisterBrickHeroCustomGUI()
+static Bool RegisterBrickHeroCustomGUI()
 {
 	static BaseCustomGuiLib customGuiLib;
 	ClearMem(&customGuiLib, sizeof(customGuiLib));
@@ -1679,7 +1679,7 @@ private:
 	BrickLibraryPanelDialog _dialog;
 };
 
-Bool RegisterBrickLibraryPanelCommand()
+static Bool RegisterBrickLibraryPanelCommand()
 {
 	// PLUGINFLAG_HIDEPLUGINMENU keeps this internal scaffold panel out
 	// of the Extensions menu — it's only meant to be invoked through
@@ -1949,7 +1949,7 @@ public:
 	}
 };
 
-Bool RegisterBrickMoGraphEvaluatorTag()
+static Bool RegisterBrickMoGraphEvaluatorTag()
 {
 	// PLUGINFLAG_HIDEPLUGINMENU + PLUGINFLAG_HIDE keep this internal
 	// message-passing tag out of the OM right-click "Add Tag" menu. The
