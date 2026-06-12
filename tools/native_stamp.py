@@ -27,7 +27,13 @@ STAMP_NAME = "build_info.txt"
 
 
 def source_hash():
-    """sha256 over every file in the module's source/ and project/ trees."""
+    """sha256 over every file in the module's source/ and project/ trees.
+
+    Platform-INDEPENDENT: line endings are normalized to LF and the relative
+    path separator to '/'. Otherwise a checkout with CRLF (Windows) and one
+    with LF (macOS) would hash the byte-identical-but-for-EOL source to
+    different values, making each platform see the other's build as STALE.
+    """
     h = hashlib.sha256()
     for sub in ("source", "project"):
         base = os.path.join(NATIVE_SRC, sub)
@@ -35,10 +41,11 @@ def source_hash():
             dirnames.sort()
             for name in sorted(filenames):
                 path = os.path.join(dirpath, name)
-                rel = os.path.relpath(path, NATIVE_SRC)
+                rel = os.path.relpath(path, NATIVE_SRC).replace(os.sep, "/")
                 h.update(rel.encode())
                 with open(path, "rb") as fh:
-                    h.update(fh.read())
+                    data = fh.read().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                h.update(data)
     return h.hexdigest()
 
 
