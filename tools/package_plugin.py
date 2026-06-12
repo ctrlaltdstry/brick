@@ -5,12 +5,12 @@ Layout:
 
     dist/Cubit <version>/
         MacOS/
-            Cubit <version>/        <- drop into the C4D plugins folder (Mac)
+            Cubit/                  <- drop into the C4D plugins folder (Mac)
                 c4d_brick_generator.pyp, brick/, res/, ...
                 bricklibrary.inline_gui/   (mac .xlib)
                 vendor/macos_arm64/ [+ macos_x86_64/]
         Windows/
-            Cubit <version>/        <- drop into the C4D plugins folder (Windows)
+            Cubit/                  <- drop into the C4D plugins folder (Windows)
                 ... same, with the .xdl64 native build + vendor/win_amd64/
 
     dist/Cubit <version>.zip        (with --zip)
@@ -199,6 +199,10 @@ def main():
         ap.error("no git tag found; pass --version")
 
     name = f"Cubit {version}"
+    # The OUTER dir + zip are versioned (so the download is clearly labeled),
+    # but the INNER plugin folder is plain "Cubit" so it drops straight into
+    # the C4D plugins folder as plugins/Cubit/ (not plugins/Cubit <version>/).
+    plugin_name = "Cubit"
     dist = os.path.join(REPO_ROOT, "dist")
     package_root = os.path.join(dist, name)
     if os.path.isdir(package_root):
@@ -211,8 +215,8 @@ def main():
     warnings = []
     for key in selected:
         os_key, os_folder = targets[key]
-        print(f"Packaging {os_folder}/{name} ...")
-        build_platform(os_key, os_folder, package_root, name, warnings)
+        print(f"Packaging {os_folder}/{plugin_name} ...")
+        build_platform(os_key, os_folder, package_root, plugin_name, warnings)
 
     readme = os.path.join(REPO_ROOT, "README_INSTALL.md")
     if os.path.isfile(readme):
