@@ -54,4 +54,14 @@ done
 rm -rf "$PLUG/bricklibrary.inline_gui"
 cp -R "$OUT" "$PLUG/bricklibrary.inline_gui"
 echo "Installed: $PLUG/bricklibrary.inline_gui/bricklibrary.inline_gui.xlib"
+
+# Refresh the repo-committed build (lets either machine package both OSes;
+# tools/package_plugin.py checks the stamp and warns when it goes stale).
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_BUILD="$REPO_ROOT/native/builds/macos_arm64/bricklibrary.inline_gui"
+rm -rf "$REPO_BUILD"
+mkdir -p "$(dirname "$REPO_BUILD")"
+cp -R "$OUT" "$REPO_BUILD"
+python3 "$REPO_ROOT/tools/native_stamp.py" write "$REPO_BUILD"
+echo "Repo build refreshed: $REPO_BUILD (commit it)"
 echo "Restart Cinema 4D to load it."

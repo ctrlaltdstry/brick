@@ -76,8 +76,14 @@ def installed_plugin_dirs():
 
 
 def native_gui_candidates(os_key):
+    # Committed builds in the repo come first: they let EITHER machine package
+    # both platforms. native_stamp.py guards them against source drift.
+    builds = os.path.join(REPO_ROOT, "native", "builds")
     if os_key == "mac":
-        cands = [os.environ.get("BRICK_NATIVE_GUI_MAC_SOURCE")]
+        cands = [
+            os.environ.get("BRICK_NATIVE_GUI_MAC_SOURCE"),
+            os.path.join(builds, "macos_arm64", NATIVE_GUI_NAME),
+        ]
         cands.append(os.path.expanduser(
             "~/Dev/c4d_sdk_2026/_build_ninja/bin/Release/plugins/" + NATIVE_GUI_NAME
         ))
@@ -85,6 +91,7 @@ def native_gui_candidates(os_key):
         cands = [
             os.environ.get("BRICK_NATIVE_GUI_WIN_SOURCE"),
             os.environ.get("BRICK_NATIVE_GUI_SOURCE"),  # legacy ps1 name
+            os.path.join(builds, "win64", NATIVE_GUI_NAME),
             "C:/Dev/c4d_sdk_2026/build-win64/bin/Release/plugins/" + NATIVE_GUI_NAME,
         ]
     # Last resort: a native module nested in an installed plugin of the
@@ -142,8 +149,7 @@ def build_platform(os_key, os_folder, package_root, plugin_name, warnings):
     if not got_vendor:
         warnings.append(
             f"{os_folder}: no vendored numpy/scipy found -- plugin will not "
-            f"import. See MAC_BUILD_HANDOFF.md (mac: pip download) / "
-            f"tools/vendor scripts (win)."
+            f"import. Run: python3 tools/vendor_deps.py"
         )
 
     # Native custom-GUI module. REQUIRED: without it C4D silently drops the
@@ -152,11 +158,25 @@ def build_platform(os_key, os_folder, package_root, plugin_name, warnings):
     if native:
         shutil.copytree(native, os.path.join(plugin_dir, NATIVE_GUI_NAME))
         print(f"  [{os_folder}] {NATIVE_GUI_NAME} <- {native}")
+        # Staleness guard for stamped (repo-committed) builds: warn if the
+        # C++ source changed since this binary was built.
+        if os.path.isfile(os.path.join(native, "build_info.txt")):
+            import native_stamp
+            ok, msg = native_stamp.check(native)
+            if not ok:
+                warnings.append(f"{os_folder}: {msg}")
     else:
-        env = "BRICK_NATIVE_GUI_MAC_SOURCE" if os_key == "mac" else "BRICK_NATIVE_GUI_WIN_SOURCE"
+        if os_key == "mac":
+            hint = ("run tools/build_native_mac.sh (also refreshes "
+                    "native/builds/macos_arm64), or set BRICK_NATIVE_GUI_MAC_SOURCE")
+        else:
+            hint = ("on the Windows machine: build per native/.../README.md, copy "
+                    "the built folder to native/builds/win64/, stamp it with "
+                    "`python tools/native_stamp.py write native/builds/win64/"
+                    + NATIVE_GUI_NAME + "`, and commit")
         warnings.append(
             f"{os_folder}: native {NATIVE_GUI_NAME} not found -- the Cubify "
-            f"Attribute Manager will be EMPTY. Build it and/or set {env}."
+            f"Attribute Manager will be EMPTY. To fix: {hint}."
         )
 
     for doc in ("README_INSTALL.md", "USER_MANUAL.html"):

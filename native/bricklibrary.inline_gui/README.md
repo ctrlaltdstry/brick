@@ -11,6 +11,33 @@ Attribute Manager UI in Cinema 4D.
 - Hero banner GUI is supported from the same native module.
 - Control state is written/read through `BRICKIFYASSEMBLY_LIBRARY_MASK`.
 
+## Keeping platform builds in sync (read this before packaging)
+
+The compiled binaries are **committed to the repo** under `native/builds/`:
+
+- `native/builds/macos_arm64/bricklibrary.inline_gui/` (.xlib)
+- `native/builds/win64/bricklibrary.inline_gui/` (.xdl64)
+
+so either machine can run `python3 tools/package_plugin.py` and get the full
+two-OS distribution. Each build folder carries a `build_info.txt` stamp — a
+hash of this module's `source/` + `project/` written by
+`tools/native_stamp.py`. The packager checks the stamp and **warns if the C++
+source changed after the binary was built** (= rebuild needed on that OS).
+
+Workflow when you touch the C++ source:
+
+1. Rebuild on each OS:
+   - Mac: `tools/build_native_mac.sh` (auto-refreshes `native/builds/macos_arm64`
+     and its stamp).
+   - Windows: run the cmake build below, then copy the built
+     `bricklibrary.inline_gui` folder to `native/builds/win64/` and run
+     `python tools/native_stamp.py write native/builds/win64/bricklibrary.inline_gui`.
+2. Commit the refreshed `native/builds/` folders along with the source change.
+
+Everything else in the package (Python code, vendored numpy/scipy via
+`tools/vendor_deps.py`) is platform-portable and can be produced on any
+machine.
+
 ## Build integration
 
 This module is referenced from your Cinema 4D SDK `custom_paths.txt` as:
