@@ -1,3 +1,7 @@
+# LEGACY: superseded by tools/package_plugin.py (cross-platform, produces the
+# "Cubit <version>/{MacOS,Windows}/Cubit <version>" layout). This script still
+# works on Windows but emits the OLD flat single-platform layout.
+#
 # Build a clean runtime-only Cubit plugin package for distribution.
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1
