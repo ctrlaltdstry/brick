@@ -149,4 +149,5 @@ STRINGTABLE obrickifyassembly
     BRICKIFYASSEMBLY_BIND_ORIENT_SMOOTHING "Orientation Smoothing";
     BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME "Reference Frame (0 = use current at fit)";
     BRICKIFYASSEMBLY_REBIND_TO_CURRENT_FRAME "Re-bind to Current Frame";
+    BRICKIFYASSEMBLY_BAKE_FIT_CACHE "Bake Fit Cache (Preview Range)";
 }

@@ -38,6 +38,11 @@ tools/__pycache__/
 # Release/package artifacts
 dist/
 .vendor_wheels/
+.vendor_wheels_*/
 
-# Vendored Windows C4D runtime dependencies include compiled extensions.
-!vendor/**/*.pyd
+# Vendored third-party C4D runtime deps (numpy/scipy). Reproducible from
+# tools/vendor_c4d_deps.ps1 (Windows) and tools/vendor_mac_deps.ps1 (macOS),
+# pinned to exact versions, so they are not tracked in git (standard practice
+# for re-fetchable dependencies, like node_modules / venv). Run those scripts
+# after cloning, before packaging a release.
+vendor/

@@ -1,0 +1,7 @@
+STRINGTABLE Tcubifycache
+{
+    Tcubifycache "Cubify Cache";
+    CUBIFY_CACHE_ENABLED "Enabled";
+    CUBIFY_CACHE_INFO "Cache";
+    CUBIFY_CACHE_BLOB "Cache Data";
+}

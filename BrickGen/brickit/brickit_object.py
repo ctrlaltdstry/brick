@@ -46,6 +46,7 @@ from .brickit_fit import (
     _make_fit_key as _fit_make_fit_key,
     _make_voxel_key as _fit_make_voxel_key,
     _refit_if_needed as _fit_refit_if_needed,
+    _bake_frame_fit_cache as _fit_bake_frame_fit_cache,
 )
 from .brickit_params import (
     RESOLUTION_LIVE_DEBOUNCE_SEC,
@@ -79,6 +80,11 @@ class BrickAssembly(plugins.ObjectData):
         self._preview_voxel_cache_voxels = None
         self._source_cache_key = None
         self._source_cache_data = None
+        # Per-frame fit cache (prototype). When per_frame_fit mode is on and
+        # the user has baked, maps int frame -> (placements, info). GVO loads
+        # the cached fit for the current frame instead of re-fitting live.
+        self._frame_fit_cache = {}
+        self._frame_fit_cache_key = None
         self._hierarchy_cache_key = None
         self._force_rebuild = False
         self._mesh_cache = {}
@@ -555,6 +561,9 @@ class BrickAssembly(plugins.ObjectData):
 
     def _refit_if_needed(self, op, doc, params=None):
         return _fit_refit_if_needed(self, op, doc, params=params)
+
+    def _bake_frame_fit_cache(self, op):
+        return _fit_bake_frame_fit_cache(self, op)
 
     def _get_template_mesh(
         self,

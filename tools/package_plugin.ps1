@@ -1,11 +1,19 @@
+# LEGACY: superseded by tools/package_plugin.py (cross-platform, produces the
+# "Cubit <version>/{MacOS,Windows}/Cubit <version>" layout). This script still
+# works on Windows but emits the OLD flat single-platform layout.
+#
 # Build a clean runtime-only Cubit plugin package for distribution.
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1
-# Optional zip:
-#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Zip
+# Per-platform (separate Windows / Mac plugin zips):
+#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Platform win -Zip
+#   powershell -ExecutionPolicy Bypass -File tools\package_plugin.ps1 -Platform mac -Zip
+# -Platform all (default) bundles every platform's vendor in one zip.
 
 param(
-    [switch]$Zip
+    [switch]$Zip,
+    [ValidateSet("win", "mac", "all")]
+    [string]$Platform = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,9 +22,22 @@ $repoRoot      = Split-Path -Parent $PSScriptRoot
 $pluginSource  = Join-Path $repoRoot "BrickGen"
 $corePackage   = Join-Path $repoRoot "brick"
 $distRoot      = Join-Path $repoRoot "dist"
-$packageRoot   = Join-Path $distRoot "Cubit"
+# Per-platform builds get their own package dir + zip name so they don't clobber.
+$packageName   = switch ($Platform) {
+    "win" { "Cubit-Windows" }
+    "mac" { "Cubit-macOS" }
+    default { "Cubit" }
+}
+$packageRoot   = Join-Path $distRoot $packageName
 $nativeGuiName = "bricklibrary.inline_gui"
 $vendorSource  = Join-Path $repoRoot "vendor"
+
+# Which vendor subdirs to include for each platform target.
+$vendorSubdirs = switch ($Platform) {
+    "win" { @("win_amd64") }
+    "mac" { @("macos_arm64", "macos_x86_64") }
+    default { @("win_amd64", "macos_arm64", "macos_x86_64") }
+}
 
 if (-not (Test-Path (Join-Path $pluginSource "c4d_brick_generator.pyp"))) {
     throw "Plugin source not found: $pluginSource"
@@ -35,21 +56,54 @@ if (-not (Test-Path $distRoot)) {
 Copy-Item -Path $pluginSource -Destination $packageRoot -Recurse -Force
 Copy-Item -Path $corePackage -Destination (Join-Path $packageRoot "brick") -Recurse -Force
 
+# Bundle only the requested platform(s)' vendored deps.
 if (Test-Path $vendorSource) {
-    Copy-Item -Path $vendorSource -Destination (Join-Path $packageRoot "vendor") -Recurse -Force
+    $vendorDest = Join-Path $packageRoot "vendor"
+    New-Item -ItemType Directory -Path $vendorDest -Force | Out-Null
+    foreach ($sub in $vendorSubdirs) {
+        $src = Join-Path $vendorSource $sub
+        if (Test-Path $src) {
+            Copy-Item -Path $src -Destination (Join-Path $vendorDest $sub) -Recurse -Force
+            Write-Host "Bundled vendor/$sub"
+        } elseif ($Platform -ne "all") {
+            Write-Warning "vendor/$sub not found. Run the matching vendor script first (tools\vendor_$(if($Platform -eq 'mac'){'mac'}else{'c4d'})_deps.ps1)"
+        }
+    }
 }
 
+# The native GUI is a platform-specific compiled C++ plugin. It is REQUIRED:
+# the object .res references its custom GUIs (CUSTOMGUIBRICKSOURCES /
+# CUSTOMGUIBRICKLIBRARY), and without it C4D drops the whole object description
+# -> an EMPTY Attribute Manager (geometry still generates from Python). So each
+# platform's zip must carry the matching native build. The Windows build comes
+# from build-win64; the macOS build (see native/.../README.md) must be set via
+# BRICK_NATIVE_GUI_MAC_SOURCE.
 $nativeGuiCandidates = @()
-if ($env:BRICK_NATIVE_GUI_SOURCE) {
-    $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
+if ($Platform -eq "mac") {
+    if ($env:BRICK_NATIVE_GUI_MAC_SOURCE) {
+        $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_MAC_SOURCE
+    }
+} else {
+    if ($env:BRICK_NATIVE_GUI_SOURCE) {
+        $nativeGuiCandidates += $env:BRICK_NATIVE_GUI_SOURCE
+    }
+    $nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
 }
-$nativeGuiCandidates += "C:\Dev\c4d_sdk_2026\build-win64\bin\Release\plugins\$nativeGuiName"
 
+$nativeGuiIncluded = $false
 foreach ($candidate in $nativeGuiCandidates) {
     if ($candidate -and (Test-Path $candidate)) {
         Copy-Item -Path $candidate -Destination (Join-Path $packageRoot $nativeGuiName) -Recurse -Force
         Write-Host "Included native GUI: $candidate"
+        $nativeGuiIncluded = $true
         break
+    }
+}
+if (-not $nativeGuiIncluded) {
+    if ($Platform -eq "mac") {
+        Write-Warning "No macOS native GUI included. The Cubify Attribute Manager will be EMPTY on Mac. Build native/bricklibrary.inline_gui for macOS (see its README.md) and set BRICK_NATIVE_GUI_MAC_SOURCE to the built bundle."
+    } else {
+        Write-Warning "No native GUI found for this build."
     }
 }
 
@@ -98,7 +152,7 @@ foreach ($filter in $fileFilters) {
 }
 
 if ($Zip) {
-    $zipPath = Join-Path $distRoot "Cubit.zip"
+    $zipPath = Join-Path $distRoot "$packageName.zip"
     if (Test-Path $zipPath) {
         Remove-Item $zipPath -Force
     }

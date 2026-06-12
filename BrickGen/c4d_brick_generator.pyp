@@ -206,6 +206,35 @@ def register():
                 _bs_brick_log(msg)
             except Exception:
                 pass
+
+    # Cubify Cache tag — auto-created by Bake Fit Cache, holds the per-frame
+    # cache blob. Registered TAG_VISIBLE only (no TAG_EXPRESSION = no Execute
+    # = zero per-frame cost; it's a passive data store).
+    try:
+        from brickit.brickit_cache_tag import CubifyCacheTag
+        cache_tag_icon = _load_first_existing(
+            os.path.join(icons_root, "brickit_object@2x.png"),
+            os.path.join(icons_root, "brickit_object.png"),
+        ) or brickit_icon
+        cache_result = plugins.RegisterTagPlugin(
+            id=ID_CUBIFY_CACHE_TAG,
+            str=IDS_CUBIFY_CACHE_TAG,
+            g=CubifyCacheTag,
+            description="Tcubifycache",
+            info=c4d.TAG_VISIBLE,
+            icon=cache_tag_icon,
+        )
+        _register_log(
+            "[brick] Cubify Cache tag register returned: {0}".format(cache_result)
+        )
+    except Exception as exc:
+        import traceback
+        _register_log(
+            "[brick] Cubify Cache tag register failed: {0}\n{1}".format(
+                exc, traceback.format_exc()
+            )
+        )
+
     # Parameter help registration is disabled — both `RegisterPluginHelpDelegate`
     # and `RegisterPluginHelpCallback` crashed C4D 2026 on right-click → Show
     # Help, even with a Bool-returning delegate that opens its own dialog. The

@@ -51,6 +51,266 @@ def _color_vector_from_rgb(rgb):
     )
 
 
+def _parked_matrix():
+    """A matrix that parks its instance far off-screen (renders nothing). Used
+    to pad batched carrier lists to a stable length so the multi-instance draw
+    cache never has to evict a shrunk tail (the cause of frozen ghost bricks)."""
+    m = c4d.Matrix()
+    m.off = c4d.Vector(0.0, 1.0e9, 0.0)
+    return m
+
+
+def _template_key_for_placement(p, smooth_top, logo_rotation,
+                                logo_mix_flip, logo_mix_amount, logo_mix_seed):
+    """The (w, d, h, smooth_top, rot_bucket) key identifying a placement's
+    template — must match _get_template_obj's tkey EXACTLY so precomputed
+    carriers map to the right template at playback."""
+    if smooth_top:
+        w = int(getattr(p, "w", getattr(p.brick, "width", 1)))
+        d = int(getattr(p, "d", getattr(p.brick, "depth", 1)))
+        h = int(getattr(p, "h", getattr(p.brick, "height", 1)))
+    elif getattr(p, "rotation_y", 0) == 90:
+        w, d, h = p.brick.depth, p.brick.width, p.brick.height
+    else:
+        w, d, h = p.brick.width, p.brick.depth, p.brick.height
+    per_brick_rot = brick_logo_rotation_degrees(
+        p, logo_rotation, logo_mix_flip, logo_mix_amount, logo_mix_seed,
+    )
+    rot_key = int(round(float(per_brick_rot))) % 360
+    return (int(w), int(d), int(h), int(bool(smooth_top)), rot_key)
+
+
+def precompute_carrier_buckets(self, op, placements, info, params):
+    """Precompute, AT BAKE TIME, the batched carrier data for one frame so
+    cache playback can push it directly with no recomputation.
+
+    Returns {tkey: ([c4d.Matrix, ...], [(r,g,b), ...])} grouped by template.
+    This reproduces the LIVE build's non-bind, settled (build_progress=1.0)
+    matrix/color/template-key math. Bind is None here by construction (the
+    bake re-fits each frame fresh with per_frame_fit off; cache playback also
+    suppresses bind), so the position is a pure function of (placement, info,
+    params) — exactly what we serialize. Mirrors the per-placement section of
+    _build_integrated_mograph_hierarchy for the settled case.
+    """
+    from brick.separation import (
+        placement_assembly_center,
+        separated_center,
+    )
+
+    if not placements or not info:
+        return None
+    origin = info.get("origin")
+    if origin is None:
+        return None
+    stud_size = float(info.get("stud_size", 8.0))
+    plate_size = float(info.get("plate_size", 3.2))
+    brick_separation = float(params.get("brick_separation", 0.0) or 0.0)
+
+    logo_rotation = float(params.get("logo_rotation", 0) or 0) % 360.0
+    logo_mix_flip = bool(params.get("logo_mix_flip", False))
+    logo_mix_amount = max(0.0, min(1.0, float(params.get("logo_mix_amount", 0.0) or 0.0)))
+    logo_mix_seed = int(params.get("logo_mix_seed", 0) or 0)
+
+    ordered = ordered_placements(placements)
+    smooth_cap_ids = set()
+    if bool(params.get("surface_only_plates")):
+        smooth_target_cells = _smooth_top_target_cells(params, info, ordered)
+        cap_ids, generated_caps = smooth_top_cap_selection_for_coverage(
+            ordered,
+            params.get("top_surface_coverage", 1.0),
+            random_order=params.get("top_surface_random_order", False),
+            cap_style=int(params.get("cap_style", 0)),
+            library=None,
+            seed=int(params.get("cap_random_seed", 0)),
+            target_top_cells=smooth_target_cells,
+        )
+        ordered = ordered_placements(list(ordered) + generated_caps)
+        smooth_cap_ids = set(cap_ids)
+        smooth_cap_ids.update(id(p) for p in generated_caps)
+
+    separation_center = placement_assembly_center(ordered, stud_size, plate_size)
+
+    def _scene_center(p):
+        # Non-bind settled position. Smooth caps anchored to a support are
+        # offset from the support's separated top (matches the live build).
+        support = getattr(p, "support", None)
+        if support is not None and id(p) in smooth_cap_ids:
+            ssx, ssy, ssz = separated_center(
+                support, stud_size, plate_size, brick_separation,
+                assembly_center=separation_center,
+            )
+            cx_local = (float(p.x) + float(p.w) * 0.5) * float(stud_size)
+            cz_local = (float(p.z) + float(p.d) * 0.5) * float(stud_size)
+            sx_local = (float(support.x) + float(support.w) * 0.5) * float(stud_size)
+            sz_local = (float(support.z) + float(support.d) * 0.5) * float(stud_size)
+            wy = (ssy + float(support.h) * 0.5 * float(plate_size)
+                  + float(p.h) * 0.5 * float(plate_size))
+            return (
+                float(origin[0] + ssx + (cx_local - sx_local)),
+                float(origin[1] + wy),
+                float(origin[2] + ssz + (cz_local - sz_local)),
+            )
+        sx, sy, sz = separated_center(
+            p, stud_size, plate_size, brick_separation,
+            assembly_center=separation_center,
+        )
+        return (float(origin[0] + sx), float(origin[1] + sy),
+                float(origin[2] + sz))
+
+    buckets = {}
+    for p in ordered:
+        smooth_top = id(p) in smooth_cap_ids
+        tkey = _template_key_for_placement(
+            p, smooth_top, logo_rotation, logo_mix_flip,
+            logo_mix_amount, logo_mix_seed,
+        )
+        wx, wy, wz = _scene_center(p)
+        m = c4d.Matrix()
+        m.off = c4d.Vector(wx, wy, wz)
+        # Humanize (settled): a deterministic per-brick micro jitter; matches
+        # the live build's apply_humanize_to_center_matrix at progress 1.0.
+        m = apply_humanize_to_center_matrix(m, p, params)
+        rgb = getattr(p, "rgb", (255, 255, 255)) or (255, 255, 255)
+        bucket = buckets.get(tkey)
+        if bucket is None:
+            bucket = ([], [])
+            buckets[tkey] = bucket
+        bucket[0].append(m)
+        bucket[1].append((int(rgb[0]) & 0xFF, int(rgb[1]) & 0xFF,
+                          int(rgb[2]) & 0xFF))
+    return buckets
+
+
+def _build_batched_cache_frame(self, reuse_state, root, instances_root,
+                               get_template_obj, precomp, multi_mode):
+    """Fast cache-playback frame: one multi-instance carrier per template,
+    matrices/colors pushed from the precomputed buckets. Reuses carriers
+    across frames; returns the persistent root."""
+    carriers = reuse_state.get("batched_carriers")
+    # Rebuild the carrier set on first batched frame OR when the cache changed
+    # (a re-bake / scene reload sets _cache_batched_carriers_dirty).
+    needs_build = (
+        carriers is None
+        or getattr(self, "_cache_batched_carriers_dirty", False)
+    )
+    if needs_build:
+        carriers = {}
+        reuse_state["batched_carriers"] = carriers
+        self._cache_batched_carriers_dirty = False
+        # Clear whatever is under instances_root (per-brick carriers from the
+        # first full build, or stale batched carriers from a prior cache).
+        try:
+            child = instances_root.GetDown()
+            while child is not None:
+                nxt = child.GetNext()
+                child.Remove()
+                child = nxt
+        except Exception:
+            pass
+        reuse_state["instances"] = []
+        reuse_state["descriptors"] = []
+        reuse_state["group_parent_cache"] = {}
+
+        # Pre-create ONE carrier per template key across ALL baked frames.
+        # Variable brick height makes a brick's height (part of the template
+        # key) vary frame-to-frame, so new template variants would otherwise
+        # be created mid-playback — and a carrier inserted under the already-
+        # cached instances_root doesn't reliably draw (frozen bricks). Making
+        # every carrier up front means no structural changes during playback;
+        # each frame just sets/empties matrices on a stable carrier set.
+        all_tkeys = getattr(self, "_cache_all_tkeys", None) or set(precomp.keys())
+        for tkey in all_tkeys:
+            w, d, h, st_flag, rot = tkey
+            template = None
+            try:
+                template = get_template_obj(
+                    SimpleNamespace(width=int(w), depth=int(d), height=int(h)),
+                    smooth_top=bool(st_flag),
+                    rotation_deg=float(rot),
+                )
+            except Exception:
+                template = None
+            if template is None:
+                continue
+            try:
+                carrier = c4d.InstanceObject()
+            except Exception:
+                carrier = c4d.BaseObject(c4d.Oinstance)
+            carrier.SetName("brick_batch_{0}x{1}x{2}p".format(int(w), int(d), int(h)))
+            # Link the template. Both APIs are tried; a failure must NEVER raise
+            # out of here (a single bad link previously threw the whole batched
+            # build, forcing a full per-brick rebuild every frame). On failure,
+            # skip this carrier rather than leaving an unlinked one.
+            linked = False
+            try:
+                carrier.SetReferenceObject(template)
+                linked = True
+            except Exception:
+                try:
+                    carrier[c4d.INSTANCEOBJECT_LINK] = template
+                    linked = True
+                except Exception:
+                    linked = False
+            if not linked:
+                continue
+            try:
+                carrier[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = multi_mode
+            except Exception:
+                pass
+            carrier.InsertUnder(instances_root)
+            carriers[tkey] = carrier
+
+    # Every frame: set this frame's matrices/colors on each carrier. The
+    # carrier SET is stable (built above), so there's no structural churn —
+    # just array updates, every carrier padded to a stable length.
+    _tkey_max = getattr(self, "_cache_tkey_max", {}) or {}
+    for tkey, carrier in carriers.items():
+        bucket = precomp.get(tkey)
+        # STABLE LENGTH: every frame this carrier gets EXACTLY its global-max
+        # instance count. Unused slots are parked off-screen. Because the list
+        # length never shrinks, C4D's multi-instance draw cache never has a
+        # stale tail to evict — which is what left frozen ghost bricks.
+        target = int(_tkey_max.get(tkey, 0))
+        if bucket is not None:
+            mats, cols = bucket
+            color_vecs = [_color_vector_from_rgb(c) for c in cols]
+            mats = list(mats)
+            if len(mats) < target:
+                pad = target - len(mats)
+                mats.extend(_parked_matrix() for _ in range(pad))
+                color_vecs = color_vecs + [c4d.Vector(1.0, 1.0, 1.0)] * pad
+        else:
+            # No bricks this frame -> a full list of parked instances (NOT an
+            # empty list — emptying is a shrink, which causes the ghosting).
+            mats = [_parked_matrix() for _ in range(target)]
+            color_vecs = [c4d.Vector(1.0, 1.0, 1.0)] * target
+        try:
+            carrier.SetInstanceMatrices(mats)
+            carrier.SetInstanceColors(color_vecs)
+        except Exception:
+            pass
+        # DIRTYFLAGS_CACHE is load-bearing: mutating a persistent multi-
+        # instance carrier without it leaves a STALE viewport cache, so a
+        # carrier whose instance count shrank keeps ghost bricks from the
+        # prior frame. Forcing a cache rebuild drops them.
+        try:
+            carrier.SetDirty(
+                c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_MATRIX | c4d.DIRTYFLAGS_CACHE
+            )
+            carrier.Message(c4d.MSG_UPDATE)
+        except Exception:
+            pass
+
+    try:
+        instances_root.SetDirty(c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE)
+        instances_root.Message(c4d.MSG_UPDATE)
+        root.SetDirty(c4d.DIRTYFLAGS_DATA | c4d.DIRTYFLAGS_CACHE)
+        root.Message(c4d.MSG_UPDATE)
+    except Exception:
+        pass
+    return root
+
+
 def _apply_object_color(obj, color):
     if obj is None:
         return
@@ -420,19 +680,54 @@ def _evaluate_native_mograph(
 
 def _build_integrated_mograph_hierarchy(self, op, params=None):
     """Return a live MoGraph-aware hierarchy without touching handoff commands."""
-    # Invalidate any prior fast-path snapshot — it's only valid for the
-    # build that's about to produce it.
-    self._fast_cap_state = None
     info = self._fit_info or {}
     if not self._fit_placements or not info:
+        self._fast_cap_state = None
         return None
     if params is None:
         params = self._resolve_params(op, _primary_source_child(op))
+
+    # Cache-playback REUSE mode: when scrubbing a tag-driven per-frame cache,
+    # the only thing that changes frame-to-frame is the placement set. The
+    # root null, parked templates, and group nulls are identical, so rebuilding
+    # ~2600 fresh InstanceObjects every frame (0.2-0.3s) is wasteful. Instead
+    # reuse the previously-built root + template factory + group nulls from
+    # _fast_cap_state and RECONCILE the carrier pool (reuse/add/remove). C4D
+    # accepts returning the same persistent root across GVO calls (the cap
+    # fast path relies on this too). Falls through to a fresh build if there's
+    # no reusable state yet (first cache frame) or the structure changed.
+    reuse_state = None
+    if getattr(self, "_cache_playback_active", False):
+        st = getattr(self, "_fast_cap_state", None)
+        if (
+            isinstance(st, dict)
+            and st.get("root") is not None
+            and st.get("instances_root") is not None
+            and st.get("get_template_obj") is not None
+        ):
+            # Only reuse if the TEMPLATE-affecting settings are unchanged.
+            # Brick mesh detail (quality) only changes the template meshes,
+            # not the cached placements — so a quality change must drop reuse
+            # and rebuild templates at the new detail (placements stay cached,
+            # no re-bake needed). Without this, detail changes are ignored
+            # during cache playback (stale templates).
+            prev_params = st.get("params_snapshot") or {}
+            template_keys_match = (
+                int(prev_params.get("quality", -1)) == int(params.get("quality", -2))
+                and bool(prev_params.get("enable_logo")) == bool(params.get("enable_logo"))
+                and float(prev_params.get("logo_height", 0.0) or 0.0)
+                == float(params.get("logo_height", 0.0) or 0.0)
+                and float(prev_params.get("logo_diameter", 0.0) or 0.0)
+                == float(params.get("logo_diameter", 0.0) or 0.0)
+            )
+            if template_keys_match:
+                reuse_state = st
 
     stud_size = info.get("stud_size", 8.0)
     plate_size = info.get("plate_size", 3.2)
     origin = info.get("origin")
     if origin is None:
+        self._fast_cap_state = None
         return None
     quality = params["quality"]
     is_proxy_quality = int(quality) == int(QUALITY_PROXY)
@@ -440,21 +735,35 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
     source_obj = _primary_source_child(op)
     src_name = source_obj.GetName() if source_obj is not None else "mesh"
 
-    root = c4d.BaseObject(c4d.Onull)
-    root.SetName("Brickified_MoGraph_{0}".format(src_name))
-    root.SetMl(source_axis_local_matrix(op, source_obj))
+    if reuse_state is not None:
+        # Reuse the persistent hierarchy from the prior cache frame.
+        root = reuse_state["root"]
+        instances_root = reuse_state["instances_root"]
+        templates_root = None  # already under root, untouched
+        _reuse_get_template_obj = reuse_state["get_template_obj"]
+        type_to_template = reuse_state.get("type_to_template") or {}
+        group_parent_cache = reuse_state.get("group_parent_cache") or {}
+        prev_instances = reuse_state.get("instances") or []
+    else:
+        # Fresh build (first cache frame, or normal non-cache build).
+        self._fast_cap_state = None
+        _reuse_get_template_obj = None
+        prev_instances = []
+        root = c4d.BaseObject(c4d.Onull)
+        root.SetName("Brickified_MoGraph_{0}".format(src_name))
+        root.SetMl(source_axis_local_matrix(op, source_obj))
 
-    templates_root = c4d.BaseObject(c4d.Onull)
-    templates_root.SetName("brick_templates")
-    park_m = c4d.Matrix()
-    park_m.off = c4d.Vector(0.0, 1.0e9, 0.0)
-    templates_root.SetMl(park_m)
-    _hide_object_in_editor_and_render(templates_root)
-    templates_root.InsertUnder(root)
+        templates_root = c4d.BaseObject(c4d.Onull)
+        templates_root.SetName("brick_templates")
+        park_m = c4d.Matrix()
+        park_m.off = c4d.Vector(0.0, 1.0e9, 0.0)
+        templates_root.SetMl(park_m)
+        _hide_object_in_editor_and_render(templates_root)
+        templates_root.InsertUnder(root)
 
-    instances_root = c4d.BaseObject(c4d.Onull)
-    instances_root.SetName("bricks")
-    instances_root.InsertUnder(root)
+        instances_root = c4d.BaseObject(c4d.Onull)
+        instances_root.SetName("bricks")
+        instances_root.InsertUnder(root)
 
     placements = ordered_placements(self._fit_placements or [])
     smooth_plate_visual = False
@@ -674,7 +983,34 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         type_to_template[tkey] = proto
         return proto
 
+    # In cache-playback reuse mode, use the prior build's template factory +
+    # group memo so we don't rebuild templates/groups (they're identical
+    # across cache frames). The reused factory closes over the prior
+    # templates_root, so its prototypes are already parked under the root.
+    if reuse_state is not None:
+        _get_template_obj = _reuse_get_template_obj
+
     mi_mode = getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_RENDERINSTANCE", 1)
+    multi_mode = int(
+        getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
+    )
+
+    # ---- Batched cache-playback fast path -------------------------------
+    # When playing a v3 cache (precomputed matrices/colors are present) and we
+    # have a reusable hierarchy, skip ALL per-brick recomputation: keep ONE
+    # multi-instance carrier per template and just push this frame's matrix +
+    # color arrays. This is the cheap O(#templates) path (~8 calls) instead of
+    # rebuilding ~2600 InstanceObjects. Returns the same persistent root.
+    precomp = getattr(self, "_cache_precomp_for_current_frame", None)
+    if reuse_state is not None and precomp:
+        try:
+            return _build_batched_cache_frame(
+                self, reuse_state, root, instances_root,
+                _get_template_obj, precomp, multi_mode,
+            )
+        except Exception as exc:
+            _brick_log("[brick] Batched cache frame failed, falling back: {0}".format(exc))
+            # Fall through to the normal (per-brick) reuse/build path.
 
     bind_center_by_obj, bind_visible_by_obj, bind_orient_by_obj = _resolve_bind_state(
         self, op, source_obj, op.GetDocument(), params
@@ -922,7 +1258,12 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         getattr(c4d, "INSTANCEOBJECT_RENDERINSTANCE_MODE_MULTIINSTANCE", mi_mode)
     )
     created_instances = 0
-    group_parent_cache = {}
+    # In reuse mode, reuse the prior frame's group-null memo so we don't make
+    # new group nulls; otherwise start fresh.
+    if reuse_state is not None:
+        group_parent_cache = reuse_state.get("group_parent_cache") or {}
+    else:
+        group_parent_cache = {}
     for i, (template_brick, template) in enumerate(instance_specs):
         try:
             matrix = matrices[i]
@@ -939,10 +1280,21 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         bind_vis = _bind_visible(fast_path_descriptors[i][2])
         visible = bool(anim_visible) and bool(eff_visible) and bool(bind_vis)
         matrix = _matrix_for_visibility(matrix, visible)
-        try:
-            child = c4d.InstanceObject()
-        except Exception:
-            child = c4d.BaseObject(c4d.Oinstance)
+        # Reuse an existing carrier object when one is available at this index
+        # (cache playback) — avoids allocating ~2600 InstanceObjects/frame.
+        child = None
+        if reuse_state is not None and i < len(prev_instances):
+            cand = prev_instances[i]
+            try:
+                if cand is not None:
+                    child = cand
+            except Exception:
+                child = None
+        if child is None:
+            try:
+                child = c4d.InstanceObject()
+            except Exception:
+                child = c4d.BaseObject(c4d.Oinstance)
         child.SetName(
             "brick_{0}x{1}x{2}p_inst_{3:04d}".format(
                 int(template_brick.width),
@@ -973,19 +1325,59 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
             instances_root,
             group_parent_cache,
         )
-        child.InsertUnder(group_parent)
+        # Only (re)insert when the parent actually changed — a reused carrier
+        # already correctly parented stays put (avoids needless tree churn).
+        try:
+            if child.GetUp() is not group_parent:
+                child.InsertUnder(group_parent)
+        except Exception:
+            child.InsertUnder(group_parent)
         fast_path_instances.append(child)
         created_instances += 1
 
-    try:
-        _brick_log(
-            "[brick] Integrated MoGraph: generated expanded one-instance-per-carrier output (multi-instance + display color), bricks={0}, library_items={1}".format(
-                created_instances,
-                len(type_to_template),
+    # Cache-playback reuse: remove any surplus carriers from the prior frame
+    # (this frame has fewer bricks). New carriers for a higher count were
+    # created in the loop above.
+    if reuse_state is not None and len(prev_instances) > len(instance_specs):
+        for old in prev_instances[len(instance_specs):]:
+            try:
+                if old is not None:
+                    old.Remove()
+            except Exception:
+                pass
+
+    # Skip the per-frame log during cache playback (avoids status/log churn).
+    if not getattr(self, "_suppress_build_log", False):
+        try:
+            _brick_log(
+                "[brick] Integrated MoGraph: generated expanded one-instance-per-carrier output (multi-instance + display color), bricks={0}, library_items={1}".format(
+                    created_instances,
+                    len(type_to_template),
+                )
             )
-        )
-    except Exception:
-        pass
+        except Exception:
+            pass
+    # When this build is the first frame of cache playback, pre-build EVERY
+    # template the cache will need (the union of all frames' template keys),
+    # so the batched path on later frames only fetches already-realized,
+    # cache-resolved protos. Building a fresh proto inside the batched call
+    # (mid-GVO) made SetReferenceObject throw -> the batched build threw ->
+    # fallback to a full per-brick rebuild every frame (slow + frozen bricks
+    # via the index-based fallback). With every template realized here, the
+    # batched path never builds protos mid-flight.
+    if getattr(self, "_cache_playback_active", False):
+        all_tkeys = getattr(self, "_cache_all_tkeys", None) or set()
+        for tkey in all_tkeys:
+            try:
+                w, d, h, st_flag, rot = tkey
+                _get_template_obj(
+                    SimpleNamespace(width=int(w), depth=int(d), height=int(h)),
+                    smooth_top=bool(st_flag),
+                    rotation_deg=float(rot),
+                )
+            except Exception:
+                pass
+
     # Stash everything the cap-subset fast path needs: per-instance
     # template-brick descriptors, the live InstanceObject children, the
     # template factory + its cache, and the params snapshot used to
@@ -1000,6 +1392,11 @@ def _build_integrated_mograph_hierarchy(self, op, params=None):
         "fit_placements": list(self._fit_placements or []),
         "all_placements": list(placements),
         "params_snapshot": dict(params),
+        # For the cache-playback repopulate path: reuse the bricks-root null
+        # and the group-null memo so we don't rebuild templates/groups.
+        "instances_root": instances_root,
+        "group_parent_cache": group_parent_cache,
+        "multi_mode": multi_mode,
     }
     return root
 

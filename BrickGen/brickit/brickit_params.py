@@ -484,6 +484,10 @@ def _resolve_params(self, op, source_obj):
     except Exception:
         bind_to_source_deformation = False
     try:
+        per_frame_fit = bool(op[BRICKIFYASSEMBLY_PER_FRAME_FIT])
+    except Exception:
+        per_frame_fit = False
+    try:
         bind_reference_frame = int(op[BRICKIFYASSEMBLY_BIND_REFERENCE_FRAME] or 0)
     except Exception:
         bind_reference_frame = 0
@@ -574,6 +578,7 @@ def _resolve_params(self, op, source_obj):
         "mograph_effectors": mograph_effectors,
         "mograph_effectors_key": mograph_effectors_key,
         "bind_to_source_deformation": bind_to_source_deformation,
+        "per_frame_fit": per_frame_fit,
         "bind_reference_frame": bind_reference_frame,
         "bind_orientation_mode": bind_orientation_mode,
         "bind_stretch_cull_ratio": bind_stretch_cull_ratio,

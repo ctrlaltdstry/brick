@@ -14,7 +14,7 @@ pop a `MessageDialog` ourselves and return True/False based on whether the
 queried symbol has an entry.
 
 Each registry below is a `{resource_symbol: text}` mapping. Keep entries
-concise and mirror the wording in `USER_MANUAL.md`. The dialog is plain
+concise and mirror the wording in `USER_MANUAL.html`. The dialog is plain
 text (`MessageDialog` doesn't render HTML), so use blank lines and bullet
 prefixes rather than tags.
 """
