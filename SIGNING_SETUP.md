@@ -19,9 +19,14 @@ This is a ONE-TIME setup. After it's done, every signed release is one command:
 - [x] Cert downloaded + imported; **dedicated signing keychain** created at
       `~/Dev/cubit_signing/cubit-signing.keychain-db` (pw in `keychain_pw.txt`,
       chmod 600). codesign works NON-INTERACTIVELY — verified test-sign.
-- [ ] **YOU:** create an app-specific password (step 3)
-- [ ] Claude: store the notary credential as profile `cubit-notary` (step 4)
-- [ ] Claude: sign + notarize a test build, confirm numpy/scipy load (step 5)
+- [x] App-specific password created + stored as notary profile `cubit-notary`
+      (in the dedicated keychain; Apple ID is the @mac.com address)
+- [x] **COMPLETE (2026-06-13):** signed + notarized build ACCEPTED by Apple.
+      Verified: `spctl` reports "Notarized Developer ID, accepted" even when
+      quarantined, and in C4D the signed .xlib + 55 numpy/scipy libs load fine
+      under the hardened runtime. The feared library-validation block did NOT
+      occur. Cut a signed release with:
+      `python3 tools/package_plugin.py --platform mac --sign --zip`
 
 > Why a dedicated keychain (not the login keychain): the login keychain
 > password had drifted out of sync with the account password, so codesign's
