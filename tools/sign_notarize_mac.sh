@@ -83,7 +83,9 @@ echo "Zipping signed payload for notarization..."
 /usr/bin/ditto -c -k --keepParent "$TARGET" "$ZIP"
 
 echo "Submitting to Apple notary service (this can take a few minutes)..."
-xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+NOTARY_KC_ARGS=()
+[[ -f "$SIGN_KC" ]] && NOTARY_KC_ARGS=(--keychain "$SIGN_KC")
+xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" "${NOTARY_KC_ARGS[@]}" --wait
 
 rm -f "$ZIP"
 echo
