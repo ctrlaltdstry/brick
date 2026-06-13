@@ -206,6 +206,9 @@ def main():
     ap.add_argument("--version", help="package version (default: latest git tag)")
     ap.add_argument("--platform", choices=("all", "mac", "win"), default="all")
     ap.add_argument("--zip", action="store_true", help="also write dist/Cubit <version>.zip")
+    ap.add_argument("--sign", action="store_true",
+                    help="sign + notarize the macOS binaries (needs a Developer ID "
+                         "cert + 'cubit-notary' profile; see SIGNING_SETUP.md)")
     args = ap.parse_args()
 
     version = args.version or latest_git_tag()
@@ -235,6 +238,22 @@ def main():
     readme = os.path.join(REPO_ROOT, "README_INSTALL.md")
     if os.path.isfile(readme):
         shutil.copy2(readme, os.path.join(package_root, "README_INSTALL.md"))
+
+    # Sign + notarize the macOS payload BEFORE zipping, so the shipped zip
+    # carries signed binaries. No-op for win-only builds.
+    if args.sign and "mac" in selected:
+        mac_cubit = os.path.join(package_root, "MacOS", plugin_name)
+        signer = os.path.join(REPO_ROOT, "tools", "sign_notarize_mac.sh")
+        print("Signing + notarizing macOS binaries ...")
+        try:
+            subprocess.run([signer, mac_cubit], check=True)
+        except subprocess.CalledProcessError:
+            warnings.append(
+                "MacOS: signing/notarization failed (see output above). The "
+                "package was still written UNSIGNED -- ship it with the "
+                "Install Cubit (Mac).command installer, or fix signing and "
+                "re-run with --sign."
+            )
 
     if args.zip:
         zip_base = os.path.join(dist, name)
