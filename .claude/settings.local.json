@@ -11,7 +11,30 @@
       "Bash(python -c ' *)",
       "Bash(python tools/export_hires_brick.py)",
       "Bash(rm -v __init__.py assembly.py brick_geom.py brick_geom_hires.py brick_geom_subd_old.py.bak connectivity.py exporters.py fbx_loader.py fitter.py library.py mesh.py mesh_export.py palette.py subdivide.py svg_logo.py voxelize.py wireframe.py README.md run_full_pipeline.py)",
-      "Bash(rm -rf output output_alt output_greedy output_uniform demo docs)"
+      "Bash(rm -rf output output_alt output_greedy output_uniform demo docs)",
+      "Bash(rm -rf /tmp/cubit_ziptest)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git config *)",
+      "Bash(security find-identity *)",
+      "Bash(security find-certificate *)",
+      "Read(//Users/mike/Library/Preferences/Maxon/**)",
+      "Bash(mkdir -p /Users/mike/Dev/cubit_signing)",
+      "Bash(chmod 700 /Users/mike/Dev/cubit_signing)",
+      "Read(//Users/mike/Dev/**)",
+      "Bash(openssl genrsa *)",
+      "Bash(openssl req *)",
+      "Bash(cp \"/Users/mike/Documents/Dev/brick/native/builds/macos_arm64/bricklibrary.inline_gui/bricklibrary.inline_gui.xlib\" /tmp/test_sign.xlib)",
+      "Bash(codesign --force --timestamp --options runtime --sign 'Developer ID Application: MICHAEL SLATER \\(87DC46P9EQ\\)' /tmp/test_sign.xlib)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(codesign --verify --strict --verbose=2 /tmp/test_sign.xlib)",
+      "Bash(codesign -dvv /tmp/test_sign.xlib)",
+      "Bash(python3 tools/package_plugin.py --platform mac --sign --zip)",
+      "Bash(echo \"EXIT: $?\")"
+    ],
+    "additionalDirectories": [
+      "/private/tmp"
     ]
   }
 }
