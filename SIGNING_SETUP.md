@@ -16,11 +16,18 @@ This is a ONE-TIME setup. After it's done, every signed release is one command:
 - [x] Enrolled in Apple Developer Program (Team ID 87DC46P9EQ)
 - [x] CSR generated: `~/Dev/cubit_signing/CubitDeveloperID.certSigningRequest`
       (private key `cubit_devid.key` kept there, chmod 600, never committed)
-- [ ] **YOU:** upload CSR → download "Developer ID Application" cert (step 1)
-- [ ] Claude: import the cert into the keychain (step 2)
+- [x] Cert downloaded + imported; **dedicated signing keychain** created at
+      `~/Dev/cubit_signing/cubit-signing.keychain-db` (pw in `keychain_pw.txt`,
+      chmod 600). codesign works NON-INTERACTIVELY — verified test-sign.
 - [ ] **YOU:** create an app-specific password (step 3)
 - [ ] Claude: store the notary credential as profile `cubit-notary` (step 4)
 - [ ] Claude: sign + notarize a test build, confirm numpy/scipy load (step 5)
+
+> Why a dedicated keychain (not the login keychain): the login keychain
+> password had drifted out of sync with the account password, so codesign's
+> GUI prompt rejected it. A standalone keychain with a password we control
+> (the CI-standard pattern) avoids the prompt entirely. `sign_notarize_mac.sh`
+> unlocks it automatically.
 
 ## Step 1 — create the certificate (needs your Apple login)
 

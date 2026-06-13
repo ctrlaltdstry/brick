@@ -25,6 +25,20 @@ if [[ ! -d "$TARGET" ]]; then
   echo "ERROR: not a folder: $TARGET" >&2; exit 1
 fi
 
+# --- 0. Unlock the dedicated signing keychain -------------------------------
+# Signing uses a standalone keychain (created during setup) rather than the
+# login keychain, so codesign never triggers an interactive password prompt.
+# Its password lives in keychain_pw.txt (outside the repo, chmod 600).
+SIGN_KC="$HOME/Dev/cubit_signing/cubit-signing.keychain-db"
+SIGN_PWFILE="$HOME/Dev/cubit_signing/keychain_pw.txt"
+if [[ -f "$SIGN_KC" && -f "$SIGN_PWFILE" ]]; then
+  KCPW=$(cat "$SIGN_PWFILE")
+  security unlock-keychain -p "$KCPW" "$SIGN_KC" 2>/dev/null || true
+  # Make sure codesign keeps non-interactive access to the key after relocks.
+  security set-key-partition-list -S apple-tool:,apple:,codesign: \
+    -s -k "$KCPW" "$SIGN_KC" >/dev/null 2>&1 || true
+fi
+
 # --- 1. Locate the Developer ID Application signing identity -----------------
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
   | grep "Developer ID Application" | grep "$TEAM_ID" | head -1 \
