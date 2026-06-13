@@ -186,6 +186,20 @@ def build_platform(os_key, os_folder, package_root, plugin_name, warnings):
 
     strip_dev_content(plugin_dir)
 
+    # macOS: drop the double-click installer beside the Cubit folder. It copies
+    # Cubit into the C4D plugins folder AND strips the download (quarantine)
+    # flag, so the user doesn't hit Gatekeeper's "cannot verify malware"
+    # warning on the unsigned native binaries (.xlib + numpy/scipy .so).
+    if os_key == "mac":
+        installer = os.path.join(REPO_ROOT, "tools", "templates", "Install Cubit (Mac).command")
+        if os.path.isfile(installer):
+            dst = os.path.join(os.path.dirname(plugin_dir), "Install Cubit (Mac).command")
+            shutil.copy2(installer, dst)
+            os.chmod(dst, 0o755)
+            print(f"  [{os_folder}] installer <- {installer}")
+        else:
+            warnings.append(f"{os_folder}: installer template missing at {installer}")
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
